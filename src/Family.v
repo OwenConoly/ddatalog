@@ -2,10 +2,13 @@ From Stdlib Require Import Strings.String.
 From Datalog Require Import Datalog.
 From Stdlib Require Import List.
 From Datalog Require Import FancyNotations.
+From DatalogRocq Require Import StringDatalogParams.
 From DatalogRocq Require Import DependencyGenerator.
 Import ListNotations.
 Open Scope string_scope.
 
+Import StringDatalogParams.
+Module StringDependencyGenerator := DependencyGenerator(StringDatalogParams).
 
 Definition const (c : fn) : expr := fun_expr c [].
 Definition var (x : var) : expr := var_expr x.
@@ -85,4 +88,4 @@ Definition family_program :=
    r_cousin;
    r_bob_parent].
 
-Compute get_rule_dependencies family_program r_cousin.
+Compute StringDependencyGenerator.get_rule_dependencies family_program r_cousin.
