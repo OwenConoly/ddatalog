@@ -10,82 +10,44 @@ Open Scope string_scope.
 Import StringDatalogParams.
 Module StringDependencyGenerator := DependencyGenerator(StringDatalogParams).
 
-Definition const (c : fn) : expr := fun_expr c [].
-Definition var (x : var) : expr := var_expr x.
+Module family_examples.
+
+(* Individual rules using fancy Datalog notation *)
 
 Definition r_parent_anna : rule :=
-  {| rule_agg := None;
-     rule_hyps := [];
-     rule_concls := [
-       {| fact_R := "parent"; fact_args := [const "Anna"; const "Bob"] |}
-     ] |}.
+  datalog_rule:( [ parent(Anna ( ), Bob ( )) ] :- [ ] ).
 
 Definition r_ancestor1 : rule :=
-  {| rule_agg := None;
-     rule_hyps := [
-       {| fact_R := "parent"; fact_args := [var "x"; var "y"] |}
-     ];
-     rule_concls := [
-       {| fact_R := "ancestor"; fact_args := [var "x"; var "y"] |}
-     ] |}.
+  datalog_rule:( [ ancestor($x, $y) ] :- [ parent($x, $y) ] ).
 
 Definition r_ancestor2 : rule :=
-  {| rule_agg := None;
-     rule_hyps := [
-       {| fact_R := "parent"; fact_args := [var "x"; var "z"] |};
-       {| fact_R := "ancestor"; fact_args := [var "z"; var "y"] |}
-     ];
-     rule_concls := [
-       {| fact_R := "ancestor"; fact_args := [var "x"; var "y"] |}
-     ] |}.
+  datalog_rule:( [ ancestor($x, $y) ] :- [ parent($x, $z); ancestor($z, $y) ] ).
 
 Definition r_sibling : rule :=
-  {| rule_agg := None;
-     rule_hyps := [
-       {| fact_R := "parent"; fact_args := [var "p"; var "x"] |};
-       {| fact_R := "parent"; fact_args := [var "p"; var "y"] |}
-     ];
-     rule_concls := [
-       {| fact_R := "sibling"; fact_args := [var "x"; var "y"] |}
-     ] |}.
+  datalog_rule:( [ sibling($x, $y) ] :- [ parent($p, $x); parent($p, $y) ] ).
 
 Definition r_aunt_uncle : rule :=
-  {| rule_agg := None;
-     rule_hyps := [
-       {| fact_R := "sibling"; fact_args := [var "x"; var "p"] |};
-       {| fact_R := "parent"; fact_args := [var "p"; var "y"] |}
-     ];
-     rule_concls := [
-       {| fact_R := "aunt_uncle"; fact_args := [var "x"; var "y"] |}
-     ] |}.
+  datalog_rule:( [ aunt_uncle($x, $y) ] :- [ sibling($x, $p); parent($p, $y) ] ).
 
 Definition r_cousin : rule :=
-  {| rule_agg := None;
-     rule_hyps := [
-       {| fact_R := "parent"; fact_args := [var "px"; var "x"] |};
-       {| fact_R := "parent"; fact_args := [var "py"; var "y"] |};
-       {| fact_R := "sibling"; fact_args := [var "px"; var "py"] |}
-     ];
-     rule_concls := [
-       {| fact_R := "cousin"; fact_args := [var "x"; var "y"] |}
-     ] |}.
+  datalog_rule:( [ cousin($x, $y) ] :- [ parent($px, $x); parent($py, $y); sibling($px, $py) ] ).
 
 Definition r_bob_parent : rule :=
-  {| rule_agg := None;
-     rule_hyps := [
-       {| fact_R := "parent"; fact_args := [const "Bob"; var "x"] |}
-     ];
-     rule_concls := [
-       {| fact_R := "parent"; fact_args := [const "Bob"; const "Charlie"] |}
-     ] |}.
+  datalog_rule:( [ parent(Bob ( ), Charlie ( )) ] :- [ parent(Bob ( ), $x) ] ).
 
-Definition family_program := 
-  [r_parent_anna;
-   r_ancestor1;
-   r_ancestor2;
-   r_sibling;
-   r_aunt_uncle;
-   r_cousin;
-   r_bob_parent].
+(* The full program, referencing the rules directly *)
+Definition family_program : list rule :=
+  [ r_parent_anna;
+    r_ancestor1;
+    r_ancestor2;
+    r_sibling;
+    r_aunt_uncle;
+    r_cousin;
+    r_bob_parent ].
 
-Compute StringDependencyGenerator.get_rule_dependencies family_program r_cousin.
+End family_examples.
+
+Compute StringDependencyGenerator.get_program_dependencies family_examples.family_program.
+Compute StringDependencyGenerator.get_rule_dependencies
+        family_examples.family_program
+        family_examples.r_cousin.

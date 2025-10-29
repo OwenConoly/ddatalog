@@ -171,4 +171,7 @@ Definition get_rule_dependencies (p : program) (r : rule) : program :=
 Definition get_rules_dependent_on (p : program) (r : rule) : program :=
   filter (fun r' => rule_depends_on r r') p.
 
+Definition get_program_dependencies (p : program) : list (rule * list rule) :=
+  map (fun r => (r, get_rule_dependencies p r)) p.
+
 End DependencyGenerator.
