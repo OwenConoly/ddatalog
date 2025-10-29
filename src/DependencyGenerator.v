@@ -24,8 +24,7 @@ Definition fact := Datalog.fact rel var fn.
 Definition rule := Datalog.rule rel var fn aggregator.
 Definition program := list rule.
 
-Parameter expr_eqb : expr -> expr -> bool.
-Parameter expr_eqb_spec : forall x0 y0 : expr, BoolSpec (x0 = y0) (x0 <> y0) (expr_eqb x0 y0).
+Parameter expr_compatible : expr -> expr -> bool.
 
 End DatalogParams.
 
@@ -152,7 +151,7 @@ Definition get_rule_hyps_rels (r : rule) : list rel :=
 
 Definition facts_compatible (f1 f2 : fact) : bool :=
   rel_eqb (Datalog.fact_R f1) (Datalog.fact_R f2) &&
-  list_eqb expr_eqb (Datalog.fact_args f1) (Datalog.fact_args f2).
+  list_eqb expr_compatible (Datalog.fact_args f1) (Datalog.fact_args f2).
 
 Definition conc_matches_hyp (conc hyp : fact) : bool :=
   facts_compatible conc hyp.

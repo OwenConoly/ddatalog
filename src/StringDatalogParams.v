@@ -33,7 +33,7 @@ Proof. apply String.eqb_spec. Qed.
 Lemma rel_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rel_eqb x y).
 Proof. apply String.eqb_spec. Qed.
 
-Fixpoint expr_eqb (e1 e2 : expr) : bool :=
+Fixpoint expr_compatible (e1 e2 : expr) : bool :=
   match e1, e2 with
   | Datalog.var_expr _, Datalog.var_expr _ =>
       true
@@ -48,16 +48,10 @@ Fixpoint expr_eqb (e1 e2 : expr) : bool :=
          match l1, l2 with
          | [], [] => true
          | x1 :: t1, x2 :: t2 =>
-             expr_eqb x1 x2 && expr_list_eqb t1 t2
+             expr_compatible x1 x2 && expr_list_eqb t1 t2
          | _, _ => false
          end) args1 args2
   | _, _ => false
   end.
-
-Lemma expr_eqb_spec :
-  forall x y : expr, BoolSpec (x = y) (x <> y) (expr_eqb x y).
-Proof.
-Admitted.
-
 
 End StringDatalogParams.
