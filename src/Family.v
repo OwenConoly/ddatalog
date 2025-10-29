@@ -14,9 +14,6 @@ Module family_examples.
 
 (* Individual rules using fancy Datalog notation *)
 
-Definition r_parent_anna : rule :=
-  datalog_rule:( [ parent(Anna ( ), Bob ( )) ] :- [ ] ).
-
 Definition r_ancestor1 : rule :=
   datalog_rule:( [ ancestor($x, $y) ] :- [ parent($x, $y) ] ).
 
@@ -32,18 +29,13 @@ Definition r_aunt_uncle : rule :=
 Definition r_cousin : rule :=
   datalog_rule:( [ cousin($x, $y) ] :- [ parent($px, $x); parent($py, $y); sibling($px, $py) ] ).
 
-Definition r_bob_parent : rule :=
-  datalog_rule:( [ parent(Bob ( ), Charlie ( )) ] :- [ parent(Bob ( ), $x) ] ).
-
 (* The full program, referencing the rules directly *)
 Definition family_program : list rule :=
-  [ r_parent_anna;
-    r_ancestor1;
+  [ r_ancestor1;
     r_ancestor2;
     r_sibling;
     r_aunt_uncle;
-    r_cousin;
-    r_bob_parent ].
+    r_cousin ].
 
 End family_examples.
 
