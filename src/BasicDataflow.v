@@ -1,6 +1,6 @@
-From DatalogRocq Require Import Dataflow.
+From DatalogRocq Require Import ConcreteDataflow.
 From DatalogRocq Require Import ComputeCore.
-From DatalogRocq Require Import Layout.
+From DatalogRocq Require Import ConcreteLayout.
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Arith.
 From Stdlib Require Import List.
