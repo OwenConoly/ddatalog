@@ -39,36 +39,53 @@ Section DistributedDatalog.
     forall n1 n2, g.(nodes) n1 -> g.(nodes) n2 -> path g n1 n2.
 
   Definition ForwardingFn := Node -> rel * list T -> option Node.
+  Definition InputFn := Node -> rel * list T -> Prop.
+  Definition OutputFn := Node -> rel * list T -> Prop.
   Definition Layout := Node -> list rule.
 
   Record DataflowNetwork := {
     graph : Graph;
     forward : ForwardingFn;
+    input :  InputFn;
+    output : OutputFn;
     layout : Layout
   }.
 
-(* Is there a nicer way to represent this? Seems a bit handwavy or whatever...*)
+Inductive network_prop := 
+  | FactOnNode (n : Node) (f : rel * list T)
+  | Output (n : Node) (f : rel * list T).
 
-Definition fact_on_node := (Node * (rel * list T))%type.
+Fixpoint get_facts_on_node (nps : list (network_prop)) : list (Node * (rel * list T)) :=
+  match nps with
+  | [] => []
+  | FactOnNode n f :: t => (n, f) :: get_facts_on_node t
+  | Output n f :: t => get_facts_on_node t
+  end.
 
-Inductive network_step (net : DataflowNetwork) : fact_on_node -> list (fact_on_node) -> Prop :=
+Inductive network_step (net : DataflowNetwork) : network_prop -> list (network_prop) -> Prop :=
+  | Input n f : 
+      net.(input) n f ->
+      network_step net (FactOnNode n f) []
   | RuleApp n f r hyps :
       In r (net.(layout) n) ->
-      Forall (fun n' => n' = n) (map fst hyps) ->
-      Datalog.rule_impl r f (map snd hyps) ->
-      network_step net (n, f) hyps
+      Forall (fun n' => n' = n) (map fst (get_facts_on_node hyps)) ->
+      Datalog.rule_impl r f (map snd (get_facts_on_node hyps)) ->
+      network_step net (FactOnNode n f) (hyps)
   | Forward n n' f :
       net.(forward) n f = Some n' ->
-      network_step net (n', f) [(n, f)].
+      network_step net (FactOnNode n f) [FactOnNode n' f]
+  | OutputStep n f :
+      net.(output) n f ->
+      network_step net (Output n f) [FactOnNode n f].
 
-Definition network_pftree (net : DataflowNetwork) : fact_on_node -> Prop :=
+Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps).
 
 Definition network_prog_impl_fact (net : DataflowNetwork) : rel * list T -> Prop :=
-  fun f => exists n, network_pftree net (n, f).
+  fun f => exists n, network_pftree net (FactOnNode n f).
 
 (* A good layout has every program rule on a node somewhere AND only assigns rules from 
-   the program to nodes*)
+   the program to nodes *)
 Definition good_layout (layout : Layout) (nodes : Node -> Prop) (program : list rule) : Prop :=
    Forall (fun r => exists n, nodes n /\ In r (layout n)) program /\
    forall n r, nodes n /\ (In r (layout n) -> In r program).
@@ -83,21 +100,38 @@ Definition good_network (net : DataflowNetwork) (program : list rule) : Prop :=
   good_layout net.(layout) net.(graph).(nodes) program /\
   good_forwarding net.(forward) net.(graph).(nodes) net.(graph).(edge).
 
+Lemma Forall_get_facts_on_node :
+  forall (l : list network_prop)
+         (P : Node * (rel * list T) -> Prop)
+         (Q : network_prop -> Prop),
+    (forall n f, Q (FactOnNode n f) -> P (n, f)) ->
+    Forall Q l ->
+    Forall P (get_facts_on_node l).
+Proof.
+  induction l; intros; simpl; auto.
+  - destruct a; simpl in *; auto.
+    + econstructor.
+      * apply H. inversion H0. assumption.
+      * eapply IHl; inversion H0; eauto.
+    + eapply IHl; inversion H0; eauto.
+Qed.
 (* Some of these aren't properly formulated with the right conditions yet, but
    this is kinda the framework I'm going for here. *)
 Theorem soundness' (net : DataflowNetwork) (program : list rule) :
   forall n f, 
   good_network net program ->
-  network_pftree net (n, f)  ->
+  network_pftree net (FactOnNode n f)  ->
   Datalog.prog_impl_fact program f.
 Proof.
-  intros. remember (n, f) as node_fact.
+  intros. remember (FactOnNode n f) as node_fact.
   generalize dependent n. generalize dependent f.
   induction H0.
   intros.
   subst.
   unfold prog_impl_fact.
   inversion H0.
+  - admit. (* TODO define a relation for when relations are input into
+              the program*)
   - econstructor.
    + unfold good_network in H. fwd.
      unfold good_layout in Hp1. fwd.
@@ -107,16 +141,14 @@ Proof.
      apply Exists_exists.
      exists r; eauto.
    + apply Forall_map; subst.
-    eapply Forall_impl; eauto.
+    eapply Forall_get_facts_on_node; eauto.
     intros.
     simpl in H3.
-    destruct a.
-    simpl.
     eapply H3; eauto.
   - rewrite <- H4 in H2. 
     inversion H2.
     eapply H9; eauto.
-Qed.
+Admitted.
 
 Theorem soundness (net : DataflowNetwork) (program : list rule) :
   forall f, 
@@ -128,7 +160,7 @@ Proof.
   destruct H0.
   unfold network_prog_impl_fact in H0.
   eapply soundness'; eauto.
-Qed.
+Admitted.
 
 Theorem completeness (net : DataflowNetwork) (program : list rule) :
   forall f, Datalog.prog_impl_fact program f -> 
