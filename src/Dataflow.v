@@ -38,7 +38,8 @@ Section DistributedDatalog.
   Definition strongly_connected (g : Graph) : Prop :=
     forall n1 n2, g.(nodes) n1 -> g.(nodes) n2 -> path g n1 n2.
 
-  Definition ForwardingFn := Node -> rel * list T -> option Node.
+  Definition ForwardingTable := rel * list T -> list Node.
+  Definition ForwardingFn := Node -> ForwardingTable.
   Definition InputFn := Node -> rel * list T -> Prop.
   Definition OutputFn := Node -> rel * list T -> Prop.
   Definition Layout := Node -> list rule.
@@ -72,7 +73,7 @@ Inductive network_step (net : DataflowNetwork) : network_prop -> list (network_p
       Datalog.rule_impl r f (map snd (get_facts_on_node hyps)) ->
       network_step net (FactOnNode n f) (hyps)
   | Forward n n' f :
-      net.(forward) n f = Some n' ->
+      In n' (net.(forward) n f) ->
       network_step net (FactOnNode n' f) [FactOnNode n f]
   | OutputStep n f :
       net.(output) n f ->
@@ -93,7 +94,7 @@ Definition good_layout (layout : Layout) (nodes : Node -> Prop) (program : list 
 (* A good forwarding function should only be able to forward things along the 
    edges *)
 Definition good_forwarding (forward : ForwardingFn) (nodes : Node -> Prop) (edges : Node -> Node -> Prop) : Prop :=
-  forall n1 n2 f, forward n1 f = Some n2 -> nodes n1 /\ nodes n2 /\ edges n1 n2.  
+  forall n1 n2 f, In n2 (forward n1 f) -> nodes n1 /\ nodes n2 /\ edges n1 n2.  
 
 (* This is a temporary thing, the format will change once we have a solid streaming
    model. *)
