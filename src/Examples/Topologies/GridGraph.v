@@ -95,17 +95,28 @@ Section GridGraph.
     split; inversion Hedge; assumption.
   Qed.
 
+  Definition add_dimension (ln : list Node) (i : nat) : list Node :=
+    map (fun n => i :: n) ln.
+
+  Lemma add_dimension_length :
+    forall (ln : list Node) (i : nat),
+      length (add_dimension ln i) = length ln.
+  Proof.
+    intros. induction ln; eauto.
+    simpl. rewrite IHln. reflexivity.
+  Qed.
+
   Fixpoint all_nodes_h (dims : list nat) : list Node :=
     match dims with
     | [] => [[]]
     | d :: ds =>
         let rest := all_nodes_h ds in
-        flat_map (fun i => map (fun r => i :: r) rest) (seq 0 d)
+        flat_map (add_dimension rest) (seq 0 d)
     end.
   
   Definition all_nodes : list Node := all_nodes_h dims.
 
-  Theorem all_nodes_h_correct : forall (n : Node),
+  Lemma all_nodes_h_correct : forall (n : Node),
     is_graph_node dims n <-> In n (all_nodes_h dims).
   Proof.
     intros n. split.
@@ -136,6 +147,35 @@ Section GridGraph.
     apply all_nodes_h_correct.
   Qed.
 
+  Lemma length_flatmap_nonzero :
+    forall (A B : Type) (f : A -> list B) (l : list A),
+      (exists a, In a l /\ length (f a) > 0) ->
+      length (flat_map f l) > 0.
+  Proof.
+    induction l; simpl; intros.
+    - destruct H. destruct H. destruct H.
+    - rewrite length_app. destruct H.
+      destruct H. destruct H.
+      + subst. lia.
+      + assert (length (flat_map f l) > 0).
+        { apply IHl; exists x; split; assumption. }
+        lia.
+  Qed.
+  
+  Theorem all_nodes_nonzero_dim_nonempty :
+    forall dims0,
+      (forall d, In d dims0 -> d > 0) ->
+      length (all_nodes_h dims0) > 0.
+  Proof.
+    intros. induction dims0.
+    - simpl. lia.
+    - simpl. apply length_flatmap_nonzero. destruct a.
+      + specialize (H 0). simpl in H. lia.
+      + exists 0. split.
+        * apply in_seq. lia.
+        * intros. rewrite add_dimension_length. apply IHdims0.
+          intros. apply H. right. assumption.
+  Qed.
 
   (* Definition visit_graph_nodes (f : Node -> unit) : unit :=
   List.iter (fun n => if check_node_in_bounds n then f n else tt) (all_nodes dims).
