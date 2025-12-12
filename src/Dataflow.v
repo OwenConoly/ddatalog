@@ -89,7 +89,7 @@ Definition network_prog_impl_fact (net : DataflowNetwork) : rel * list T -> Prop
    the program to nodes *)
 Definition good_layout (layout : Layout) (nodes : Node -> Prop) (program : list rule) : Prop :=
    Forall (fun r => exists n, nodes n /\ In r (layout n)) program /\
-   forall n r, nodes n /\ (In r (layout n) -> In r program).
+   forall n r, (In r (layout n) -> nodes n /\ In r program).
 
 (* A good forwarding function should only be able to forward things along the 
    edges *)
@@ -152,8 +152,8 @@ Proof.
    + unfold good_network in H. fwd.
      unfold good_layout in Hp1. fwd.
      specialize (Hp1p1 n r). 
-     destruct Hp1p1 as [Hnode Hin].
-     apply Hin in H5.
+     apply Hp1p1 in H5.
+     destruct H5 as [Hnode Hin].
      apply Exists_exists.
      exists r; eauto.
    + apply Forall_map; subst.
