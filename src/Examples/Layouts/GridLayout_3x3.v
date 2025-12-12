@@ -52,13 +52,7 @@ Definition check_layout : bool :=
   forallb node_rules_ok (all_nodes_h dims) &&
   forallb rule_in_layout program.
 
-Set Printing Depth 5000.
-Set Printing All. 
-
-Lemma check_layout_passed : check_layout = true.
-Proof.
-  cbv.
-Admitted.
+Eval vm_compute in check_layout.
 
 Lemma layout_nonempty_only_valid_nodes :
   forall n r,
