@@ -31,8 +31,6 @@ Section DistributedDatalog.
   
   (*i assume graph is strongly connected, because i suspect this will be tricky enough as is*)
   Record node_state := {
-      (*it seems improper to have this here, since we don't really want to consider the rules as mutable state, but rather part of the immutable program under consideration.  but whatever; i am lazy.*)
-      rules: list drule;
       known_facts: list dfact;
       (*how many messages have i received about this relation*)
       msgs_received: rel -> nat;
@@ -116,8 +114,8 @@ Section DistributedDatalog.
 
   Print node_state.
   Print Datalog.rule. Print rule_impl. Print Datalog.fact.
-  Definition can_learn_normal_fact_at_node ns R args :=
-    exists r, In r ns.(rules) /\
+  Definition can_learn_normal_fact_at_node rules ns R args :=
+    exists r, In r rules /\
     match r with
     | normal_drule rule_concls rule_hyps =>
         exists ctx hyps',
@@ -138,8 +136,8 @@ Section DistributedDatalog.
       Forall2 (fun n expected_msgs => In (meta_dfact R n expected_msgs) known_facts) all_nodes expected_msgss /\
         num = fold_right Nat.add O expected_msgss.
 
-  Definition can_learn_meta_fact_at_node ns R expected_msgs :=
-    exists r, In r ns.(rules) /\
+  Definition can_learn_meta_fact_at_node rules ns R expected_msgs :=
+    exists r, In r rules /\
     match r with
     | normal_drule _ _ => False
     | agg_drule _ _ _ => False
@@ -148,49 +146,47 @@ Section DistributedDatalog.
         (forall R', In R' R's ->
                expect_num_R_facts R' ns.(known_facts) (ns.(msgs_received) R')) /\
         (forall args,
-            can_learn_normal_fact_at_node ns R args ->
+            can_learn_normal_fact_at_node rules ns R args ->
             In (normal_dfact R args) ns.(known_facts)) /\
           expected_msgs = ns.(msgs_sent) R
     end.
 
-  Definition should_learn_normal_fact_at_node n ns R args :=
-    can_learn_normal_fact_at_node ns R args /\
+  Definition should_learn_normal_fact_at_node rules n ns R args :=
+    can_learn_normal_fact_at_node rules ns R args /\
       ~exists expected_msgs,
           In (meta_dfact R n expected_msgs) ns.(known_facts).
 
-  Definition should_learn_fact_at_node n ns f :=
+  Definition should_learn_fact_at_node rules n ns f :=
     match f with
     | normal_dfact R args =>
-        can_learn_normal_fact_at_node ns R args
+        can_learn_normal_fact_at_node rules ns R args
     | meta_dfact R n0 expected_msgs =>
         n0 = n /\
-        can_learn_meta_fact_at_node ns R expected_msgs
+        can_learn_meta_fact_at_node rules ns R expected_msgs
     end.
 
   Definition receive_fact_at_node ns f :=
     match f with
     | normal_dfact R args =>
-        {| rules := ns.(rules);
-          known_facts := f :: ns.(known_facts);
+        {| known_facts := f :: ns.(known_facts);
           msgs_received := fun R' => if rel_eqb R R' then
                                     S (ns.(msgs_received) R)
                                   else ns.(msgs_received) R';
           msgs_sent := ns.(msgs_sent) |}
     | meta_dfact _ _ _ =>
-        {| rules := ns.(rules);
-          known_facts := f :: ns.(known_facts);
+        {| known_facts := f :: ns.(known_facts);
           msgs_received := ns.(msgs_received);
           msgs_sent := ns.(msgs_sent) |}
     end.
   
-  Inductive graph_step (net : DataflowNetwork) : graph_state -> graph_state -> Prop :=
+  Inductive graph_step (rule_assignments : Node -> list drule) : graph_state -> graph_state -> Prop :=
   | Input g f :
     graph_step _
       g
       {| node_states := g.(node_states);
         facts_on_wires := map (fun n => (n, f)) all_nodes ++ g.(facts_on_wires);
         input_facts := f :: g.(input_facts);
-        output_facts := g.(output_facts) |}
+        output_facts := f :: g.(output_facts) |}
   | ReceiveFact g n f fs1 fs2 :
     g.(facts_on_wires) = fs1 ++ (n, f) :: fs2 ->
     graph_step _
@@ -202,7 +198,7 @@ Section DistributedDatalog.
         input_facts := g.(input_facts);
         output_facts := g.(output_facts); |}
   | LearnFact g n f :
-    should_learn_fact_at_node n (g.(node_states) n) f ->
+    should_learn_fact_at_node (rule_assignments n) n (g.(node_states) n) f ->
     graph_step _
       g
       {| node_states := fun n' => if node_eqb n n' then
@@ -212,7 +208,25 @@ Section DistributedDatalog.
         input_facts := g.(input_facts);
         output_facts := f :: g.(output_facts) |}.
 
+  Definition drule_of_rule (r : rule) : drule :=
+    match r with
+    | normal_rule rule_concls rule_hyps => normal_drule rule_concls rule_hyps
+    | agg_rule agg target_rel source_rel => agg_drule agg target_rel source_rel
+    | meta_rule target_rel target_set source_rels => meta_drule target_rel source_rels
+    end.
 
+  Definition good_layout (p : list rule) (rules : Node -> list drule) :=
+    forall r,
+      In r p <-> exists n, In (drule_of_rule r) (rules n).
+
+  Definition only_knows_true_facts (p : list rule) (g : graph_state) : Prop. Admitted.
+
+  Lemma good_layout_sound p rules g g' :
+    good_layout p rules ->
+    only_knows_true_facts p g ->
+    graph_step rules g g' ->
+    only_knows_true_facts p g'.
+  Proof.
   
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps).
