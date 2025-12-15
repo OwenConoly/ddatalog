@@ -1,5 +1,5 @@
 From Stdlib Require Import List Bool.
-From Datalog Require Import Datalog.
+From Datalog Require Import Datalog Tactics.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 
 Import ListNotations.
@@ -46,8 +46,6 @@ Section DistributedDatalog.
       facts_on_wires : list (Node * dfact);
       (*inputs that have been received so far*)
       input_facts : list dfact;
-      (*things that have been output so far*)
-      output_facts : list dfact;
     }.
 
   (*i ignore all of this for now; i assume that the graph is strongly connected, and Node is a finite set whose elements are exactly the nodes of the traph*)
@@ -185,8 +183,7 @@ Section DistributedDatalog.
       g
       {| node_states := g.(node_states);
         facts_on_wires := map (fun n => (n, f)) all_nodes ++ g.(facts_on_wires);
-        input_facts := f :: g.(input_facts);
-        output_facts := f :: g.(output_facts) |}
+        input_facts := f :: g.(input_facts); |}
   | ReceiveFact g n f fs1 fs2 :
     g.(facts_on_wires) = fs1 ++ (n, f) :: fs2 ->
     graph_step _
@@ -195,8 +192,7 @@ Section DistributedDatalog.
                                  receive_fact_at_node (g.(node_states) n) f
                                else g.(node_states) n';
         facts_on_wires := fs1 ++ fs2;
-        input_facts := g.(input_facts);
-        output_facts := g.(output_facts); |}
+        input_facts := g.(input_facts); |}
   | LearnFact g n f :
     should_learn_fact_at_node (rule_assignments n) n (g.(node_states) n) f ->
     graph_step _
@@ -205,8 +201,7 @@ Section DistributedDatalog.
                                  receive_fact_at_node (g.(node_states) n) f
                                else g.(node_states) n';
         facts_on_wires := map (fun n => (n, f)) all_nodes ++ g.(facts_on_wires);
-        input_facts := g.(input_facts);
-        output_facts := f :: g.(output_facts) |}.
+        input_facts := g.(input_facts) |}.
 
   Definition drule_of_rule (r : rule) : drule :=
     match r with
@@ -219,14 +214,44 @@ Section DistributedDatalog.
     forall r,
       In r p <-> exists n, In (drule_of_rule r) (rules n).
 
-  Definition only_knows_true_facts (p : list rule) (g : graph_state) : Prop. Admitted.
+  Print graph_state.
+  Print node_state.
+  Print fact.
+  
+  Definition knows_fact (g : graph_state) f : Prop :=
+    exists n, In (n, f) g.(facts_on_wires) \/
+           In f (g.(node_states) n).(known_facts).
 
-  Lemma good_layout_sound p rules g g' :
+  Lemma good_layout_normal_facts_sound p rules g g' R args :
     good_layout p rules ->
-    only_knows_true_facts p g ->
     graph_step rules g g' ->
-    only_knows_true_facts p g'.
+    knows_fact g' (normal_dfact R args) ->
+    knows_fact g (normal_dfact R args) \/
+      In (normal_dfact R args) g'.(input_facts) \/
+      exists r R's args's,
+        In r p /\
+          rule_impl r (normal_fact R args) (zip normal_fact R's args's) /\
+          Forall (knows_fact g) (zip normal_dfact R's args's).
   Proof.
+    intros Hgood Hstep Hg'. invert Hstep; destruct Hg' as [n' [Hg'|Hg']]; simpl in *.
+    - apply in_app_iff in Hg'. destruct Hg' as [Hg'|Hg'].
+      + rewrite in_map_iff in Hg'. fwd. simpl. auto.
+      + simpl. cbv [knows_fact]. eauto.
+    - cbv [knows_fact]. eauto.
+    - cbv [knows_fact]. rewrite H. left. eexists. rewrite in_app_iff in *.
+      simpl. destruct Hg'; eauto.
+    - destr (node_eqb n n').
+      + cbv [receive_fact_at_node] in Hg'. destruct f; simpl in Hg'.
+        -- destruct Hg' as [Hg'|Hg'].
+           ++ fwd. left. cbv [knows_fact]. eexists. rewrite H.
+              rewrite in_app_iff. simpl. eauto.
+           ++ cbv [knows_fact]. eauto.
+        -- destruct Hg' as [Hg'|Hg'].
+           ++ invert Hg'.
+           ++ cbv [knows_fact]. eauto.
+      + cbv [knows_fact]. eauto.
+    - cbv [should_learn_fact_at_node] in H. destruct f.
+      + 
   
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps).
