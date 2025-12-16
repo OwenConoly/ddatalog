@@ -19,7 +19,7 @@ Section DistributedDatalog.
 
   Inductive dfact :=
   | normal_dfact (nf_rel: rel) (nf_args: list T)
-  | meta_dfact (mf_rel: rel) (source: Node) (expected_msgs: nat).
+  | meta_dfact (mf_rel: rel) (source: option Node) (expected_msgs: nat).
 
   Definition clause := clause rel var fn.
   Definition rule := Datalog.rule rel var fn aggregator T.
@@ -131,7 +131,7 @@ Section DistributedDatalog.
 
   Definition expect_num_R_facts R known_facts num :=
     exists expected_msgss,
-      Forall2 (fun n expected_msgs => In (meta_dfact R n expected_msgs) known_facts) all_nodes expected_msgss /\
+      Forall2 (fun n expected_msgs => In (meta_dfact R n expected_msgs) known_facts) (None :: map Some all_nodes) expected_msgss /\
         num = fold_right Nat.add O expected_msgss.
 
   Definition can_learn_meta_fact_at_node rules ns R expected_msgs :=
@@ -159,7 +159,7 @@ Section DistributedDatalog.
     | normal_dfact R args =>
         can_learn_normal_fact_at_node rules ns R args
     | meta_dfact R n0 expected_msgs =>
-        n0 = n /\
+        n0 = Some n /\
         can_learn_meta_fact_at_node rules ns R expected_msgs
     end.
 
@@ -210,6 +210,7 @@ Section DistributedDatalog.
     | meta_rule target_rel target_set source_rels => meta_drule target_rel source_rels
     end.
 
+  (* want every node to have every meta-rule, but intersect source_rels with outputs of that node?  good_layout as is should only apply to normal rules *)
   Definition good_layout (p : list rule) (rules : Node -> list drule) :=
     forall r,
       In r p <-> exists n, In (drule_of_rule r) (rules n).
@@ -222,6 +223,25 @@ Section DistributedDatalog.
     exists n, In (n, f) g.(facts_on_wires) \/
            In f (g.(node_states) n).(known_facts).
 
+  Lemma combine_fst_snd {A B} (l : list (A * B)) :
+    l = combine (map fst l) (map snd l).
+  Proof.
+    induction l; simpl; f_equal; auto. destruct a; reflexivity.
+  Qed.
+
+  Print dfact.
+  Print graph_state. Print node_state.
+  Lemma meta_dfact_sound g R n expected_msgs :
+    knows_fact g (meta_dfact R (Some n) expected_msgs) ->
+    (g.(node_states) n).(msgs_sent) R = expected_msgs.
+
+    Print prog_impl_implication. Print graph_state.
+    Lemma meta_dfact_sound2 :
+      knows_fact g (meta_dfact R n expected_msgs) ->
+      forall args,
+        (prog_impl_implication p f g.(input_facts)) ->
+        
+  
   Lemma good_layout_normal_facts_sound p rules g g' R args :
     good_layout p rules ->
     graph_step rules g g' ->
@@ -251,7 +271,36 @@ Section DistributedDatalog.
            ++ cbv [knows_fact]. eauto.
       + cbv [knows_fact]. eauto.
     - cbv [should_learn_fact_at_node] in H. destruct f.
-      + 
+      + apply in_app_iff in Hg'. destruct Hg' as [Hg'|Hg'].
+        -- apply in_map_iff in Hg'. fwd. cbv [can_learn_normal_fact_at_node] in H.
+           fwd. destruct r.
+           ++ fwd. right. right. do 3 eexists. split.
+              { apply Hgood. instantiate (1 := normal_rule _ _). simpl. eauto. }
+              split.
+              { econstructor. 1: eassumption.
+                eassert (combine _ _ = _) as ->; [|eassumption].
+                symmetry. apply combine_fst_snd. }
+              cbv [zip]. rewrite <- combine_fst_snd. apply Forall_map.
+              apply Forall_forall. intros [R' args'] H'.
+              apply Hp1p2 in H'. cbv [knows_fact]. eauto.
+           ++ fwd. right. right. do 3 eexists. split.
+              { apply Hgood. instantiate (1 := agg_rule _ _ _). simpl. eauto. }
+              split.
+              { econstructor. Print 1: eassumption.
+                eassert (combine _ _ = _) as ->; [|eassumption].
+                symmetry. apply combine_fst_snd. }
+              
+              { 
+                Search combine map.
+                { eapply Forall2_impl; [|eassumption].
+                Search Forall2 combine. apply List.Forall2_cbv [zip].
+                Print rule_impl. 
+                econstructor.
+                cbv [zip]. Search combine map.
+                Search zip map.
+                Print rule_impl. constructor.
+              eexists.
+                eassert (drule_of_rule _ = _) as ->; [|eassumption]. eauto.
   
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps).
