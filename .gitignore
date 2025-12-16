@@ -6,6 +6,5 @@
 *.aux
 .*.aux
 .coq-native/
-Makefile.coq
-Makefile.coq.conf
-
+**Makefile.coq*
+**.cache

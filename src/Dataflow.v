@@ -1,6 +1,7 @@
 From Stdlib Require Import List Bool.
 From Datalog Require Import Datalog Tactics.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
+From Stdlib Require Import Lia.
 
 Import ListNotations.
 
@@ -230,21 +231,31 @@ Section DistributedDatalog.
     In f g.(input_facts) \/
       exists n, In f (g.(node_states) n).(known_facts).
 
-  Definition has_size {T} n (Tset : T -> Prop) :=
-    exists l,
-      NoDup l /\
-        length l = n /\
-        (forall x, In x l <-> Tset x).
-  
-  Definition normal_facts_of (inputs : list dfact) :=
+  (*no, should not talk about set sizes, should talk about number satisfying criteria in input facts*)
+  Inductive Existsn {T} (P : T -> Prop) : nat -> list T -> Prop :=
+  | Existsn_nil : Existsn _ 0 []
+  | Existsn_no x n l :
+    ~P x ->
+    Existsn _ n l ->
+    Existsn _ n (x :: l)
+  | Existsn_yes x n l :
+    P x ->
+    Existsn _ n l ->
+    Existsn _ (S n) (x :: l).
+
+  Definition facts_of (inputs : list dfact) :=
     fun f =>
       match f with
       | normal_fact R args => In (normal_dfact R args) inputs
       | meta_fact R Rset =>
           exists n,
           In (meta_dfact R None n) inputs /\
-            Rset = (fun args => In (normal_dfact R args) inputs) /\
-            has_size n Rset
+            (forall args, Rset args <-> In (normal_dfact R args) inputs) /\
+            Existsn (fun f => match f with
+                           | normal_dfact R' _ => R = R'
+                           | meta_dfact _ _ _ => False
+                           end)
+              n inputs
       end.
 
   Definition good_inputs (inputs : list dfact) :=
@@ -253,17 +264,22 @@ Section DistributedDatalog.
           In (meta_dfact R None num) inputs ->
           exists num',
             num' <= num /\
-            has_size num' (fun args => In (normal_dfact R args) inputs)).
+              Existsn (fun f => match f with
+                           | normal_dfact R' _ => R = R'
+                           | meta_dfact _ _ _ => False
+                           end)
+              num' inputs).
   Notation "R ^*" := (Relations.trc R) (at level 0).
-  Definition good_graph g rules (p : list rule) :=
+  Definition good_graph rules (p : list rule) g :=
     good_inputs g.(input_facts) ->
     (forall R args,
         knows_fact g (normal_dfact R args) ->
-        prog_impl_implication p (normal_facts_of g.(input_facts)) (normal_fact R args)) /\
+        prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R args)) /\
       (forall R n num,
           knows_fact g (meta_dfact R (Some n) num) ->
           forall g' args,
             (graph_step rules)^* g g' ->
+            good_inputs g'.(input_facts) ->
             In (normal_dfact R args) (g'.(node_states) n).(known_facts) ->
             In (normal_dfact R args) (g.(node_states) n).(known_facts)) /\
       (forall R num,
@@ -275,61 +291,75 @@ Section DistributedDatalog.
   Proof.
     induction l; simpl; f_equal; auto. destruct a; reflexivity.
   Qed.
-  
+
+  Lemma good_inputs_cons f fs :
+    good_inputs (f :: fs) ->
+    good_inputs fs.
+  Proof.
+    cbv [good_inputs]. simpl. intros [H1 H2]. invert H1. split; [assumption|].
+    intros R num H. specialize (H2 R num ltac:(auto)). clear -H2.
+    fwd. invert H2p1; eauto. eexists. split; [|eauto]. lia.
+  Qed.
+
+  Lemma Existsn_unique U P n m (l : list U) :
+    Existsn P n l ->
+    Existsn P m l ->
+    n = m.
+  Proof.
+    intros H. revert m. induction H; invert 1; auto.
+    all: exfalso; auto.
+  Qed.
+        
+  Lemma facts_of_cons f fs f' :
+    good_inputs (f :: fs) ->
+    facts_of fs f' ->
+    facts_of (f :: fs) f'.
+  Proof.
+    intros Hgood H. destruct f'; simpl in *; auto. fwd. eexists. split.
+    { right. eassumption. }
+    split.
+    { intros. rewrite Hp1. split; auto. intros [H|H]; auto. subst.
+      exfalso. cbv [good_inputs] in Hgood. simpl in Hgood. destruct Hgood as [_ Hgood].
+      specialize (Hgood _ _ ltac:(eauto)). fwd. invert Hgoodp1.
+      - congruence.
+      - eapply Existsn_unique in Hp2; [|exact H3]. subst. lia. }
+    apply Existsn_no. 2: assumption. intros H. destruct f; try contradiction.
+    subst. cbv [good_inputs] in Hgood. simpl in Hgood. destruct Hgood as [_ Hgood].
+    specialize (Hgood _ _ ltac:(eauto)). fwd. invert Hgoodp1.
+    - congruence.
+    - eapply Existsn_unique in Hp2; [|exact H3]. subst. lia.
+  Qed.
+      
   Lemma good_layout_normal_facts_sound p rules g g' :
     good_layout p rules ->
     graph_step rules g g' ->
-    good_graph g rules p ->
-    good_graph g' rules p.
+    good_graph rules p g ->
+    good_graph rules p g'.
   Proof.
-    intros Hgood Hstep Hg'. invert Hstep; destruct Hg' as [n' [Hg'|Hg']]; simpl in *.
-    - apply in_app_iff in Hg'. destruct Hg' as [Hg'|Hg'].
-      + rewrite in_map_iff in Hg'. fwd. simpl. auto.
-      + simpl. cbv [knows_fact]. eauto.
-    - cbv [knows_fact]. eauto.
-    - cbv [knows_fact]. rewrite H. left. eexists. rewrite in_app_iff in *.
-      simpl. destruct Hg'; eauto.
-    - destr (node_eqb n n').
-      + cbv [receive_fact_at_node] in Hg'. destruct f; simpl in Hg'.
-        -- destruct Hg' as [Hg'|Hg'].
-           ++ fwd. left. cbv [knows_fact]. eexists. rewrite H.
-              rewrite in_app_iff. simpl. eauto.
+    intros Hlayout Hstep Hgraph. intros Hinp.
+    invert Hstep; simpl in *.
+    - specialize (Hgraph ltac:(eauto using good_inputs_cons)).
+      destruct Hgraph as (Hnorm&Hmetanode&Hmetainp). ssplit.
+      + cbv [knows_fact]. simpl. intros R args H. destruct H as [[H | H] | H].
+        -- subst. apply partial_in. simpl. auto.
+        -- eapply prog_impl_implication_weaken_hyp.
+           ++ apply Hnorm. cbv [knows_fact]. auto.
+           ++ auto using facts_of_cons.
+        -- eapply prog_impl_implication_weaken_hyp.
+           ++ apply Hnorm. cbv [knows_fact]. auto.
+           ++ auto using facts_of_cons.
+      + intros R n num Hkm g' args Hsteps Hkn.
+        eapply Hmetanode.
+        -- cbv [knows_fact] in Hkm. simpl in Hkm. destruct Hkm as [[Hkm | Hkm] | Hkm].
+           ++ exfalso. subst. cbv [good_inputs] in Hinp. simpl in Hinp.
+              destruct Hinp as [Hinp _]. invert Hinp. simpl in *. congruence.
            ++ cbv [knows_fact]. eauto.
-        -- destruct Hg' as [Hg'|Hg'].
-           ++ invert Hg'.
            ++ cbv [knows_fact]. eauto.
-      + cbv [knows_fact]. eauto.
-    - cbv [should_learn_fact_at_node] in H. destruct f.
-      + apply in_app_iff in Hg'. destruct Hg' as [Hg'|Hg'].
-        -- apply in_map_iff in Hg'. fwd. cbv [can_learn_normal_fact_at_node] in H.
-           fwd. destruct r.
-           ++ fwd. right. right. do 3 eexists. split.
-              { apply Hgood. instantiate (1 := normal_rule _ _). simpl. eauto. }
-              split.
-              { econstructor. 1: eassumption.
-                eassert (combine _ _ = _) as ->; [|eassumption].
-                symmetry. apply combine_fst_snd. }
-              cbv [zip]. rewrite <- combine_fst_snd. apply Forall_map.
-              apply Forall_forall. intros [R' args'] H'.
-              apply Hp1p2 in H'. cbv [knows_fact]. eauto.
-           ++ fwd. right. right. do 3 eexists. split.
-              { apply Hgood. instantiate (1 := agg_rule _ _ _). simpl. eauto. }
-              split.
-              { econstructor. Print 1: eassumption.
-                eassert (combine _ _ = _) as ->; [|eassumption].
-                symmetry. apply combine_fst_snd. }
-              
-              { 
-                Search combine map.
-                { eapply Forall2_impl; [|eassumption].
-                Search Forall2 combine. apply List.Forall2_cbv [zip].
-                Print rule_impl. 
-                econstructor.
-                cbv [zip]. Search combine map.
-                Search zip map.
-                Print rule_impl. constructor.
-              eexists.
-                eassert (drule_of_rule _ = _) as ->; [|eassumption]. eauto.
+        -- eapply Relations.TrcFront. 2: eassumption. apply Input.
+        -- assumption.
+      + intros R num H. cbv [knows_fact] in H. simpl in H.
+        destruct H as [[H|H] |H]; eauto. cbv [knows_fact] in Hmetainp. fwd. eauto.
+    - 
   
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps).
