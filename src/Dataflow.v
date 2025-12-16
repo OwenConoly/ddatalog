@@ -14,6 +14,7 @@ Section DistributedDatalog.
   Context (Hall_nodes : NoDup all_nodes /\ (forall n, In n all_nodes)).
   Context {node_eqb : Node -> Node -> bool}.
   Context {node_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
+  Context (is_input : rel -> bool).
   Context {rel_eqb : rel -> rel -> bool}.
   Context {rel_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rel_eqb x y)}.
 
@@ -21,8 +22,9 @@ Section DistributedDatalog.
   | normal_dfact (nf_rel: rel) (nf_args: list T)
   | meta_dfact (mf_rel: rel) (source: option Node) (expected_msgs: nat).
 
-  Definition clause := clause rel var fn.
-  Definition rule := Datalog.rule rel var fn aggregator T.
+  Let clause := clause rel var fn.
+  Let rule := rule rel var fn aggregator T.
+  Let fact := fact rel T.
 
   Inductive drule :=
   | normal_drule (rule_concls : list clause) (rule_hyps : list clause)
@@ -130,9 +132,10 @@ Section DistributedDatalog.
     end.
 
   Definition expect_num_R_facts R known_facts num :=
-    exists expected_msgss,
-      Forall2 (fun n expected_msgs => In (meta_dfact R n expected_msgs) known_facts) (None :: map Some all_nodes) expected_msgss /\
-        num = fold_right Nat.add O expected_msgss.
+    In (meta_dfact R None num) known_facts \/
+      exists expected_msgss,
+        Forall2 (fun n expected_msgs => In (meta_dfact R (Some n) expected_msgs) known_facts) all_nodes expected_msgss /\
+          num = fold_right Nat.add O expected_msgss.
 
   Definition can_learn_meta_fact_at_node rules ns R expected_msgs :=
     exists r, In r rules /\
@@ -176,6 +179,13 @@ Section DistributedDatalog.
           msgs_received := ns.(msgs_received);
           msgs_sent := ns.(msgs_sent) |}
     end.
+
+  Definition is_input_fact f :=
+    match f with
+    | normal_dfact R _ => is_input R
+    | meta_dfact R None _ => is_input R
+    | meta_dfact _ (Some _) _ => false
+    end.
   
   Inductive graph_step (rule_assignments : Node -> list drule) : graph_state -> graph_state -> Prop :=
   | Input g f :
@@ -203,55 +213,74 @@ Section DistributedDatalog.
         facts_on_wires := map (fun n => (n, f)) all_nodes ++ g.(facts_on_wires);
         input_facts := g.(input_facts) |}.
 
-  Definition drule_of_rule (r : rule) : drule :=
-    match r with
-    | normal_rule rule_concls rule_hyps => normal_drule rule_concls rule_hyps
-    | agg_rule agg target_rel source_rel => agg_drule agg target_rel source_rel
-    | meta_rule target_rel target_set source_rels => meta_drule target_rel source_rels
-    end.
-
-  (* want every node to have every meta-rule, but intersect source_rels with outputs of that node?  good_layout as is should only apply to normal rules *)
   Definition good_layout (p : list rule) (rules : Node -> list drule) :=
-    forall r,
-      In r p <-> exists n, In (drule_of_rule r) (rules n).
+    (forall rule_concls rule_hyps,
+        In (normal_rule rule_concls rule_hyps) p <-> exists n, In (normal_drule rule_concls rule_hyps) (rules n)) /\
+      (forall agg target_rel source_rel,
+          In (agg_rule agg target_rel source_rel) p <-> exists n, In (agg_drule agg target_rel source_rel) (rules n)) /\
+      (forall target_rel target_set source_rels,
+          In (meta_rule target_rel target_set source_rels) p ->
+          forall n, In (meta_drule target_rel source_rels) (rules n)) /\
+      (forall target_rel source_rels n,
+          In (meta_drule target_rel source_rels) (rules n) ->
+          exists target_set,
+            In (meta_rule target_rel target_set source_rels) p).
 
-  Print graph_state.
-  Print node_state.
-  Print fact.
-  
   Definition knows_fact (g : graph_state) f : Prop :=
-    exists n, In (n, f) g.(facts_on_wires) \/
-           In f (g.(node_states) n).(known_facts).
+    In f g.(input_facts) \/
+      exists n, In f (g.(node_states) n).(known_facts).
 
+  Definition has_size {T} n (Tset : T -> Prop) :=
+    exists l,
+      NoDup l /\
+        length l = n /\
+        (forall x, In x l <-> Tset x).
+  
+  Definition normal_facts_of (inputs : list dfact) :=
+    fun f =>
+      match f with
+      | normal_fact R args => In (normal_dfact R args) inputs
+      | meta_fact R Rset =>
+          exists n,
+          In (meta_dfact R None n) inputs /\
+            Rset = (fun args => In (normal_dfact R args) inputs) /\
+            has_size n Rset
+      end.
+
+  Definition good_inputs (inputs : list dfact) :=
+    Forall (fun f => is_input_fact f = true) inputs /\
+      (forall R num,
+          In (meta_dfact R None num) inputs ->
+          exists num',
+            num' <= num /\
+            has_size num' (fun args => In (normal_dfact R args) inputs)).
+  Notation "R ^*" := (Relations.trc R) (at level 0).
+  Definition good_graph g rules (p : list rule) :=
+    good_inputs g.(input_facts) ->
+    (forall R args,
+        knows_fact g (normal_dfact R args) ->
+        prog_impl_implication p (normal_facts_of g.(input_facts)) (normal_fact R args)) /\
+      (forall R n num,
+          knows_fact g (meta_dfact R (Some n) num) ->
+          forall g' args,
+            (graph_step rules)^* g g' ->
+            In (normal_dfact R args) (g'.(node_states) n).(known_facts) ->
+            In (normal_dfact R args) (g.(node_states) n).(known_facts)) /\
+      (forall R num,
+          knows_fact g (meta_dfact R None num) ->
+          In (meta_dfact R None num) g.(input_facts)).
+  
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
   Proof.
     induction l; simpl; f_equal; auto. destruct a; reflexivity.
   Qed.
-
-  Print dfact.
-  Print graph_state. Print node_state.
-  Lemma meta_dfact_sound g R n expected_msgs :
-    knows_fact g (meta_dfact R (Some n) expected_msgs) ->
-    (g.(node_states) n).(msgs_sent) R = expected_msgs.
-
-    Print prog_impl_implication. Print graph_state.
-    Lemma meta_dfact_sound2 :
-      knows_fact g (meta_dfact R n expected_msgs) ->
-      forall args,
-        (prog_impl_implication p f g.(input_facts)) ->
-        
   
-  Lemma good_layout_normal_facts_sound p rules g g' R args :
+  Lemma good_layout_normal_facts_sound p rules g g' :
     good_layout p rules ->
     graph_step rules g g' ->
-    knows_fact g' (normal_dfact R args) ->
-    knows_fact g (normal_dfact R args) \/
-      In (normal_dfact R args) g'.(input_facts) \/
-      exists r R's args's,
-        In r p /\
-          rule_impl r (normal_fact R args) (zip normal_fact R's args's) /\
-          Forall (knows_fact g) (zip normal_dfact R's args's).
+    good_graph g rules p ->
+    good_graph g' rules p.
   Proof.
     intros Hgood Hstep Hg'. invert Hstep; destruct Hg' as [n' [Hg'|Hg']]; simpl in *.
     - apply in_app_iff in Hg'. destruct Hg' as [Hg'|Hg'].
