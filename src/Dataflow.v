@@ -268,38 +268,22 @@ Section DistributedDatalog.
                 num' inputs).
   Print can_learn_normal_fact_at_node.
   Notation "R ^*" := (Relations.trc R) (at level 0). Print meta_dfact. Print meta_fact.
-  Print node_state.
-  Definition good_graph (*rules*) (p : list rule) g :=
+  Definition good_graph rules (p : list rule) g :=
     good_inputs g.(input_facts) ->
     (forall R args,
         knows_fact g (normal_dfact R args) ->
         prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R args)) /\
-      (* (forall R n num, *)
-      (*     In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) -> *)
-      (*     forall g' args, *)
-      (*       (graph_step rules)^* g g' -> *)
-      (*       good_inputs g'.(input_facts) -> *)
-      (*       can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args -> *)
-      (*       In (normal_dfact R args) (g.(node_states) n).(known_facts)) /\ *)
+      (forall R n num,
+          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
+          forall g' args,
+            (graph_step rules)^* g g' ->
+            good_inputs g'.(input_facts) ->
+            can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args ->
+            In (normal_dfact R args) (g.(node_states) n).(known_facts)) /\
       (forall R n num,
           knows_fact g (meta_dfact R n num) ->
-          match n with
-          | None =>
-              Existsn (fun f => match f with
-                             | normal_dfact R' _ => R = R'
-                             | meta_dfact _ _ _ => False
-                             end) num g.(input_facts)
-          | Some n =>
-              (g.(node_states) n).(msgs_sent) R = num
-          end ->
           exists Rset,
-            prog_impl_implication p (facts_of g.(input_facts)) (meta_fact R Rset) /\
-              forall args,
-                Rset args <->
-                  match n with
-                  | None => In (normal_dfact R args) g.(input_facts)
-                  | Some n => In (normal_dfact R args) (g.(node_states) n).(known_facts)
-                  end) /\
+            prog_impl_implication p (facts_of g.(input_facts)) (meta_fact R Rset)) /\
       (forall R num,
           knows_fact g (meta_dfact R None num) ->
           In (meta_dfact R None num) g.(input_facts)) /\
@@ -354,26 +338,26 @@ Section DistributedDatalog.
     - eapply Existsn_unique in Hp2; [|exact H3]. subst. lia.
   Qed.
 
-  Lemma receive_fact_at_node_known_facts f ns :
-    (receive_fact_at_node ns f).(known_facts) = f :: ns.(known_facts).
+  Lemma receive_fact_at_node_gets_more_facts f f' ns :
+    In f ns.(known_facts) ->
+    In f (receive_fact_at_node ns f').(known_facts).
   Proof.
-    destruct f; reflexivity.
+    intros H. destruct f'; simpl; auto.
   Qed.
-
+  
   Hint Unfold knows_fact : core.
   Hint Constructors graph_step : core.
   Hint Constructors Relations.trc : core.
   Lemma good_layout_normal_facts_sound p rules g g' :
     good_layout p rules ->
     graph_step rules g g' ->
-    good_graph p g ->
-    good_graph p g'.
+    good_graph rules p g ->
+    good_graph rules p g'.
   Proof.
     intros Hlayout Hstep Hgraph. intros Hinp.
     invert Hstep; simpl in *.
     - specialize (Hgraph ltac:(eauto using good_inputs_cons)).
-      Print good_graph.
-      destruct Hgraph as (Hnorm&Hmeta&Hkmi&Hkmn&Hwires). ssplit.
+      destruct Hgraph as (Hnorm&Hmetanode&Hmetainp&Hmnk&Hwires). ssplit.
       + cbv [knows_fact]. simpl. intros R args H. destruct H as [[H | H] | H].
         -- subst. apply partial_in. simpl. auto.
         -- eapply prog_impl_implication_weaken_hyp.
@@ -382,31 +366,24 @@ Section DistributedDatalog.
         -- eapply prog_impl_implication_weaken_hyp.
            ++ apply Hnorm. cbv [knows_fact]. auto.
            ++ auto using facts_of_cons.
-      + intros R n num HR Hn.
-        cbv [knows_fact] in HR. simpl in HR. destruct HR as [[HR|HR]|HR].
-        -- subst. eexists (fun args => _). split; cycle 1.
-           { intros. reflexivity. }
+      + intros R n num Hkm g' args Hsteps Hinp' Hkn.
+        eapply Hmetanode.
+        -- eassumption.
+        -- eapply Relations.TrcFront. 2: eassumption. apply Input.
+        -- assumption.
+        -- assumption.
+      + intros R n num H'. cbv [knows_fact] in H'. simpl in H'.
+        destruct H' as [[H' | H'] | H'].
+        -- subst. exists (fun args => In (normal_dfact R args) (input_facts g)).
            apply partial_in. simpl. cbv [good_inputs] in Hinp.
            fwd. simpl in Hinpp0p0. destruct n; try congruence. eexists. split; [eauto|].
-           split; [|assumption]. intros. reflexivity.
-        -- destruct n.
-           ++ move Hmeta at bottom. epose_dep Hmeta. specialize (Hmeta ltac:(eauto)).
-              simpl in Hmeta. specialize (Hmeta ltac:(assumption)). fwd.
-              exists Rset. split; eauto. eapply prog_impl_implication_weaken_hyp.
-              --- eassumption.
-              --- auto using facts_of_cons.
-           ++ eexists (fun args => _). split; cycle 1.
-              { intros. reflexivity. }
-              apply partial_in. simpl. eexists. ssplit; [|reflexivity|eassumption]. auto.
-        -- destruct n.
-           ++ move Hmeta at bottom. epose_dep Hmeta. specialize (Hmeta ltac:(eauto)).
-              simpl in Hmeta. specialize (Hmeta ltac:(assumption)). fwd.
-              exists Rset. split; eauto. eapply prog_impl_implication_weaken_hyp.
-              --- eassumption.
-              --- auto using facts_of_cons.
-           ++ eexists (fun args => _). split; cycle 1.
-              { intros. reflexivity. }
-              apply partial_in. simpl. eexists. ssplit; [|reflexivity|eassumption]. auto.
+           split.
+           ++ intros. split; auto. intros [H|H]; auto. invert H.
+           ++ simpl in Hinpp1. specialize (Hinpp1 _ _ ltac:(eauto)).
+           
+        eexists. eapply prog_impl_implication_weaken_hyp.
+        -- 
+        apply Hmetainp. simpl in H'.
       + intros R num H. cbv [knows_fact] in H. simpl in H.
         destruct H as [[H|H] |H]; eauto.
       + intros R num n H. cbv [knows_fact] in H. simpl in H.
@@ -426,23 +403,7 @@ Section DistributedDatalog.
            ++ destruct Hkn as [Hkn|Hkn]; eauto.
               fwd. eapply Hwires. rewrite H. apply in_app_iff. simpl. eauto.
            ++ destruct Hkn as [Hkn|Hkn]; eauto. invert Hkn.
-      + intros R n' num HR Hn'. move Hmetanode at bottom.
-        epose_dep Hmetanode. specialize' Hmetanode.
-        { cbv [knows_fact] in HR. simpl in HR. destruct HR as [HR|HR]; eauto.
-          fwd. destr (node_eqb n n0); eauto.
-          rewrite receive_fact_at_node_known_facts in HR. destruct HR as [HR|HR].
-          - subst. eapply Hwires. rewrite H. apply in_app_iff. simpl. eauto.
-          - eauto. }
-        specialize' Hmetanode.
-        { destruct n' as [n'|]; auto. destr (node_eqb n n'); auto.
-          destruct f; exact Hn'. }
-        fwd. eexists. split; [eassumption|]. intros. rewrite Hmetanodep1.
-        destruct n'; [|reflexivity]. destr (node_eqb n n0); [|reflexivity].
-        rewrite receive_fact_at_node_known_facts. r
-          cbv [receive_fact_at_node] in HR. simpl in HR. 
-          assert (knows_fact g (meta_dfact _ _ _)) eapply Hwires. rewrite H.
-        destruct n' as [n'|].
-        -- subst.
+      + intros R n' num Hkm g' args Hsteps Hinp' Hkn.
         cbv [knows_fact] in Hkm. simpl in Hkm. destr (node_eqb n n').
         -- destruct f; simpl in *.
            ++ destruct Hkm as [Hkm|Hkm].
