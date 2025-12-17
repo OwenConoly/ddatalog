@@ -449,7 +449,11 @@ Section DistributedDatalog.
                   +++ apply Forall_map. apply Forall_forall.
                       intros [R' args'] H'. apply Hp1p2 in H'.
                       apply Hnorm. eauto.
-              --- 
+              --- move Hlayout at bottom. cbv [good_layout] in Hlayout. fwd.
+                  clear Hlayoutp0 Hlayoutp2 Hlayoutp3. epose_dep Hlayoutp1.
+                  destruct Hlayoutp1 as [_ Hlayout]. specialize (Hlayout ltac:(eauto)).
+                  
+                  
               eapply Hwires. rewrite H. apply in_app_iff. simpl. eauto.
            ++ destruct Hkn as [Hkn|Hkn]; eauto. invert Hkn.
       
