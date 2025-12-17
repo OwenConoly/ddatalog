@@ -432,7 +432,26 @@ Section DistributedDatalog.
         -- auto.
         -- cbv [knows_fact]. simpl. right. fwd. exists n1. destr (node_eqb n n1); eauto.
            apply receive_fact_at_node_gets_more_facts. assumption.
-    - 
+    - specialize (Hgraph Hinp).
+      destruct Hgraph as (Hnorm&Hmetanode&Hmetainp&Hmnk&Hwires). ssplit.
+      + cbv [knows_fact]. simpl. intros R args Hkn. destruct Hkn as [Hkn | Hkn].
+        -- eauto.
+        -- fwd. destr (node_eqb n n0); eauto. destruct f; simpl in Hkn.
+           ++ destruct Hkn as [Hkn|Hkn]; eauto.
+              fwd. simpl in H. cbv [can_learn_normal_fact_at_node] in H.
+              fwd. destruct r; fwd. 3: contradiction.
+              --- move Hlayout at bottom. cbv [good_layout] in Hlayout. fwd.
+                  clear Hlayoutp1 Hlayoutp2 Hlayoutp3. epose_dep Hlayoutp0.
+                  destruct Hlayoutp0 as [_ Hlayout]. specialize (Hlayout ltac:(eauto)).
+                  eapply prog_impl_step.
+                  +++ apply Exists_exists. eexists. split; [eassumption|].
+                      econstructor. 1: eassumption. eassumption.
+                  +++ apply Forall_map. apply Forall_forall.
+                      intros [R' args'] H'. apply Hp1p2 in H'.
+                      apply Hnorm. eauto.
+              --- 
+              eapply Hwires. rewrite H. apply in_app_iff. simpl. eauto.
+           ++ destruct Hkn as [Hkn|Hkn]; eauto. invert Hkn.
       
   
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
