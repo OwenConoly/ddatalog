@@ -267,7 +267,7 @@ Section DistributedDatalog.
                            end)
                 num' inputs).
   Print can_learn_normal_fact_at_node.
-  Notation "R ^*" := (Relations.trc R) (at level 0). Print meta_dfact. Print meta_fact.
+  Notation "R ^*" := (Relations.trc R) (at level 0).
   Definition good_graph rules (p : list rule) g :=
     good_inputs g.(input_facts) ->
     (forall R args,
@@ -280,10 +280,6 @@ Section DistributedDatalog.
             good_inputs g'.(input_facts) ->
             can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args ->
             In (normal_dfact R args) (g.(node_states) n).(known_facts)) /\
-      (forall R n num,
-          knows_fact g (meta_dfact R n num) ->
-          exists Rset,
-            prog_impl_implication p (facts_of g.(input_facts)) (meta_fact R Rset)) /\
       (forall R num,
           knows_fact g (meta_dfact R None num) ->
           In (meta_dfact R None num) g.(input_facts)) /\
@@ -372,18 +368,6 @@ Section DistributedDatalog.
         -- eapply Relations.TrcFront. 2: eassumption. apply Input.
         -- assumption.
         -- assumption.
-      + intros R n num H'. cbv [knows_fact] in H'. simpl in H'.
-        destruct H' as [[H' | H'] | H'].
-        -- subst. exists (fun args => In (normal_dfact R args) (input_facts g)).
-           apply partial_in. simpl. cbv [good_inputs] in Hinp.
-           fwd. simpl in Hinpp0p0. destruct n; try congruence. eexists. split; [eauto|].
-           split.
-           ++ intros. split; auto. intros [H|H]; auto. invert H.
-           ++ simpl in Hinpp1. specialize (Hinpp1 _ _ ltac:(eauto)).
-           
-        eexists. eapply prog_impl_implication_weaken_hyp.
-        -- 
-        apply Hmetainp. simpl in H'.
       + intros R num H. cbv [knows_fact] in H. simpl in H.
         destruct H as [[H|H] |H]; eauto.
       + intros R num n H. cbv [knows_fact] in H. simpl in H.
