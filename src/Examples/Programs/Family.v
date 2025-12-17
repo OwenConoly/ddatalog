@@ -1,14 +1,10 @@
-From Stdlib Require Import Strings.String.
-From Datalog Require Import Datalog.
-From Stdlib Require Import List.
-From Datalog Require Import FancyNotations.
-From DatalogRocq Require Import StringDatalogParams.
-From DatalogRocq Require Import DependencyGenerator.
+From Stdlib Require Import Strings.String List.
+From Datalog Require Import Datalog FancyNotations.
+From DatalogRocq Require Import StringDatalogParams DependencyGenerator.
 Import ListNotations.
 Open Scope string_scope.
 
 Import StringDatalogParams.
-Module StringDependencyGenerator := DependencyGenerator(StringDatalogParams).
 
 Module family_examples.
 
@@ -39,10 +35,31 @@ Definition family_program : list rule :=
 
 End family_examples.
 
-Compute StringDependencyGenerator.get_program_dependencies family_examples.family_program.
-Compute StringDependencyGenerator.get_rule_dependencies
+(* Temp fix, may use typeclasses later *)
+Definition get_program_dependencies (p : list rule) :=
+  DependencyGenerator.get_program_dependencies
+    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
+    (rel_eqb := rel_eqb) (expr_compatible := expr_compatible)
+    p.
+
+Definition get_rule_dependencies (p : list rule) (r : rule) :=
+  DependencyGenerator.get_rule_dependencies
+    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
+    (rel_eqb := rel_eqb) (expr_compatible := expr_compatible)
+    p r.
+
+Definition get_program_dependencies_flat (p : list rule) :=
+  DependencyGenerator.get_program_dependencies_flat
+    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
+    (rel_eqb := rel_eqb) (expr_compatible := expr_compatible)
+    (fn_eqb := fn_eqb) (var_eqb := var_eqb)
+    p.
+
+(* Example computations *)
+Compute get_program_dependencies family_examples.family_program.
+Compute get_rule_dependencies
         family_examples.family_program
         family_examples.r_ancestor2.
 
-Compute StringDependencyGenerator.get_program_dependencies_flat
+Compute get_program_dependencies_flat
         family_examples.family_program.
