@@ -265,7 +265,8 @@ Section DistributedDatalog.
                            | normal_dfact R' _ => R = R'
                            | meta_dfact _ _ _ => False
                            end)
-              num' inputs).
+                num' inputs).
+  Print can_learn_normal_fact_at_node.
   Notation "R ^*" := (Relations.trc R) (at level 0).
   Definition good_graph rules (p : list rule) g :=
     good_inputs g.(input_facts) ->
@@ -277,7 +278,7 @@ Section DistributedDatalog.
           forall g' args,
             (graph_step rules)^* g g' ->
             good_inputs g'.(input_facts) ->
-            In (normal_dfact R args) (g'.(node_states) n).(known_facts) ->
+            can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args ->
             In (normal_dfact R args) (g.(node_states) n).(known_facts)) /\
       (forall R num,
           knows_fact g (meta_dfact R None num) ->
