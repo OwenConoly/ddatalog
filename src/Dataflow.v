@@ -338,6 +338,22 @@ Section DistributedDatalog.
   Proof.
     intros H. destruct f'; simpl; auto.
   Qed.
+
+  Lemma expect_num_R_facts_correct rules R p g n :
+    good_inputs g.(input_facts) ->
+    good_graph rules p g ->
+    expect_num_R_facts R (g.(node_states) n).(known_facts) ((g.(node_states) n).(msgs_received) R) ->
+    exists Rset,
+      prog_impl_implication p (facts_of g.(input_facts)) (meta_fact R Rset) /\
+        forall x,
+          In (normal_dfact R [x]) (g.(node_states) n).(known_facts) <-> prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R [x]).
+  Proof.
+    intros Hinp (Hnorm&Hmetanode&Hmetainp&Hmnk&Hwires) [H|H].
+    - assumption.
+    - admit.
+    -
+  Abort.
+    
   
   Hint Unfold knows_fact : core.
   Hint Constructors graph_step : core.
@@ -450,6 +466,8 @@ Section DistributedDatalog.
               --- move Hlayout at bottom. cbv [good_layout] in Hlayout. fwd.
                   clear Hlayoutp0 Hlayoutp2 Hlayoutp3. epose_dep Hlayoutp1.
                   destruct Hlayoutp1 as [_ Hlayout]. specialize (Hlayout ltac:(eauto)).
+                  cbv [expect_num_R_facts] in Hp1p0.
+
                   
                   
               eapply Hwires. rewrite H. apply in_app_iff. simpl. eauto.
