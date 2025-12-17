@@ -20,14 +20,10 @@ Section GridLayout.
   Context {rule_eqb_spec : forall r1 r2 : rule,
                             BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2)}.
 
-  Parameter (dims : list nat).
-  Parameter (program : list rule).
-  Parameter (indexed_layout : list (Node * list nat)).
+  Definition mk_grid_graph (dims : list nat) : Dataflow.Graph := GridGraph dims.
 
-  Definition grid_graph : Dataflow.Graph := GridGraph dims.
-
-  Definition layout (n : Node) : list rule :=
-    if check_node_in_bounds dims n then
+  Definition mk_layout_from_indexed_layout (dims : list nat) (indexed_layout : list (Node * list nat)) (program : list rule) (n : Node) : list rule :=
+      if check_node_in_bounds dims n then
       match find (fun p => GridGraph.node_eqb (fst p) n) indexed_layout with
       | None => []
       | Some (_, ris) =>
@@ -41,33 +37,54 @@ Section GridLayout.
       end
     else [].
 
-  Definition rule_in_layout (r : rule) : bool :=
+  (* Just putting in some dummy values for now *)
+  Definition mk_always_forward_table (dims : list nat) (n : Node) : rel * (list T) -> list Node :=
+    fun f => filter (GridGraph.is_neighbor dims n) (all_nodes_h dims).
+
+  Definition mk_no_input_fn (n : Node) (f : rel * (list T)) : Prop := False.
+
+  Definition mk_all_output_fn (n : Node) (f : rel * (list T)) : Prop := True.
+
+  Definition mk_dataflow_network
+             (dims : list nat)
+             (indexed_layout : list (Node * list nat))
+             (program : list rule) : Dataflow.DataflowNetwork :=
+    {|
+      Dataflow.graph := mk_grid_graph dims;
+      Dataflow.layout := mk_layout_from_indexed_layout dims indexed_layout program;
+      Dataflow.forward := mk_always_forward_table dims;
+      Dataflow.input := mk_no_input_fn;
+      Dataflow.output := mk_all_output_fn
+    |}.
+
+  Definition rule_in_layout (r : rule) (layout : Node -> list rule) (dims : list nat): bool :=
     existsb (fun n => existsb (rule_eqb r) (layout n))
             (all_nodes_h dims).
 
-  Definition node_rules_ok (n : Node) : bool :=
+  Definition node_rules_ok (n : Node) (layout : Node -> list rule) (program : list rule): bool :=
     forallb (fun r => existsb (rule_eqb r) program)
             (layout n).
 
-  Definition check_layout : bool :=
-    forallb node_rules_ok (all_nodes_h dims) &&
-    forallb rule_in_layout program.
+  Definition check_layout (dims : list nat) (layout : Node -> list rule) (program : list rule) : bool :=
+    forallb (fun n => node_rules_ok n layout program) (all_nodes_h dims) &&
+    forallb (fun r => rule_in_layout r layout dims) program.
 
   Lemma layout_nonempty_only_valid_nodes :
-    forall n r,
-      In r (layout n) ->
+    forall n r dims indexed_layout program,
+      In r (mk_layout_from_indexed_layout dims indexed_layout program n) ->
       GridGraph.is_graph_node dims n.
   Proof.
-    intros n r Hlayout.
-    unfold layout in Hlayout.
+    intros n r dims indexed_layout program Hlayout.
+    unfold mk_layout_from_indexed_layout in Hlayout.
     destruct (check_node_in_bounds dims n) eqn:Hbounds; try discriminate.
     - apply GridGraph.check_node_in_bounds_h_correct; eauto.
     - contradiction.
   Qed.
 
 Theorem good_layout :
-  check_layout = true ->
-  Dataflow.good_layout layout grid_graph.(nodes) program.
+    forall dims indexed_layout program,
+    check_layout dims (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
+    Dataflow.good_layout (mk_layout_from_indexed_layout dims indexed_layout program) (GridGraph dims).(nodes) program.
 Proof.
     unfold check_layout.
     unfold Dataflow.good_layout.
@@ -105,34 +122,19 @@ Proof.
         * discriminate H_r_eq.
 Qed.
 
-Definition always_forward_table (n : Node) : rel * (list T) -> list Node :=
-  fun f => filter (GridGraph.is_neighbor dims n) (all_nodes_h dims).
-
-Definition no_inputs (n : Node) (f : rel * (list T)) : Prop := False.
-
-Definition all_outputs (n : Node) (f : rel * (list T)) : Prop := True.
-  
-Definition DataflowNetwork : Dataflow.DataflowNetwork :=
-  {|
-    Dataflow.graph := grid_graph;
-    Dataflow.layout := layout;
-    Dataflow.forward := always_forward_table;
-    Dataflow.input := no_inputs;
-    Dataflow.output := all_outputs
-  |}.
-
 Lemma good_network :
-  check_layout = true ->
-  Dataflow.good_network DataflowNetwork program.
+  forall dims indexed_layout program,
+  check_layout dims (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
+  Dataflow.good_network (mk_dataflow_network dims indexed_layout program) program.
 Proof.
-  intros Hcheck.
-  unfold DataflowNetwork. unfold good_network.
+  intros dims indexed_layout program Hcheck.
+  unfold mk_dataflow_network. unfold good_network.
   split.
   - apply GridGraph.good_graph.
   - split. 
     + apply good_layout. assumption.
     + split.
-      * simpl. unfold good_forwarding. intros. unfold always_forward_table in H.
+      * simpl. unfold good_forwarding. intros. unfold mk_always_forward_table in H.
         apply filter_In in H.
         destruct H as [Hneighbor Hin].
         apply GridGraph.is_neighbor_correct in Hin.
@@ -141,13 +143,14 @@ Proof.
 Qed.
 
 Theorem soundness :
-  forall f : rel * list T,
-    check_layout = true ->
-    network_prog_impl_fact DataflowNetwork f ->
+    forall dims indexed_layout program,
+    check_layout dims (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
+    forall f,
+    network_prog_impl_fact (mk_dataflow_network dims indexed_layout program) f ->
     prog_impl_fact program f.
 Proof.
-  intros.
-  apply (Dataflow.soundness DataflowNetwork program); auto.
+  intros dims indexed_layout program Hcheck f Hnetwork.
+  apply (Dataflow.soundness (mk_dataflow_network dims indexed_layout program) program); auto.
   apply good_network; auto.
 Qed.
 
