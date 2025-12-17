@@ -1,107 +1,60 @@
 From Stdlib Require Import List Bool ZArith.Znat Lia.
-From DatalogRocq Require Import Dataflow GridGraph DependencyGenerator ATLDatalogParams Matmul.
-From Datalog Require Import CompilerExamples.
+From DatalogRocq Require Import Dataflow GridGraph DependencyGenerator ATLDatalogParams Matmul GridLayout.
+From Datalog Require Import Datalog CompilerExamples ATLToDatalog.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver.
 Import ListNotations.
 
-Definition dims : list nat := [3; 3].
+Section SmallExample.
+  Definition rel := ATLDatalogParams.rel.
+  Definition var := ATLDatalogParams.var.
+  Definition fn := ATLDatalogParams.fn.
+  Definition aggregator := ATLDatalogParams.aggregator.
+  Definition T := ATLDatalogParams.T.
+  Definition rule := Datalog.rule rel var fn aggregator.
 
-Definition grid_graph_3x3 := GridGraph dims.
+  Context {context : map.map var T}.
+  Context {context_ok : map.ok context}.
+  Context {sig : signature fn aggregator T}.
+  Context {query_sig : query_signature rel}.
 
-Definition indexed_layout : list (Node * list nat) := 
-  [([2;0], [0]); 
-   ([0;2], [1]); 
-   ([0;0], [2]); 
-   ([2;2], [3]); 
-   ([1;2], [4]); 
-   ([1;1], [5]); 
-   ([1;0], [6]); 
-   ([2;1], [7]); 
-   ([0;1], [8])].
+  Definition dims : list nat := [3; 3].
 
-Definition program : list rule := datalog_matmul. 
-(* Definition program : list rule := [empty_rule]. *)
+  Definition program : list rule := datalog_matmul. 
 
-Definition check_index_in_bounds (idx : nat) : bool :=
-  idx <? length program.
+  Print datalog_matmul.
 
-Definition layout (n : Node) : list rule :=
-  if check_node_in_bounds dims n then
-    match find (fun p => GridGraph.node_eqb (fst p) n) indexed_layout with
-    | None => []
-    | Some (_, ris) =>
-        fold_right
-          (fun ri acc =>
-             match nth_error program ri with
-             | Some r => r :: acc
-             | None => acc
-             end)
-          [] ris
-    end
-  else [].
+  Definition indexed_layout : list (Node * list nat) := 
+    [([2;0], [0]); 
+    ([0;2], [1]); 
+    ([0;0], [2]); 
+    ([2;2], [3]); 
+    ([1;2], [4]); 
+    ([1;1], [5]); 
+    ([1;0], [6]); 
+    ([2;1], [7]); 
+    ([0;1], [8])].
 
-Definition rule_in_layout (r : rule) : bool :=
-  existsb (fun n => existsb (ATLDatalogDependencyGenerator.rule_eqb r) (layout n))
-          (all_nodes_h dims).
+  Definition datalog_matmul_3x3 := @mk_dataflow_network rel var fn aggregator T dims indexed_layout program.
+  Definition rule_eqb := @DependencyGenerator.rule_eqb rel var fn aggregator var_eqb rel_eqb fn_eqb.
+  Definition rule_eqb_spec := @DependencyGenerator.rule_eqb_spec rel var fn aggregator T sig query_sig context context_ok var_eqb var_eqb_spec rel_eqb rel_eqb_spec fn_eqb fn_eqb_spec aggregator_eqb aggregator_eqb_spec expr_compatible.
 
-Definition node_rules_ok (n : Node) : bool :=
-  forallb (fun r => existsb (ATLDatalogDependencyGenerator.rule_eqb r) program)
-          (layout n).
+  Definition check_layout := @GridLayout.check_layout rel var fn aggregator rule_eqb.
+  Definition mk_layout := @GridLayout.mk_layout_from_indexed_layout rel var fn aggregator.
 
-Definition check_layout : bool :=
-  forallb node_rules_ok (all_nodes_h dims) &&
-  forallb rule_in_layout program.
+  (* Should be True! Our layout passes the checker *)
+  Compute check_layout dims (mk_layout_from_indexed_layout dims indexed_layout program) program.
 
-Eval vm_compute in check_layout.
+  Definition soundness := @GridLayout.soundness rel var fn aggregator T sig context rule_eqb rule_eqb_spec.
 
-Lemma layout_nonempty_only_valid_nodes :
-  forall n r,
-    In r (layout n) ->
-    GridGraph.is_graph_node dims n.
-Proof.
-  intros n r Hlayout.
-  unfold layout in Hlayout.
-  destruct (check_node_in_bounds dims n) eqn:Hbounds; try discriminate.
-  - apply GridGraph.check_node_in_bounds_h_correct; eauto.
-  - contradiction.
-Qed.
-
-Theorem good_layout :
-  check_layout = true ->
-  Dataflow.good_layout layout grid_graph_3x3.(nodes) program.
-Proof.
-    unfold check_layout.
-    unfold Dataflow.good_layout.
+  Theorem soundness_check :
+    forall f,
+      network_prog_impl_fact
+      (mk_dataflow_network dims indexed_layout program) f ->
+      prog_impl_fact program f.
+  Proof.
     intros.
-    split.
-    - apply Forall_forall. intros. apply andb_true_iff in H. destruct H as [H_nodes_ok H_rule_in_layout].
-      rewrite forallb_forall in H_rule_in_layout.
-      apply H_rule_in_layout in H0 as H_layout.
-      unfold rule_in_layout in H_layout. rewrite existsb_exists in H_layout.
-      destruct H_layout as [n [H_n_in_nodes H_r_in_layout]].
-      rewrite existsb_exists in H_r_in_layout.
-      destruct H_r_in_layout as [r H_r_eq].
-      exists n. destruct H_r_eq as [Hin H_r_eq]. 
-      destruct (ATLDatalogDependencyGenerator.rule_eqb_spec x r).
-      + subst. split; auto. apply all_nodes_correct. apply H_n_in_nodes.
-      + discriminate H_r_eq.
-    - intros.
-      apply andb_true_iff in H. destruct H as [H_nodes_ok H_rule_in_layout].
-      rewrite forallb_forall in H_nodes_ok.
-      rewrite forallb_forall in H_rule_in_layout.
-      split.
-      + apply layout_nonempty_only_valid_nodes in H0 as H_layout_nonempty.
-        auto.
-      + apply layout_nonempty_only_valid_nodes in H0 as H_layout_nonempty.
-        apply all_nodes_correct in H_layout_nonempty.
-        specialize (H_nodes_ok n H_layout_nonempty).
-        unfold node_rules_ok in H_nodes_ok.
-        rewrite forallb_forall in H_nodes_ok.
-        specialize (H_nodes_ok r H0).
-        rewrite existsb_exists in H_nodes_ok.
-        destruct H_nodes_ok as [r' H_r'_in_program].
-        destruct H_r'_in_program as [Hin H_r_eq].
-        destruct (ATLDatalogDependencyGenerator.rule_eqb_spec r r').
-        * subst. auto.
-        * discriminate H_r_eq.
-Qed.
+    eapply soundness; eauto.
+    vm_compute. reflexivity.
+  Qed.
+
+End SmallExample.
