@@ -334,6 +334,13 @@ Section DistributedDatalog.
     - eapply Existsn_unique in Hp2; [|exact H3]. subst. lia.
   Qed.
 
+  Lemma receive_fact_at_node_gets_more_facts f f' ns :
+    In f ns.(known_facts) ->
+    In f (receive_fact_at_node ns f').(known_facts).
+  Proof.
+    intros H. destruct f'; simpl; auto.
+  Qed.
+  
   Hint Unfold knows_fact : core.
   Hint Constructors graph_step : core.
   Hint Constructors Relations.trc : core.
@@ -381,24 +388,51 @@ Section DistributedDatalog.
               fwd. eapply Hwires. rewrite H. apply in_app_iff. simpl. eauto.
            ++ destruct Hkn as [Hkn|Hkn]; eauto. invert Hkn.
       + intros R n' num Hkm g' args Hsteps Hinp' Hkn.
-        cbv [knows_fact] in Hkm. simpl in Hkm. Print good_graph. destr (node_eqb n n').
+        cbv [knows_fact] in Hkm. simpl in Hkm. destr (node_eqb n n').
         -- destruct f; simpl in *.
            ++ destruct Hkm as [Hkm|Hkm].
               --- invert Hkm.
               --- right. eapply Hmetanode. 1,3,4: eauto.
                   eapply Relations.TrcFront. 2: eassumption.
-                  Print graph_step.
                   apply ReceiveFact with (f := normal_dfact _ _).
                   assumption.
            ++ destruct Hkm as [Hkm|Hkm].
-              --- fwd. right. eapply Hmetanode. 1,3,4: eauto.
-                  constructor. eauto. exact Hsteps. eauto.
-        -- eapply Hmetanode.
-           ++ eauto.
-           ++ eapply Relations.TrcFront. 2: eassumption. apply ReceiveFact. assumption.
-           ++ assumption.
-           ++ assumption.
-      + 
+              --- fwd. right. eapply Hmetanode. 3,4: eauto.
+                  { apply Hmnk. eapply Hwires. rewrite H. apply in_app_iff.
+                    simpl. eauto. }
+                  eapply Relations.TrcFront. 2: eassumption.
+                  apply ReceiveFact with (f := meta_dfact _ _ _).
+                  assumption.
+              --- right. eapply Hmetanode. 1,3,4: eauto.
+                  eapply Relations.TrcFront. 2: eassumption.
+                  apply ReceiveFact with (f := meta_dfact _ _ _).
+                  assumption.
+        -- eapply Hmetanode. 1,3,4: eauto.
+           eapply Relations.TrcFront. 2: eassumption. apply ReceiveFact. assumption.
+      + intros R num HR. cbv [knows_fact] in HR. simpl in HR.
+        destruct HR as [HR |HR]; eauto. fwd. destr (node_eqb n n0); eauto.
+        destruct f; simpl in HR.
+        -- destruct HR as [HR|HR]; eauto. invert HR.
+        -- destruct HR as [HR|HR]; eauto. fwd. apply Hmetainp. eapply Hwires.
+           rewrite H. apply in_app_iff. simpl. eauto.
+      + intros R num n' Hn'. cbv [knows_fact] in Hn'. simpl in Hn'.
+        destruct Hn' as [Hn' |Hn'].
+        -- exfalso. destruct Hinp as [Hinp _]. rewrite Forall_forall in Hinp.
+           simpl in Hinp. specialize (Hinp _ Hn'). simpl in Hinp. congruence.
+        -- fwd. destr (node_eqb n n0).
+           ++ destr (node_eqb n0 n'); auto. apply Hmnk. destruct f; simpl in Hn'.
+              --- destruct Hn' as [Hn'|Hn']; eauto. invert Hn'.
+              --- destruct Hn' as [Hn'|Hn']; eauto. invert Hn'.
+                  eapply Hwires. rewrite H. apply in_app_iff. simpl. eauto.
+           ++ destr (node_eqb n n'); eauto. apply receive_fact_at_node_gets_more_facts.
+              apply Hmnk. eauto.
+      + intros n0 f0 H0. rewrite H in Hwires. specialize (Hwires n0 f0).
+        rewrite in_app_iff in Hwires. simpl in Hwires. apply in_app_iff in H0.
+        specialize (Hwires ltac:(destruct H0; auto)). destruct Hwires as [Hwires|Hwires].
+        -- auto.
+        -- cbv [knows_fact]. simpl. right. fwd. exists n1. destr (node_eqb n n1); eauto.
+           apply receive_fact_at_node_gets_more_facts. assumption.
+    - 
       
   
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
