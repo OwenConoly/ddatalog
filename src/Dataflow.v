@@ -115,6 +115,12 @@ Section DistributedDatalog.
 
   Print node_state.
   Print Datalog.rule. Print rule_impl. Print Datalog.fact.
+  Definition expect_num_R_facts R known_facts num :=
+    In (meta_dfact R None num) known_facts \/
+      exists expected_msgss,
+        Forall2 (fun n expected_msgs => In (meta_dfact R (Some n) expected_msgs) known_facts) all_nodes expected_msgss /\
+          num = fold_right Nat.add O expected_msgss.
+
   Definition can_learn_normal_fact_at_node rules ns R args :=
     exists r, In r rules /\
     match r with
@@ -125,18 +131,13 @@ Section DistributedDatalog.
           (forall R0 args0, In (R0, args0) hyps' ->
                        In (normal_dfact R0 args0) ns.(known_facts))
     | agg_drule rule_agg target_rel source_rel =>
+        expect_num_R_facts source_rel ns.(known_facts) (ns.(msgs_received) source_rel) /\
         exists vals,
         (forall x, In x vals <-> In (normal_dfact source_rel [x]) ns.(known_facts)) /\
           R = target_rel /\
           args = [fold_right (interp_agg rule_agg) (agg_id rule_agg) vals]
     | meta_drule _ _ => False
     end.
-
-  Definition expect_num_R_facts R known_facts num :=
-    In (meta_dfact R None num) known_facts \/
-      exists expected_msgss,
-        Forall2 (fun n expected_msgs => In (meta_dfact R (Some n) expected_msgs) known_facts) all_nodes expected_msgss /\
-          num = fold_right Nat.add O expected_msgss.
 
   Definition can_learn_meta_fact_at_node rules ns R expected_msgs :=
     exists r, In r rules /\
@@ -209,8 +210,6 @@ Section DistributedDatalog.
         facts_on_wires := map (fun n => (n, f)) all_nodes ++ g.(facts_on_wires);
         input_facts := g.(input_facts) |}.
 
-  Print graph_state.
-  
   Definition good_layout (p : list rule) (rules : Node -> list drule) :=
     (forall rule_concls rule_hyps,
         In (normal_rule rule_concls rule_hyps) p <-> exists n, In (normal_drule rule_concls rule_hyps) (rules n)) /\
@@ -228,7 +227,6 @@ Section DistributedDatalog.
     In f g.(input_facts) \/
       exists n, In f (g.(node_states) n).(known_facts).
 
-  (*no, should not talk about set sizes, should talk about number satisfying criteria in input facts*)
   Inductive Existsn {T} (P : T -> Prop) : nat -> list T -> Prop :=
   | Existsn_nil : Existsn _ 0 []
   | Existsn_no x n l :
@@ -266,7 +264,7 @@ Section DistributedDatalog.
                            | meta_dfact _ _ _ => False
                            end)
                 num' inputs).
-  Print can_learn_normal_fact_at_node.
+
   Notation "R ^*" := (Relations.trc R) (at level 0).
   Definition good_graph rules (p : list rule) g :=
     good_inputs g.(input_facts) ->
