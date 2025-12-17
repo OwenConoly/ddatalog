@@ -153,11 +153,6 @@ Section DistributedDatalog.
           expected_msgs = ns.(msgs_sent) R
     end.
 
-  Definition should_learn_normal_fact_at_node rules n ns R args :=
-    can_learn_normal_fact_at_node rules ns R args /\
-      ~exists expected_msgs,
-          In (meta_dfact R n expected_msgs) ns.(known_facts).
-
   Definition should_learn_fact_at_node rules n ns f :=
     match f with
     | normal_dfact R args =>
