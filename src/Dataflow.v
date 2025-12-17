@@ -214,6 +214,8 @@ Section DistributedDatalog.
         facts_on_wires := map (fun n => (n, f)) all_nodes ++ g.(facts_on_wires);
         input_facts := g.(input_facts) |}.
 
+  Print graph_state.
+  
   Definition good_layout (p : list rule) (rules : Node -> list drule) :=
     (forall rule_concls rule_hyps,
         In (normal_rule rule_concls rule_hyps) p <-> exists n, In (normal_drule rule_concls rule_hyps) (rules n)) /\
@@ -276,7 +278,7 @@ Section DistributedDatalog.
         knows_fact g (normal_dfact R args) ->
         prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R args)) /\
       (forall R n num,
-          knows_fact g (meta_dfact R (Some n) num) ->
+          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
           forall g' args,
             (graph_step rules)^* g g' ->
             good_inputs g'.(input_facts) ->
@@ -284,7 +286,13 @@ Section DistributedDatalog.
             In (normal_dfact R args) (g.(node_states) n).(known_facts)) /\
       (forall R num,
           knows_fact g (meta_dfact R None num) ->
-          In (meta_dfact R None num) g.(input_facts)).
+          In (meta_dfact R None num) g.(input_facts)) /\
+      (forall R num n,
+          knows_fact g (meta_dfact R (Some n) num) ->
+          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts)) /\
+      (forall n f,
+          In (n, f) g.(facts_on_wires) ->
+          knows_fact g f).
   
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
@@ -329,7 +337,10 @@ Section DistributedDatalog.
     - congruence.
     - eapply Existsn_unique in Hp2; [|exact H3]. subst. lia.
   Qed.
-      
+
+  Hint Unfold knows_fact : core.
+  Hint Constructors graph_step : core.
+  Hint Constructors Relations.trc : core.
   Lemma good_layout_normal_facts_sound p rules g g' :
     good_layout p rules ->
     graph_step rules g g' ->
@@ -339,7 +350,7 @@ Section DistributedDatalog.
     intros Hlayout Hstep Hgraph. intros Hinp.
     invert Hstep; simpl in *.
     - specialize (Hgraph ltac:(eauto using good_inputs_cons)).
-      destruct Hgraph as (Hnorm&Hmetanode&Hmetainp). ssplit.
+      destruct Hgraph as (Hnorm&Hmetanode&Hmetainp&Hmnk&Hwires). ssplit.
       + cbv [knows_fact]. simpl. intros R args H. destruct H as [[H | H] | H].
         -- subst. apply partial_in. simpl. auto.
         -- eapply prog_impl_implication_weaken_hyp.
@@ -348,18 +359,51 @@ Section DistributedDatalog.
         -- eapply prog_impl_implication_weaken_hyp.
            ++ apply Hnorm. cbv [knows_fact]. auto.
            ++ auto using facts_of_cons.
-      + intros R n num Hkm g' args Hsteps Hkn.
+      + intros R n num Hkm g' args Hsteps Hinp' Hkn.
         eapply Hmetanode.
-        -- cbv [knows_fact] in Hkm. simpl in Hkm. destruct Hkm as [[Hkm | Hkm] | Hkm].
-           ++ exfalso. subst. cbv [good_inputs] in Hinp. simpl in Hinp.
-              destruct Hinp as [Hinp _]. invert Hinp. simpl in *. congruence.
-           ++ cbv [knows_fact]. eauto.
-           ++ cbv [knows_fact]. eauto.
+        -- eassumption.
         -- eapply Relations.TrcFront. 2: eassumption. apply Input.
         -- assumption.
+        -- assumption.
       + intros R num H. cbv [knows_fact] in H. simpl in H.
-        destruct H as [[H|H] |H]; eauto. cbv [knows_fact] in Hmetainp. fwd. eauto.
-    - 
+        destruct H as [[H|H] |H]; eauto.
+      + intros R num n H. cbv [knows_fact] in H. simpl in H.
+        destruct H as [H |H].
+        -- exfalso. destruct Hinp as [Hinp _]. rewrite Forall_forall in Hinp.
+           simpl in Hinp. specialize (Hinp _ H). simpl in Hinp. congruence.
+        -- fwd. eauto.
+      + intros n f' Hf'. apply in_app_iff in Hf'. cbv [knows_fact]. simpl.
+        destruct Hf' as [Hf'|Hf'].
+        -- apply in_map_iff in Hf'. fwd. eauto.
+        -- apply Hwires in Hf'. cbv [knows_fact] in Hf'. destruct Hf'; eauto.
+    - specialize (Hgraph Hinp).
+      destruct Hgraph as (Hnorm&Hmetanode&Hmetainp&Hmnk&Hwires). ssplit.
+      + cbv [knows_fact]. simpl. intros R args Hkn. destruct Hkn as [Hkn | Hkn].
+        -- eauto.
+        -- fwd. destr (node_eqb n n0); eauto. apply Hnorm. destruct f; simpl in Hkn.
+           ++ destruct Hkn as [Hkn|Hkn]; eauto.
+              fwd. eapply Hwires. rewrite H. apply in_app_iff. simpl. eauto.
+           ++ destruct Hkn as [Hkn|Hkn]; eauto. invert Hkn.
+      + intros R n' num Hkm g' args Hsteps Hinp' Hkn.
+        cbv [knows_fact] in Hkm. simpl in Hkm. Print good_graph. destr (node_eqb n n').
+        -- destruct f; simpl in *.
+           ++ destruct Hkm as [Hkm|Hkm].
+              --- invert Hkm.
+              --- right. eapply Hmetanode. 1,3,4: eauto.
+                  eapply Relations.TrcFront. 2: eassumption.
+                  Print graph_step.
+                  apply ReceiveFact with (f := normal_dfact _ _).
+                  assumption.
+           ++ destruct Hkm as [Hkm|Hkm].
+              --- fwd. right. eapply Hmetanode. 1,3,4: eauto.
+                  constructor. eauto. exact Hsteps. eauto.
+        -- eapply Hmetanode.
+           ++ eauto.
+           ++ eapply Relations.TrcFront. 2: eassumption. apply ReceiveFact. assumption.
+           ++ assumption.
+           ++ assumption.
+      + 
+      
   
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps).
