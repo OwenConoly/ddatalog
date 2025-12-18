@@ -48,8 +48,8 @@ Definition get_rule_dependencies (p : list rule) (r : rule) :=
 Definition get_program_dependencies_flat (p : list rule) :=
   DependencyGenerator.get_program_dependencies_flat
     (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
-    (rel_eqb := rel_eqb) (expr_compatible := expr_compatible)
-    (fn_eqb := fn_eqb) (var_eqb := var_eqb)
+    (aggregator_eqb := aggregator_eqb) (rel_eqb := rel_eqb)
+    (expr_compatible := expr_compatible) (fn_eqb := fn_eqb) (var_eqb := var_eqb)
     p.
 
 Compute get_program_dependencies graph_program.

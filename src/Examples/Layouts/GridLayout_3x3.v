@@ -35,8 +35,8 @@ Section SmallExample.
     ([0;1], [8])].
 
   Definition datalog_matmul_3x3 := @mk_dataflow_network rel var fn aggregator T dims indexed_layout program.
-  Definition rule_eqb := @DependencyGenerator.rule_eqb rel var fn aggregator var_eqb rel_eqb fn_eqb.
-  Definition rule_eqb_spec := @DependencyGenerator.rule_eqb_spec rel var fn aggregator T sig query_sig context context_ok var_eqb var_eqb_spec rel_eqb rel_eqb_spec fn_eqb fn_eqb_spec aggregator_eqb aggregator_eqb_spec expr_compatible.
+  Definition rule_eqb := @DependencyGenerator.rule_eqb rel var fn aggregator var_eqb rel_eqb fn_eqb aggregator_eqb.
+  Definition rule_eqb_spec := @DependencyGenerator.rule_eqb_spec rel var fn aggregator var_eqb var_eqb_spec rel_eqb rel_eqb_spec fn_eqb fn_eqb_spec aggregator_eqb aggregator_eqb_spec.
 
   Definition check_layout := @GridLayout.check_layout rel var fn aggregator rule_eqb.
   Definition mk_layout := @GridLayout.mk_layout_from_indexed_layout rel var fn aggregator.
