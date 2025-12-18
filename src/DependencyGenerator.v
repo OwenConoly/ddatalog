@@ -3,7 +3,7 @@
 
 From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool Lia.
-From coqutil Require Import Datatypes.List Map.Interface Datatypes.Option.
+From coqutil Require Import Datatypes.List Map.Interface.
 From DatalogRocq Require Import EqbSpec.
 
 Import ListNotations.
@@ -122,7 +122,6 @@ Proof.
       destruct (list_eqb_fuel_spec fuel expr_eqb_fuel IH args args0 Hargs); try (constructor; congruence).
 Qed.
 
-
 Lemma expr_eqb_spec :
   forall e1 e2,
     BoolSpec (e1 = e2) (e1 <> e2) (expr_eqb e1 e2).
@@ -140,17 +139,10 @@ Lemma fact_eqb_spec :
   forall f1 f2,
     BoolSpec (f1 = f2) (f1 <> f2) (fact_eqb f1 f2).
 Proof.
-  unfold fact_eqb.
-  intros [R1 args1] [R2 args2]; simpl.
-  destruct (rel_eqb_spec R1 R2) as [HR | HR];
-  destruct (@list_eqb_spec
-            (Datalog.expr var fn)
-            expr_eqb
-            expr_eqb_spec
-            args1 args2)
-  as [Hargs | Hargs].
-  - subst. simpl. 
-Admitted.
+  intros [R1 args1] [R2 args2]; unfold fact_eqb; simpl.
+  destruct (rel_eqb_spec R1 R2); try (constructor; congruence).
+  destruct (@list_eqb_spec _ expr_eqb expr_eqb_spec args1 args2); subst; simpl; try (constructor; congruence).
+Qed.
 
 Definition agg_expr_eqb (ae1 ae2 : agg_expr) : bool :=
   aggregator_eqb (Datalog.agg_agg ae1) (Datalog.agg_agg ae2) &&
@@ -164,31 +156,30 @@ Lemma agg_expr_eqb_spec :
   forall ae1 ae2,
     BoolSpec (ae1 = ae2) (ae1 <> ae2) (agg_expr_eqb ae1 ae2).
 Proof.
-  intros [agg1 i1 vs1 s1 body1 hyps1] [agg2 i2 vs2 s2 body2 hyps2]; simpl.
-Admitted.
+  intros [agg1 i1 vs1 s1 body1 hyps1] [agg2 i2 vs2 s2 body2 hyps2]; unfold agg_expr_eqb; simpl.
+  destruct (aggregator_eqb_spec agg1 agg2); subst; simpl; try (constructor; congruence).
+  destruct (var_eqb_spec i1 i2); subst; simpl; try (constructor; congruence).
+  destruct (@list_eqb_spec _ var_eqb var_eqb_spec vs1 vs2); subst; simpl; try (constructor; congruence).
+  destruct (expr_eqb_spec s1 s2); subst; simpl; try (constructor; congruence).
+  destruct (expr_eqb_spec body1 body2); subst; simpl; try (constructor; congruence).
+  destruct (@list_eqb_spec _ fact_eqb fact_eqb_spec hyps1 hyps2); subst; simpl; try (constructor; congruence).
+Qed.
 
 Definition rule_agg_eqb
   (ra1 ra2 : option (var * agg_expr)) : bool :=
-  match ra1, ra2 with
-  | None, None => true
-  | Some (a1, ae1), Some (a2, ae2) =>
-      var_eqb a1 a2 &&
-      list_eqb fact_eqb (Datalog.agg_hyps ae1)
-                         (Datalog.agg_hyps ae2)
-  | _, _ => false
-  end.
+  option_eqb (pair_eqb var_eqb agg_expr_eqb) ra1 ra2.
 
 Lemma rule_agg_eqb_spec :
   forall ra1 ra2,
     BoolSpec (ra1 = ra2) (ra1 <> ra2) (rule_agg_eqb ra1 ra2).
 Proof.
-  destruct ra1 as [[a1 ae1]|], ra2 as [[a2 ae2]|]; simpl; try constructor; try congruence.
-  - destruct (var_eqb_spec a1 a2); subst.
-    + destruct (@list_eqb_spec (Datalog.fact rel var fn) fact_eqb fact_eqb_spec (Datalog.agg_hyps ae1) (Datalog.agg_hyps ae2)); subst.
-      * rewrite H. simpl. admit.
-      * admit.
-    + constructor. congruence.
-Admitted.
+  intros ra1 ra2. unfold rule_agg_eqb.
+  apply (option_eqb_spec
+           (pair_eqb var_eqb agg_expr_eqb)
+           (pair_eqb_spec var_eqb agg_expr_eqb
+              var_eqb_spec agg_expr_eqb_spec)
+           ra1 ra2).
+Qed.
 
 Definition rule_set_hyps_eqb
   (rh1 rh2 : list (expr * expr)) : bool :=
@@ -198,19 +189,28 @@ Lemma rule_set_hyps_eqb_spec :
   forall rh1 rh2,
     BoolSpec (rh1 = rh2) (rh1 <> rh2) (rule_set_hyps_eqb rh1 rh2).
 Proof.
-Admitted.
+  intros rh1 rh2; unfold rule_set_hyps_eqb; simpl.
+  apply (@list_eqb_spec (expr * expr)
+         (pair_eqb expr_eqb expr_eqb)
+         (pair_eqb_spec expr_eqb expr_eqb expr_eqb_spec expr_eqb_spec)).
+Qed.
 
 Definition rule_eqb (r1 r2 : rule) : bool :=
-  list_eqb fact_eqb (Datalog.rule_hyps r1) (Datalog.rule_hyps r2) &&
-  list_eqb fact_eqb (Datalog.rule_concls r1) (Datalog.rule_concls r2) &&
   rule_agg_eqb (Datalog.rule_agg r1) (Datalog.rule_agg r2) &&
+  list_eqb fact_eqb (Datalog.rule_concls r1) (Datalog.rule_concls r2) &&
+  list_eqb fact_eqb (Datalog.rule_hyps r1) (Datalog.rule_hyps r2) &&
   rule_set_hyps_eqb (Datalog.rule_set_hyps r1) (Datalog.rule_set_hyps r2).
 
 Definition rule_eqb_spec :
   forall r1 r2,
     BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2).
 Proof.
-Admitted.
+  intros [agg1 concls1 hyps1 set_hyps1] [agg2 concls2 hyps2 set_hyps2]; unfold rule_eqb; simpl.
+  destruct (rule_agg_eqb_spec agg1 agg2); simpl; try (constructor; congruence).
+  destruct (@list_eqb_spec _ fact_eqb fact_eqb_spec concls1 concls2); simpl; try (constructor; congruence).
+  destruct (@list_eqb_spec _ fact_eqb fact_eqb_spec hyps1 hyps2); simpl; try (constructor; congruence).
+  destruct (rule_set_hyps_eqb_spec set_hyps1 set_hyps2); simpl; try (constructor; congruence).
+Qed.
 
 (* Pruning *)
 Definition prune_empty_concl_rules (p : program) : program :=
