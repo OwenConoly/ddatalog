@@ -1,5 +1,3 @@
-From coqutil Require Import Option.
-
 Definition pair_eqb {A B} (eqbA : A -> A -> bool) (eqbB : B -> B -> bool)
            (p1 p2 : A * B) : bool :=
   let (a1, b1) := p1 in
@@ -17,17 +15,20 @@ Proof.
   destruct (specA a1 a2); destruct (specB b1 b2); constructor; congruence.
 Qed.
 
+Definition option_eqb {A} (eqbA : A -> A -> bool) (o1 o2 : option A) : bool :=
+  match o1, o2 with
+  | None, None => true
+  | Some a1, Some a2 => eqbA a1 a2
+  | _, _ => false
+  end.
+
 Lemma option_eqb_spec {A} (eqbA : A -> A -> bool)
       (specA : forall x y, BoolSpec (x = y) (x <> y) (eqbA x y))
       (o1 o2 : option A) :
   BoolSpec (o1 = o2) (o1 <> o2)
-            (match o1, o2 with
-              | None, None => true
-              | Some a1, Some a2 => eqbA a1 a2
-              | _, _ => false
-              end).
+            (option_eqb eqbA o1 o2).
 Proof.
-  destruct o1, o2.
+  unfold option_eqb. destruct o1, o2.
   - destruct (specA a a0); constructor; congruence.
   - constructor; congruence.
   - constructor; congruence.
