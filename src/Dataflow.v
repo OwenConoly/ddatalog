@@ -46,7 +46,7 @@ Section DistributedDatalog.
   Record graph_state := {
       node_states : Node -> node_state;
       (*if (n, f) is in this list, then fact f has been sent to node n but has not yet been received*)
-      facts_on_wires : list (Node * dfact);
+      travellers : list (Node * dfact);
       (*inputs that have been received so far*)
       input_facts : list dfact;
     }.
@@ -189,16 +189,16 @@ Section DistributedDatalog.
     graph_step _
       g
       {| node_states := g.(node_states);
-        facts_on_wires := map (fun n => (n, f)) all_nodes ++ g.(facts_on_wires);
+        travellers := map (fun n => (n, f)) all_nodes ++ g.(travellers);
         input_facts := f :: g.(input_facts); |}
   | ReceiveFact g n f fs1 fs2 :
-    g.(facts_on_wires) = fs1 ++ (n, f) :: fs2 ->
+    g.(travellers) = fs1 ++ (n, f) :: fs2 ->
     graph_step _
       g
       {| node_states := fun n' => if node_eqb n n' then
                                  receive_fact_at_node (g.(node_states) n) f
                                else g.(node_states) n';
-        facts_on_wires := fs1 ++ fs2;
+        travellers := fs1 ++ fs2;
         input_facts := g.(input_facts); |}
   | LearnFact g n f :
     should_learn_fact_at_node (rule_assignments n) n (g.(node_states) n) f ->
@@ -207,7 +207,7 @@ Section DistributedDatalog.
       {| node_states := fun n' => if node_eqb n n' then
                                  receive_fact_at_node (g.(node_states) n) f
                                else g.(node_states) n';
-        facts_on_wires := map (fun n => (n, f)) all_nodes ++ g.(facts_on_wires);
+        travellers := map (fun n => (n, f)) all_nodes ++ g.(travellers);
         input_facts := g.(input_facts) |}.
 
   Definition good_layout (p : list rule) (rules : Node -> list drule) :=
@@ -289,13 +289,13 @@ Section DistributedDatalog.
           knows_fact g (meta_dfact R (Some n) num) ->
           In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts)) /\
       (forall n f,
-          In (n, f) g.(facts_on_wires) ->
+          In (n, f) g.(travellers) ->
           knows_fact g f) /\
       (forall R n num,
           In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
           (g.(node_states) n).(msgs_sent) R = num) /\
       (forall (n R : unit), False
-      (*the number of facts received by n about R plus the number of facts on wires for n about R equals the number of facts sent about R*)).
+      (*the number of facts received by n about R plus the number of travellers for n about R equals the number of facts sent about R*)).
 
   Print graph_step.
   Lemma good_layout_preserves_sanity rules p g g' :
