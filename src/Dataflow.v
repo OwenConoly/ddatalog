@@ -133,7 +133,7 @@ Section DistributedDatalog.
     | agg_drule rule_agg target_rel source_rel =>
         expect_num_R_facts source_rel ns.(known_facts) (ns.(msgs_received) source_rel) /\
         exists vals,
-        (forall x, In x vals <-> In (normal_dfact source_rel [x]) ns.(known_facts)) /\
+        (is_list_set (fun x => In (normal_dfact source_rel [x]) ns.(known_facts)) vals) /\
           R = target_rel /\
           args = [fold_right (interp_agg rule_agg) (agg_id rule_agg) vals]
     | meta_drule _ _ => False
@@ -266,27 +266,129 @@ Section DistributedDatalog.
                 num' inputs).
 
   Notation "R ^*" := (Relations.trc R) (at level 0).
-  Definition good_graph rules (p : list rule) g :=
+  Definition sound_graph (*rules*) (p : list rule) g :=
     good_inputs g.(input_facts) ->
     (forall R args,
         knows_fact g (normal_dfact R args) ->
-        prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R args)) /\
-      (forall R n num,
-          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
-          forall g' args,
-            (graph_step rules)^* g g' ->
-            good_inputs g'.(input_facts) ->
-            can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args ->
-            In (normal_dfact R args) (g.(node_states) n).(known_facts)) /\
-      (forall R num,
-          knows_fact g (meta_dfact R None num) ->
-          In (meta_dfact R None num) g.(input_facts)) /\
+        prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R args)) (*/\*)
+      (* (forall R n num, *)
+      (*     In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) -> *)
+      (*     (g.(node_states) n).(msgs_sent) R = num *)
+      (*     (* forall g' args, *) *)
+      (*     (*   (graph_step rules)^* g g' -> *) *)
+      (*     (*   good_inputs g'.(input_facts) -> *) *)
+      (*     (*   can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args -> *) *)
+      (*     (*   In (normal_dfact R args) (g.(node_states) n).(known_facts) *)). *).
+
+  Definition sane_graph g :=
+    good_inputs g.(input_facts) ->
+    (forall R num,
+        knows_fact g (meta_dfact R None num) ->
+        In (meta_dfact R None num) g.(input_facts)) /\
       (forall R num n,
           knows_fact g (meta_dfact R (Some n) num) ->
           In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts)) /\
       (forall n f,
           In (n, f) g.(facts_on_wires) ->
-          knows_fact g f).
+          knows_fact g f) /\
+      (forall R n num,
+          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
+          (g.(node_states) n).(msgs_sent) R = num) /\
+      (forall (n R : unit), False
+      (*the number of facts received by n about R plus the number of facts on wires for n about R equals the number of facts sent about R*)).
+
+  Print graph_step.
+  Lemma good_layout_preserves_sanity rules p g g' :
+    good_layout p rules ->
+    sane_graph g ->
+    graph_step rules g g' ->
+    sane_graph g'.
+  Proof. Admitted.
+  
+  Print rule. Print rule_impl. Print Datalog.rule. Search drule Datalog.rule.
+  Print Datalog.fact. Check meta_dfact.
+  Definition knows_datalog_fact g f :=
+    match f with
+    | normal_fact R args => knows_fact g (normal_dfact R args)
+    | meta_fact R Rset =>
+        (exists num, knows_fact g (meta_dfact R None num)) \/
+          (forall n, exists num, knows_fact g (meta_dfact R (Some n) num))
+    end.
+
+  Print knows_fact. Print node_state.
+  Lemma node_can_receive_known_fact rules g f n :
+    knows_fact g f ->
+    exists g',
+      (graph_step rules)^* g g' /\
+        In f (g'.(node_states) n).(known_facts).
+  Proof. Admitted.
+
+  Lemma node_can_receive_known_facts rules g hyps n :
+    Forall (knows_fact g) hyps ->
+    exists g',
+      (graph_step rules)^* g g' /\
+        Forall (fun f => In f (g'.(node_states) n).(known_facts)) hyps.
+  Proof. Admitted.
+  
+  Lemma good_layout_complete p rules r hyps f g :
+    good_layout p rules ->
+    In r p ->
+    rule_impl r f hyps ->
+    sane_graph g ->
+    Forall (knows_datalog_fact g) hyps ->
+    exists g',
+      (graph_step rules)^* g g' /\
+        knows_datalog_fact g' f.
+  Proof.
+    intros Hgood Hr Himpl Hg Hhyps. invert Himpl.
+    - cbv [good_layout] in Hgood. destruct Hgood as (Hgood&_).
+      apply Hgood in Hr. clear Hgood.
+      destruct Hr as (n&Hr).
+
+      edestruct node_can_receive_known_facts as (g1&Hstep1&Hhyps1).
+      { apply Forall_map with (f := fun '(R, args) => normal_dfact R args).
+        rewrite Lists.List.Forall_map in Hhyps.
+        eapply Forall_impl; [|exact Hhyps].
+        simpl. intros [? ?]. simpl. intros H'. exact H'. }
+
+      eexists. split.
+      { (*first, step to a state where node n knows all the hypotheses;
+          then, one final step where n deduces the conclusion*)
+        eapply Relations.trc_trans.
+        { exact Hstep1. }
+        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        apply LearnFact with (n := n) (f := normal_dfact R args).
+        simpl. cbv [can_learn_normal_fact_at_node].
+        eexists. split; [eassumption|]. simpl.
+        do 2 eexists. split; [eassumption|]. split; [eassumption|].
+        intros R' args' H'. rewrite Lists.List.Forall_map in Hhyps1.
+        rewrite Forall_forall in Hhyps1. apply Hhyps1 in H'. exact H'. }
+      simpl. cbv [knows_fact]. simpl. right. exists n.
+      destr (node_eqb n n); [|congruence].
+      simpl. left. reflexivity.
+    - cbv [good_layout] in Hgood. destruct Hgood as (_&Hgood&_).
+      apply Hgood in Hr. clear Hgood.
+      destruct Hr as (n&Hr).
+   
+      invert Hhyps. rename H2 into Hm. rename H3 into Hn.
+      destruct Hm as [Hm|Hm].
+      1: admit. (*less interesting than the second case, so i skip it for now*)
+      eexists. split.
+      { (*first, step to a state where node n knows all the hypotheses;
+          then, one final step where n deduces the conclusion*)
+        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        eapply LearnFact with (n := n) (f := normal_dfact _ _).
+        simpl. cbv [can_learn_normal_fact_at_node].
+        eexists. split; [eassumption|]. simpl.
+        split.
+        { admit. }
+        eexists. split; [|split; reflexivity]. cbv [is_list_set] in 
+        eapply Relations.trc_trans.
+        { admit. }
+        apply 
+      simpl in *. d
+
+    
   
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
@@ -339,6 +441,7 @@ Section DistributedDatalog.
     intros H. destruct f'; simpl; auto.
   Qed.
 
+  Print expect_num_R_facts.
   Lemma expect_num_R_facts_correct rules R p g n :
     good_inputs g.(input_facts) ->
     good_graph rules p g ->
@@ -346,11 +449,12 @@ Section DistributedDatalog.
     exists Rset,
       prog_impl_implication p (facts_of g.(input_facts)) (meta_fact R Rset) /\
         forall x,
-          In (normal_dfact R [x]) (g.(node_states) n).(known_facts) <-> prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R [x]).
+          In (normal_dfact R [x]) (g.(node_states) n).(known_facts) <-> Rset [x]. (* prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R [x]). *)
   Proof.
     intros Hinp (Hnorm&Hmetanode&Hmetainp&Hmnk&Hwires) [H|H].
     - assumption.
     - admit.
+      Forall (knows_fact g)
     -
   Abort.
     
