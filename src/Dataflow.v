@@ -329,6 +329,34 @@ Section DistributedDatalog.
       (graph_step rules)^* g g' /\
         Forall (fun f => In f (g'.(node_states) n).(known_facts)) hyps.
   Proof. Admitted.
+
+  From Datalog Require Import Dag.
+  
+  Definition rel_of (f : fact) :=
+    match f with
+    | normal_fact R _ => R
+    | meta_fact R _ => R
+    end.
+
+  Check prog_impl_implication.
+  Definition graph_sound_for (p : list rule) rules g R :=
+    forall g',
+      (graph_step rules)^* g g' ->
+      good_inputs g'.(input_facts) ->
+      forall f,
+        rel_of f = R ->
+        knows_datalog_fact g' f ->
+        prog_impl_implication p (fun x => (*In x g'.(input_facts)*) True) f.
+
+  Definition graph_complete_for (p : list rule) (rules : Node -> list rule) (g : graph_state) (r : rel) : Prop.
+  Admitted.
+  
+  Lemma good_layout_complete p rules g R :
+    good_layout p rules ->
+    sane_graph g ->
+    (forall R', edge from R to R' ->
+           graph_sound_for p rules g R' /\ graph_complete_for p rules g R') ->
+    graph_complete_for p rules g R.
   
   Lemma good_layout_complete p rules r hyps f g :
     good_layout p rules ->
