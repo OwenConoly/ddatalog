@@ -280,6 +280,7 @@ Section DistributedDatalog.
       (*     (*   can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args -> *) *)
       (*     (*   In (normal_dfact R args) (g.(node_states) n).(known_facts) *)). *).
 
+  Print Existsn. Check fold_left.
   Definition sane_graph g :=
     good_inputs g.(input_facts) ->
     (forall R num,
@@ -291,19 +292,103 @@ Section DistributedDatalog.
       (forall n f,
           In (n, f) g.(travellers) ->
           knows_fact g f) /\
-      (forall R n num,
-          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
-          (g.(node_states) n).(msgs_sent) R = num) /\
-      (forall (n R : unit), False
-      (*the number of facts received by n about R plus the number of travellers for n about R equals the number of facts sent about R*)).
+      (forall n R,
+        exists num_trav num_inp,
+          Existsn (fun '(n', f) => n = n' /\ exists args, f = normal_dfact R args) num_trav g.(travellers) /\
+            Existsn (fun f => exists args, f = normal_dfact R args) num_inp g.(input_facts) /\
+            (g.(node_states) n).(msgs_received) R + num_trav =
+              fold_left Nat.add (map (fun n' => (g.(node_states) n').(msgs_sent) R) all_nodes) O + num_inp).
 
-  Print graph_step.
-  Lemma good_layout_preserves_sanity rules p g g' :
-    good_layout p rules ->
+  Definition meta_facts_correct g :=
+    (forall R n num,
+        In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
+        (g.(node_states) n).(msgs_sent) R = num).
+
+  Lemma good_inputs_cons f fs :
+    good_inputs (f :: fs) ->
+    good_inputs fs.
+  Proof.
+    cbv [good_inputs]. simpl. intros [H1 H2]. invert H1. split; [assumption|].
+    intros R num H. specialize (H2 R num ltac:(auto)). clear -H2.
+    fwd. invert H2p1; eauto. eexists. split; [|eauto]. lia.
+  Qed.
+  
+  Lemma good_inputs_unstep rules g g' :
+    good_inputs g'.(input_facts) ->
+    graph_step rules g g' ->
+    good_inputs g.(input_facts).
+  Proof.
+    intros H1 H2. invert H2; simpl in *; eauto using good_inputs_cons.
+  Qed.
+
+  Lemma receive_fact_at_node_gets_more_facts f f' ns :
+    In f ns.(known_facts) ->
+    In f (receive_fact_at_node ns f').(known_facts).
+  Proof.
+    intros H. destruct f'; simpl; auto.
+  Qed.
+  Hint Resolve receive_fact_at_node_gets_more_facts : core.
+
+  Lemma step_preserves_facts rules f g g' :
+    knows_fact g f ->
+    graph_step rules g g' ->
+    knows_fact g' f.
+  Proof.
+    intros Hg. invert 1.
+    - destruct Hg as [Hg|Hg]; cbv [knows_fact]; simpl; eauto.
+    - destruct Hg as [Hg|Hg]; cbv [knows_fact]; simpl; eauto.
+      fwd. right. exists n0. destr (node_eqb n n0); auto.
+    - destruct Hg as [Hg|Hg]; cbv [knows_fact]; simpl; eauto.
+      fwd. right. exists n0. destr (node_eqb n n0); auto.
+  Qed.
+  Hint Resolve step_preserves_facts : core.
+
+  Hint Unfold knows_fact : core.
+  Lemma good_layout_preserves_sanity rules g g' :
     sane_graph g ->
     graph_step rules g g' ->
     sane_graph g'.
-  Proof. Admitted.
+  Proof.
+    intros Hsane Hstep. intros Hinp.
+    specialize (Hsane ltac:(eauto using good_inputs_unstep)).
+    destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hcount).
+    pose proof Hstep as Hstep'.
+    invert Hstep; simpl in *.
+    - ssplit.
+      + intros R num [H'|H']; simpl in H'; fwd; eauto 6.
+      + intros R num n [H'|H']; simpl in H'; fwd; eauto.
+        destruct H' as [H'|H']; subst; eauto.
+        destruct Hinp as (Hinp&_). invert Hinp. simpl in *. discriminate.
+      + intros n f' H'. apply in_app_iff in H'. destruct H' as [H'|H']; eauto.
+        apply in_map_iff in H'. fwd. cbv [knows_fact]. simpl. auto.
+      + intros n R. specialize (Hcount n R). fwd.
+  Admitted.
+
+  Definition noncyclic_aggregation (p : list rule) :=
+    well_founded (fun R1 R2 => exists Rs f, In R2 Rs /\ In (meta_rule R1 f Rs) p).
+
+  Definition rel_edge (rules : Layout) R1 R2 :=
+    exists n Rs, In R2 Rs /\ In (meta_drule R1 Rs) (rules n).
+
+  Definition dnoncyclic_aggregation (rules : Layout) :=
+    well_founded (rel_edge rules).
+  
+  (* Lemma meta_facts_stay_correct rules g g' R : *)
+  (*   sane_graph g -> *)
+  (*   graph_step rules g g' -> *)
+  (*   meta_facts_correct_for g R -> *)
+  (*   good_inputs g'.(input_facts) -> *)
+  (*   dnoncyclic_aggregation rules -> *)
+  (*   meta_facts_correct_for g' R. *)
+  (* Proof. *)
+  (*   intros Hsane Hstep Hmf Hinp Hnc. *)
+  (*   specialize (Hsane ltac:(eauto using good_inputs_unstep)). *)
+  (*   destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hcount). *)
+    
+    
+    
+    
+        
   
   Print rule. Print rule_impl. Print Datalog.rule. Search drule Datalog.rule.
   Print Datalog.fact. Check meta_dfact.
@@ -338,6 +423,13 @@ Section DistributedDatalog.
     | meta_fact R _ => R
     end.
 
+  Definition fact_equiv_dfact f df :=
+    match f, df with
+    | normal_fact R args, normal_dfact R' args' => R = R' /\ args = args'
+    | meta_fact R _, meta_dfact R' None _ => R = R'
+    | _, _ => False
+    end.
+  
   Check prog_impl_implication.
   Definition graph_sound_for (p : list rule) rules g R :=
     forall g',
@@ -346,29 +438,29 @@ Section DistributedDatalog.
       forall f,
         rel_of f = R ->
         knows_datalog_fact g' f ->
-        prog_impl_implication p (fun x => (*In x g'.(input_facts)*) True) f.
+        prog_impl_implication p (fun x => Exists (fact_equiv_dfact x) g.(input_facts)) f.
 
-  Definition graph_complete_for (p : list rule) (rules : Node -> list rule) (g : graph_state) (r : rel) : Prop.
-  Admitted.
-  
-  Lemma good_layout_complete p rules g R :
+  Definition graph_complete_for (p : list rule) (rules : Node -> list drule) (g : graph_state) (R : rel) :=
+    forall f,
+      prog_impl_implication p (fun x => Exists (fact_equiv_dfact x) g.(input_facts)) f ->
+      exists g' f',
+        (graph_step rules)^* g g' /\
+          knows_datalog_fact g f'.
+
+  Lemma good_layout_complete' p r rules hyps g R f :
     good_layout p rules ->
     sane_graph g ->
-    (forall R', edge from R to R' ->
+    meta_facts_correct g ->
+    (forall R', rel_edge rules R' R ->
            graph_sound_for p rules g R' /\ graph_complete_for p rules g R') ->
-    graph_complete_for p rules g R.
-  
-  Lemma good_layout_complete p rules r hyps f g :
-    good_layout p rules ->
+    Forall (knows_datalog_fact g) hyps ->
     In r p ->
     rule_impl r f hyps ->
-    sane_graph g ->
-    Forall (knows_datalog_fact g) hyps ->
-    exists g',
-      (graph_step rules)^* g g' /\
-        knows_datalog_fact g' f.
+     exists g',
+       (graph_step rules)^* g g' /\
+         knows_datalog_fact g' f.
   Proof.
-    intros Hgood Hr Himpl Hg Hhyps. invert Himpl.
+    intros Hgood Hsane Hmf Hrels Hhyps Hr Himpl. invert Himpl.
     - cbv [good_layout] in Hgood. destruct Hgood as (Hgood&_).
       apply Hgood in Hr. clear Hgood.
       destruct Hr as (n&Hr).
@@ -385,7 +477,7 @@ Section DistributedDatalog.
         eapply Relations.trc_trans.
         { exact Hstep1. }
         eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
-        apply LearnFact with (n := n) (f := normal_dfact R args).
+        apply LearnFact with (n := n) (f := normal_dfact R0 args).
         simpl. cbv [can_learn_normal_fact_at_node].
         eexists. split; [eassumption|]. simpl.
         do 2 eexists. split; [eassumption|]. split; [eassumption|].
@@ -417,20 +509,25 @@ Section DistributedDatalog.
       simpl in *. d
 
     
+    
+  
+  Lemma good_layout_complete p rules r hyps f g :
+    good_layout p rules ->
+    In r p ->
+    rule_impl r f hyps ->
+    sane_graph g ->
+    Forall (knows_datalog_fact g) hyps ->
+    exists g',
+      (graph_step rules)^* g g' /\
+        knows_datalog_fact g' f.
+  Proof.
+    
+    
   
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
   Proof.
     induction l; simpl; f_equal; auto. destruct a; reflexivity.
-  Qed.
-
-  Lemma good_inputs_cons f fs :
-    good_inputs (f :: fs) ->
-    good_inputs fs.
-  Proof.
-    cbv [good_inputs]. simpl. intros [H1 H2]. invert H1. split; [assumption|].
-    intros R num H. specialize (H2 R num ltac:(auto)). clear -H2.
-    fwd. invert H2p1; eauto. eexists. split; [|eauto]. lia.
   Qed.
 
   Lemma Existsn_unique U P n m (l : list U) :
@@ -460,13 +557,6 @@ Section DistributedDatalog.
     specialize (Hgood _ _ ltac:(eauto)). fwd. invert Hgoodp1.
     - congruence.
     - eapply Existsn_unique in Hp2; [|exact H3]. subst. lia.
-  Qed.
-
-  Lemma receive_fact_at_node_gets_more_facts f f' ns :
-    In f ns.(known_facts) ->
-    In f (receive_fact_at_node ns f').(known_facts).
-  Proof.
-    intros H. destruct f'; simpl; auto.
   Qed.
 
   Print expect_num_R_facts.
