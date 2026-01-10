@@ -588,21 +588,11 @@ Section DistributedDatalog.
       simpl. cbv [knows_fact]. simpl. right. exists n.
       destr (node_eqb n n); try congruence.
       simpl. auto.
-    - 
-  
-  Lemma good_layout_complete p rules r hyps f g :
-    good_layout p rules ->
-    In r p ->
-    rule_impl r f hyps ->
-    sane_graph g ->
-    Forall (knows_datalog_fact g) hyps ->
-    exists g',
-      (graph_step rules)^* g g' /\
-        knows_datalog_fact g' f.
-  Proof.
+    - destruct Hgood as (_&_&Hgood&_).
+      specialize Hgood with (1 := Hr).
+      simpl.
+      apply Hgood in Hr. eexists.
     
-    
-  
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
   Proof.
