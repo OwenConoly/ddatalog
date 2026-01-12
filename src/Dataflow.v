@@ -538,7 +538,26 @@ Section DistributedDatalog.
       (forall R S,
           prog_impl_implication p Q (meta_fact R S) ->
           forall x,
-            prog_impl_implication p Q (normal_fact R x) <-> S x).          
+            prog_impl_implication p Q (normal_fact R x) <-> S x).
+
+  (*requires some hypothesis about the source program: for each rule, for each assignment of facts to hypotheses, we get at most one fact as a conclusion*)
+  Lemma node_can_find_all_conclusions rules Rs g n R :
+    Forall
+      (fun R =>
+         expect_num_R_facts R (known_facts (g.(node_states) n))
+           (msgs_received (node_states g n) R))
+      Rs ->
+    exists g',
+      (comp_step rules)^* g g' /\
+        Forall
+          (fun R =>
+             expect_num_R_facts R (known_facts (node_states g' n))
+               (msgs_received (node_states g' n) R))
+          Rs /\
+        (forall args,
+            can_learn_normal_fact_at_node (rules n) (node_states g' n) R args ->
+            In (normal_dfact R args) (known_facts (node_states g' n))).
+  Proof. Admitted.
 
   Lemma good_layout_complete' p r rules hyps g R f :
     good_inputs g.(input_facts) ->
@@ -673,16 +692,32 @@ Section DistributedDatalog.
         eauto using Relations.trc_trans.
     - destruct Hgood as (_&_&Hgood&_).
       specialize Hgood with (1 := Hr).
+
+      pose proof node_can_expect_much as Hg1.
+      epose_dep Hg1. specialize (Hg1 ltac:(eassumption) ltac:(eassumption)).
+      destruct Hg1 as (g1&Hg1&Hhyps1).
+
+      Check node_can_find_all_conclusions.
+      pose proof node_can_find_all_conclusions as Hg2.
+      epose_dep Hg2. specialize (Hg2 Hhyps1). clear Hhyps1.
+      destruct Hg2 as (g2&Hg2&Hhyps1&Hhyps2).
+      
       eexists. split.
-      { eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+      { eapply Relations.trc_trans.
+        { exact Hg1. }
+        eapply Relations.trc_trans.
+        { exact Hg2. }
+        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
         eapply LearnFact with (f := meta_dfact target_rel (Some a_node) _).
         simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
         eexists. split.
         { apply Hgood. }
         simpl. split; [reflexivity|]. split.
-        - 
-      simpl.
-      apply Hgood in Hr. eexists.
+        { apply Forall_forall. eassumption. }
+        split.
+        { eassumption. }
+        reflexivity. }
+      simpl. 
     
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
