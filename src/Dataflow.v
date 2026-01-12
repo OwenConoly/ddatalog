@@ -455,6 +455,12 @@ Section DistributedDatalog.
     incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
   Proof. Admitted.
 
+  Lemma steps_preserves_meta_facts_correct rules g g' :
+    (comp_step rules)^* g g' ->
+    meta_facts_correct rules g ->
+    meta_facts_correct rules g'.
+  Proof. Admitted.
+
   Lemma node_can_expect g R rules S n :
     knows_datalog_fact g (meta_fact R S) ->
     exists g',
@@ -487,7 +493,9 @@ Section DistributedDatalog.
       { eapply Relations.trc_trans; eassumption. }
       constructor; eauto. eapply Forall_impl; [|eassumption].
       simpl. intros R' H'. eapply expect_num_R_facts_incl.
-  Abort.
+      { admit. }
+      eapply steps_preserves_known_facts. eassumption.
+  Admitted.
 
   Definition rel_of (f : fact) :=
     match f with
@@ -558,23 +566,31 @@ Section DistributedDatalog.
         eapply Forall_impl; [|exact Hhyps].
         simpl. intros [? ?]. simpl. intros H'. exact H'. }
 
-      eexists. split.
-      { (*first, step to a state where node n knows all the hypotheses;
+      eenough (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g1 n) R0 _).
+      { pose proof (Classical_Prop.classic (exists num, In (meta_dfact R0 (Some n) num) (known_facts (node_states g1 n)))) as Hor.
+        destruct Hor as [Hor|Hor].
+        { fwd. exists g1. split; [eassumption|]. simpl. cbv [knows_fact].
+          eapply steps_preserves_meta_facts_correct in Hmf; [|exact Hstep1].
+          cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
+          specialize Hmf with (1 := Hor). eauto. }
+          eexists. split.
+          { (*first, step to a state where node n knows all the hypotheses;
           then, one final step where n deduces the conclusion*)
-        eapply Relations.trc_trans.
-        { exact Hstep1. }
-        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
-        apply LearnFact with (n := n) (f := normal_dfact R0 args).
-        simpl. split.
-        { admit. }
-        cbv [can_learn_normal_fact_at_node].
-        eexists. split; [eassumption|]. simpl.
-        do 2 eexists. split; [eassumption|]. split; [eassumption|].
-        intros R' args' H'. rewrite Lists.List.Forall_map in Hhyps1.
-        rewrite Forall_forall in Hhyps1. apply Hhyps1 in H'. exact H'. }
+            eapply Relations.trc_trans.
+            { exact Hstep1. }
+            eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+            apply LearnFact with (n := n) (f := normal_dfact R0 args).
+            simpl. split.
+            { eauto. }
+            assumption. }
       simpl. cbv [knows_fact]. simpl. right. exists n.
       destr (node_eqb n n); [|congruence].
-      simpl. left. reflexivity.
+      simpl. left. reflexivity. }
+      cbv [can_learn_normal_fact_at_node].
+      eexists. split; [eassumption|]. simpl.
+      do 2 eexists. split; [eassumption|]. split; [eassumption|].
+      intros R' args' H'. rewrite Lists.List.Forall_map in Hhyps1.
+      rewrite Forall_forall in Hhyps1. apply Hhyps1 in H'. exact H'.
     - cbv [good_layout] in Hgood. destruct Hgood as (_&Hgood&_).
       apply Hgood in Hr. clear Hgood.
       destruct Hr as (n&Hr).
@@ -595,56 +611,66 @@ Section DistributedDatalog.
       Fail specialize Hrcv with (1 := Hnum). (*hmm*)
       epose_dep Hrcv. specialize (Hrcv Hnum). destruct Hrcv as (g3&Hg3&num').
       
-      eexists. split.
-      { (*first, step to a state where node n knows all the hypotheses;
-          then, one final step where n deduces the conclusion*)
-        eapply Relations.trc_trans.
-        { exact Hg1. }
-        eapply Relations.trc_trans.
-        { exact Hg2. }
-        eapply Relations.trc_trans.
-        { exact Hg3. }
-        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
-        eapply LearnFact with (n := n) (f := normal_dfact _ _).
-        simpl. split.
-        { admit. }
-        cbv [can_learn_normal_fact_at_node].
-        eexists. split; [eassumption|]. simpl.
-        split.
-        { subst. eapply expect_num_R_facts_incl; [eassumption|].
-          eapply steps_preserves_known_facts. eassumption. }
-        eexists. split; [|split; reflexivity].
-        destruct H as (Hp1&Hp2). split. 2: exact Hp2.
-        intros x. split; intros Hx.
-        - (*this is where we use soundness*)
-          apply Hp1.
+      eenough (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g3 n) _ _).
+      { epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
+        destruct Hor as [Hor|Hor].
+        { fwd. exists g3. split; [eauto using Relations.trc_trans|]. simpl. cbv [knows_fact].
+          eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf.
+          2: { eauto using Relations.trc_trans. }
+          cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
+          move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
+          right. eexists. eapply Hmf. eauto. }
+        eexists. split.
+        { (*first, step to a state where node n knows all the hypotheses;
+            then, one final step where n deduces the conclusion*)
+          eapply Relations.trc_trans.
+          { exact Hg1. }
+          eapply Relations.trc_trans.
+          { exact Hg2. }
+          eapply Relations.trc_trans.
+          { exact Hg3. }
+          eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+          eapply LearnFact with (n := n) (f := normal_dfact _ _).
+          simpl. split.
+          { eauto. }
+          eassumption. }
+        simpl. cbv [knows_fact]. simpl. right. exists n.
+        destr (node_eqb n n); try congruence.
+        simpl. auto. }
+      cbv [can_learn_normal_fact_at_node].
+      eexists. split; [eassumption|]. simpl.
+      split.
+      { subst. eapply expect_num_R_facts_incl; [eassumption|].
+        eapply steps_preserves_known_facts. eassumption. }
+      eexists. split; [|split; reflexivity].
+      destruct H as (Hp1&Hp2). split. 2: exact Hp2.
+      intros x. split; intros Hx.
+      + (*this is where we use soundness*)
+        apply Hp1.
 
-          specialize (Hrels source_rel). simpl in Hrels. specialize' Hrels.
-          { cbv [rel_edge]. eauto. }
-          cbv [graph_sound_for] in Hrels. move Hrels at bottom.
-          specialize (Hrels g3 ltac:(eauto using Relations.trc_trans)).
-          specialize' Hrels.
-          { repeat erewrite comp_steps_pres_inputs by eassumption. assumption. }
-          pose proof Hrels as Hrels'.
-          specialize (Hrels (normal_fact source_rel [x]) ltac:(reflexivity)).
-          specialize' Hrels.
-          { simpl. eauto. }
-          specialize (Hrels' (meta_fact source_rel S) ltac:(reflexivity)).
-          specialize' Hrels'.
-          { eapply comp_steps_preserves_datalog_facts.
-            1: eassumption. eauto using Relations.trc_trans. }
-          (*should follow from Hrels plus Hrels'*)
-          move Hmr at bottom.
-          cbv [good_meta_rules] in Hmr. rewrite <- Hmr. 1,3: eassumption.
-          simpl. intros R' S' H' x0. fwd.
-          intros. symmetry. apply H'p2.
-        - apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
-          specialize (Hhyps1 _ Hx). Search incl known_facts.
-          eapply steps_preserves_known_facts. 2: eassumption.
-          eauto using Relations.trc_trans. }
-      simpl. cbv [knows_fact]. simpl. right. exists n.
-      destr (node_eqb n n); try congruence.
-      simpl. auto.
+        specialize (Hrels source_rel). simpl in Hrels. specialize' Hrels.
+        { cbv [rel_edge]. eauto. }
+        cbv [graph_sound_for] in Hrels. move Hrels at bottom.
+        specialize (Hrels g3 ltac:(eauto using Relations.trc_trans)).
+        specialize' Hrels.
+        { repeat erewrite comp_steps_pres_inputs by eassumption. assumption. }
+        pose proof Hrels as Hrels'.
+        specialize (Hrels (normal_fact source_rel [x]) ltac:(reflexivity)).
+        specialize' Hrels.
+        { simpl. eauto. }
+        specialize (Hrels' (meta_fact source_rel S) ltac:(reflexivity)).
+        specialize' Hrels'.
+        { eapply comp_steps_preserves_datalog_facts.
+          1: eassumption. eauto using Relations.trc_trans. }
+        (*should follow from Hrels plus Hrels'*)
+        move Hmr at bottom.
+        cbv [good_meta_rules] in Hmr. rewrite <- Hmr. 1,3: eassumption.
+        simpl. intros R' S' H' x0. fwd.
+        intros. symmetry. apply H'p2.
+      + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
+        specialize (Hhyps1 _ Hx). Search incl known_facts.
+        eapply steps_preserves_known_facts. 2: eassumption.
+        eauto using Relations.trc_trans.
     - destruct Hgood as (_&_&Hgood&_).
       specialize Hgood with (1 := Hr).
       eexists. split.
@@ -653,7 +679,8 @@ Section DistributedDatalog.
         simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
         eexists. split.
         { apply Hgood. }
-        simpl. split; [reflexivity|].
+        simpl. split; [reflexivity|]. split.
+        - 
       simpl.
       apply Hgood in Hr. eexists.
     
