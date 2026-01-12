@@ -11,6 +11,7 @@ Section DistributedDatalog.
   Context {context : map.map var T}.
   Context {context_ok : map.ok context}.
   Context {Node Info : Type}.
+  Context (a_node : Node).
   Context (all_nodes : list Node).
   Context (Hall_nodes : NoDup all_nodes /\ (forall n, In n all_nodes)).
   Context {node_eqb : Node -> Node -> bool}.
@@ -113,8 +114,6 @@ Section DistributedDatalog.
 (*       net.(output) n f -> *)
 (*       network_step net (Output n f) [FactOnNode n f]. *)
 
-  Print node_state.
-  Print Datalog.rule. Print rule_impl. Print Datalog.fact.
   Definition expect_num_R_facts R known_facts num :=
     In (meta_dfact R None num) known_facts \/
       exists expected_msgss,
@@ -126,7 +125,6 @@ Section DistributedDatalog.
     incl kf1 kf2 ->
     expect_num_R_facts R kf2 num.
   Proof. Admitted.
-    
   
   Definition can_learn_normal_fact_at_node rules ns R args :=
     exists r, In r rules /\
@@ -164,6 +162,7 @@ Section DistributedDatalog.
   Definition should_learn_fact_at_node rules n ns f :=
     match f with
     | normal_dfact R args =>
+        (forall num, ~In (meta_dfact R (Some n) num) ns.(known_facts)) /\ 
         can_learn_normal_fact_at_node rules ns R args
     | meta_dfact R n0 expected_msgs =>
         n0 = Some n /\
@@ -300,6 +299,9 @@ Section DistributedDatalog.
       (forall n f,
           In (n, f) g.(travellers) ->
           knows_fact g f) /\
+      (forall R n num,
+          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
+          (g.(node_states) n).(msgs_sent) R = num) /\
       (forall n R,
         exists num_trav num_inp,
           Existsn (fun '(n', f) => n = n' /\ exists args, f = normal_dfact R args) num_trav g.(travellers) /\
@@ -307,10 +309,14 @@ Section DistributedDatalog.
             (g.(node_states) n).(msgs_received) R + num_trav =
               fold_left Nat.add (map (fun n' => (g.(node_states) n').(msgs_sent) R) all_nodes) O + num_inp).
 
-  Definition meta_facts_correct g :=
-    (forall R n num,
-        In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
-        (g.(node_states) n).(msgs_sent) R = num).
+  Definition meta_facts_correct_at_node rules ns :=
+    forall R n args num,
+      In (meta_dfact R (Some n) num) ns.(known_facts) ->
+      can_learn_normal_fact_at_node rules ns R args ->
+      In (normal_dfact R args) ns.(known_facts).
+
+  Definition meta_facts_correct rules g :=
+    forall n, meta_facts_correct_at_node (rules n) (g.(node_states) n).
 
   Lemma good_inputs_cons f fs :
     good_inputs (f :: fs) ->
@@ -437,17 +443,51 @@ Section DistributedDatalog.
         expect_num_R_facts R (g'.(node_states) n).(known_facts) num.
   Proof. Admitted.
 
-  Lemma steps_preserves_known_facts rules g g' n :
-    (comp_step rules)^* g g' ->
-    incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
-  Proof. Admitted.
-
   Lemma node_can_receive_expected_facts g R rules n num :
     expect_num_R_facts R (g.(node_states) n).(known_facts) num ->
     exists g',
       (comp_step rules)^* g g' /\
         (g'.(node_states) n).(msgs_received) R = num.
   Proof. Admitted.
+
+  Lemma steps_preserves_known_facts rules g g' n :
+    (comp_step rules)^* g g' ->
+    incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
+  Proof. Admitted.
+
+  Lemma node_can_expect g R rules S n :
+    knows_datalog_fact g (meta_fact R S) ->
+    exists g',
+      (comp_step rules)^* g g' /\
+        expect_num_R_facts R (g'.(node_states) n).(known_facts) ((g'.(node_states) n).(msgs_received) R).
+  Proof.
+    intros H. eapply node_can_receive_meta_facts in H. fwd.
+    pose proof Hp1.
+    eapply node_can_receive_expected_facts in Hp1. fwd.
+    eexists. split; cycle 1.
+    { eapply expect_num_R_facts_incl. 1: eassumption.
+      eapply steps_preserves_known_facts. eassumption. }
+    eauto using Relations.trc_trans.
+  Qed.
+
+  Lemma node_can_expect_much g Rs Ss rules n :
+    length Rs = length Ss ->
+    Forall (knows_datalog_fact g) (zip meta_fact Rs Ss) ->
+    exists g',
+      (comp_step rules)^* g g' /\
+        Forall (fun R => expect_num_R_facts R (g'.(node_states) n).(known_facts) ((g'.(node_states) n).(msgs_received) R)) Rs.
+  Proof.
+    revert Ss. induction Rs; intros [|R ?] Hlen; simpl in Hlen;
+      try discriminate; simpl; invert 1.
+    - exists g. split; auto. constructor.
+    - specialize IHRs with (2 := H3). specialize (IHRs ltac:(lia)). fwd.
+      rename H2 into HR. eapply comp_steps_preserves_datalog_facts in HR; [|eassumption].
+      eapply node_can_expect in HR. fwd.
+      eexists. split.
+      { eapply Relations.trc_trans; eassumption. }
+      constructor; eauto. eapply Forall_impl; [|eassumption].
+      simpl. intros R' H'. eapply expect_num_R_facts_incl.
+  Abort.
 
   Definition rel_of (f : fact) :=
     match f with
@@ -497,7 +537,7 @@ Section DistributedDatalog.
     good_meta_rules p ->
     good_layout p rules ->
     sane_graph g ->
-    meta_facts_correct g ->
+    meta_facts_correct rules g ->
     (forall R', rel_edge rules R' R -> graph_sound_for p rules g R') ->
     Forall (knows_datalog_fact g) hyps ->
     In r p ->
@@ -525,7 +565,9 @@ Section DistributedDatalog.
         { exact Hstep1. }
         eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
         apply LearnFact with (n := n) (f := normal_dfact R0 args).
-        simpl. cbv [can_learn_normal_fact_at_node].
+        simpl. split.
+        { admit. }
+        cbv [can_learn_normal_fact_at_node].
         eexists. split; [eassumption|]. simpl.
         do 2 eexists. split; [eassumption|]. split; [eassumption|].
         intros R' args' H'. rewrite Lists.List.Forall_map in Hhyps1.
@@ -564,7 +606,9 @@ Section DistributedDatalog.
         { exact Hg3. }
         eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
         eapply LearnFact with (n := n) (f := normal_dfact _ _).
-        simpl. cbv [can_learn_normal_fact_at_node].
+        simpl. split.
+        { admit. }
+        cbv [can_learn_normal_fact_at_node].
         eexists. split; [eassumption|]. simpl.
         split.
         { subst. eapply expect_num_R_facts_incl; [eassumption|].
@@ -603,6 +647,13 @@ Section DistributedDatalog.
       simpl. auto.
     - destruct Hgood as (_&_&Hgood&_).
       specialize Hgood with (1 := Hr).
+      eexists. split.
+      { eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        eapply LearnFact with (f := meta_dfact target_rel (Some a_node) _).
+        simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
+        eexists. split.
+        { apply Hgood. }
+        simpl. split; [reflexivity|].
       simpl.
       apply Hgood in Hr. eexists.
     
