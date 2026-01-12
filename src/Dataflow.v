@@ -540,6 +540,16 @@ Section DistributedDatalog.
           forall x,
             prog_impl_implication p Q (normal_fact R x) <-> S x).
 
+  Lemma firstn_plus {U} n m (l : list U) :
+    firstn (n + m) l = firstn n l ++ firstn m (skipn n l).
+  Proof.
+    revert l.
+    induction n; intros l; simpl; [reflexivity|].
+    destruct l.
+    - rewrite firstn_nil. reflexivity.
+    - simpl. f_equal. auto.
+  Qed.
+
   (*requires some hypothesis about the source program: for each rule, for each assignment of facts to hypotheses, we get at most one fact as a conclusion*)
   Lemma node_can_find_all_conclusions rules Rs g n R :
     Forall
@@ -692,23 +702,53 @@ Section DistributedDatalog.
         eauto using Relations.trc_trans.
     - destruct Hgood as (_&_&Hgood&_).
       specialize Hgood with (1 := Hr).
+      cbv [knows_datalog_fact].
+      enough (forall len,
+               exists g' : graph_state,
+                 Relations.trc (comp_step rules) g g' /\
+                   (forall n : Node,
+                       In n (firstn len all_nodes) ->
+                       exists num : nat, knows_fact g' (meta_dfact target_rel (Some n) num))) as H'.
+      { specialize (H' (length all_nodes)). rewrite firstn_all in H'. fwd.
+        eexists. split;  eauto. right. intros n. apply H'p1.
+        destruct Hall_nodes. auto. }
+      intros len. induction len.
+      { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
 
-      pose proof node_can_expect_much as Hg1.
-      epose_dep Hg1. specialize (Hg1 ltac:(eassumption) ltac:(eassumption)).
-      destruct Hg1 as (g1&Hg1&Hhyps1).
+      destruct IHlen as (g1&Hg1&Hhyps1).
 
-      Check node_can_find_all_conclusions.
-      pose proof node_can_find_all_conclusions as Hg2.
-      epose_dep Hg2. specialize (Hg2 Hhyps1). clear Hhyps1.
-      destruct Hg2 as (g2&Hg2&Hhyps1&Hhyps2).
+      assert (firstn (S len) all_nodes = firstn len all_nodes \/
+                exists n, firstn (S len) all_nodes = firstn len all_nodes ++ [n]) as [Hor|Hor].
+      { replace (S len) with (len + 1) by lia. rewrite firstn_plus.
+        destruct (skipn len all_nodes); simpl.
+        - left. rewrite app_nil_r. reflexivity.
+        - right. eauto. }
+
+      { rewrite Hor. eauto. }
+
+      destruct Hor as [n Hn].
+
+      pose proof node_can_expect_much as Hg2.
+      specialize Hg2 with (g := g1).
+      epose_dep Hg2. specialize (Hg2 ltac:(eassumption)). specialize' Hg2.
+      { eapply Forall_impl; [|eassumption].
+        intros. eapply comp_steps_preserves_datalog_facts; eassumption. }
+      destruct Hg2 as (g2&Hg2&Hhyps2).
+
+      pose proof node_can_find_all_conclusions as Hg3.
+      epose_dep Hg3. specialize (Hg3 Hhyps2). clear Hhyps2.
+      destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
       
-      eexists. split.
+      eexists.
+      split.
       { eapply Relations.trc_trans.
         { exact Hg1. }
         eapply Relations.trc_trans.
         { exact Hg2. }
+        eapply Relations.trc_trans.
+        { exact Hg3. }
         eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
-        eapply LearnFact with (f := meta_dfact target_rel (Some a_node) _).
+        eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
         simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
         eexists. split.
         { apply Hgood. }
@@ -717,7 +757,30 @@ Section DistributedDatalog.
         split.
         { eassumption. }
         reflexivity. }
-      simpl. 
+      rewrite Hn. intros n' Hn'. rewrite in_app_iff in Hn'.
+      destruct Hn' as [Hn'|Hn'].
+      { apply Hhyps1 in Hn'. fwd. eexists.
+        eapply steps_preserves_facts. 1: eassumption.
+        { (*oops i already proved htis earlier*)
+          eapply Relations.trc_trans.
+        { exact Hg2. }
+        eapply Relations.trc_trans.
+        { exact Hg3. }
+        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
+        simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
+        eexists. split.
+        { apply Hgood. }
+        simpl. split; [reflexivity|]. split.
+        { apply Forall_forall. eassumption. }
+        split.
+        { eassumption. }
+        reflexivity.
+        (*end repeated stuff*) } }
+      destruct Hn' as [?|?]; [subst|contradiction].
+      eexists. cbv [knows_fact]. simpl. right.
+      exists n'. destr (node_eqb n' n'); [|congruence]. simpl. left. reflexivity.
+  Qed.
     
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
