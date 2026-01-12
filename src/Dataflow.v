@@ -190,17 +190,19 @@ Section DistributedDatalog.
     | meta_dfact R None _ => is_input R
     | meta_dfact _ (Some _) _ => false
     end.
-  
-  Inductive graph_step (rule_assignments : Node -> list drule) : graph_state -> graph_state -> Prop :=
+
+  Inductive inp_step : graph_state -> graph_state -> Prop :=
   | Input g f :
-    graph_step _
+    inp_step
       g
       {| node_states := g.(node_states);
         travellers := map (fun n => (n, f)) all_nodes ++ g.(travellers);
-        input_facts := f :: g.(input_facts); |}
+        input_facts := f :: g.(input_facts); |}.  
+  
+  Inductive comp_step (rule_assignments : Node -> list drule) : graph_state -> graph_state -> Prop :=
   | ReceiveFact g n f fs1 fs2 :
     g.(travellers) = fs1 ++ (n, f) :: fs2 ->
-    graph_step _
+    comp_step _
       g
       {| node_states := fun n' => if node_eqb n n' then
                                  receive_fact_at_node (g.(node_states) n) f
@@ -209,7 +211,7 @@ Section DistributedDatalog.
         input_facts := g.(input_facts); |}
   | LearnFact g n f :
     should_learn_fact_at_node (rule_assignments n) n (g.(node_states) n) f ->
-    graph_step _
+    comp_step _
       g
       {| node_states := fun n' => if node_eqb n n' then
                                  receive_fact_at_node (g.(node_states) n) f
@@ -287,7 +289,6 @@ Section DistributedDatalog.
       (*     (*   can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args -> *) *)
       (*     (*   In (normal_dfact R args) (g.(node_states) n).(known_facts) *)). *).
 
-  Print Existsn. Check fold_left.
   Definition sane_graph g :=
     good_inputs g.(input_facts) ->
     (forall R num,
@@ -320,9 +321,9 @@ Section DistributedDatalog.
     fwd. invert H2p1; eauto. eexists. split; [|eauto]. lia.
   Qed.
   
-  Lemma good_inputs_unstep rules g g' :
+  Lemma good_inputs_unstep g g' :
     good_inputs g'.(input_facts) ->
-    graph_step rules g g' ->
+    inp_step g g' ->
     good_inputs g.(input_facts).
   Proof.
     intros H1 H2. invert H2; simpl in *; eauto using good_inputs_cons.
@@ -338,11 +339,10 @@ Section DistributedDatalog.
 
   Lemma step_preserves_facts rules f g g' :
     knows_fact g f ->
-    graph_step rules g g' ->
+    comp_step rules g g' ->
     knows_fact g' f.
   Proof.
     intros Hg. invert 1.
-    - destruct Hg as [Hg|Hg]; cbv [knows_fact]; simpl; eauto.
     - destruct Hg as [Hg|Hg]; cbv [knows_fact]; simpl; eauto.
       fwd. right. exists n0. destr (node_eqb n n0); auto.
     - destruct Hg as [Hg|Hg]; cbv [knows_fact]; simpl; eauto.
@@ -352,29 +352,32 @@ Section DistributedDatalog.
 
   Lemma steps_preserves_facts rules f g g' :
     knows_fact g f ->
-    (graph_step rules)^* g g' ->
+    (comp_step rules)^* g g' ->
     knows_fact g' f.
   Proof. induction 2; eauto. Qed.
+
+  Lemma comp_step_pres_inputs rules g g':
+    comp_step rules g g' ->
+    g'.(input_facts) = g.(input_facts).
+  Proof. invert 1; reflexivity. Qed.
+
+  Lemma comp_steps_pres_inputs rules g g':
+    (comp_step rules)^* g g' ->
+    g'.(input_facts) = g.(input_facts).
+  Proof. induction 1; eauto using eq_trans, comp_step_pres_inputs. Qed.
 
   Hint Unfold knows_fact : core.
   Lemma good_layout_preserves_sanity rules g g' :
     sane_graph g ->
-    graph_step rules g g' ->
+    comp_step rules g g' ->
     sane_graph g'.
   Proof.
     intros Hsane Hstep. intros Hinp.
-    specialize (Hsane ltac:(eauto using good_inputs_unstep)).
+    specialize' Hsane.
+    { erewrite comp_step_pres_inputs in Hinp by eassumption. assumption. }
     destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hcount).
     pose proof Hstep as Hstep'.
     invert Hstep; simpl in *.
-    - ssplit.
-      + intros R num [H'|H']; simpl in H'; fwd; eauto 6.
-      + intros R num n [H'|H']; simpl in H'; fwd; eauto.
-        destruct H' as [H'|H']; subst; eauto.
-        destruct Hinp as (Hinp&_). invert Hinp. simpl in *. discriminate.
-      + intros n f' H'. apply in_app_iff in H'. destruct H' as [H'|H']; eauto.
-        apply in_map_iff in H'. fwd. cbv [knows_fact]. simpl. auto.
-      + intros n R. specialize (Hcount n R). fwd.
   Admitted.
 
   Definition noncyclic_aggregation (p : list rule) :=
@@ -398,14 +401,7 @@ Section DistributedDatalog.
   (*   intros Hsane Hstep Hmf Hinp Hnc. *)
   (*   specialize (Hsane ltac:(eauto using good_inputs_unstep)). *)
   (*   destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hcount). *)
-    
-    
-    
-    
-        
-  
-  Print rule. Print rule_impl. Print Datalog.rule. Search drule Datalog.rule.
-  Print Datalog.fact. Check meta_dfact.
+      
   Definition knows_datalog_fact g f :=
     match f with
     | normal_fact R args => knows_fact g (normal_dfact R args)
@@ -414,44 +410,42 @@ Section DistributedDatalog.
           (forall n, exists num, knows_fact g (meta_dfact R (Some n) num))
     end.
 
-  Lemma steps_preserves_datalog_facts rules f g g' :
+  Lemma comp_steps_preserves_datalog_facts rules f g g' :
     knows_datalog_fact g f ->
-    (graph_step rules)^* g g' ->
+    (comp_step rules)^* g g' ->
     knows_datalog_fact g' f.
   Proof. Admitted.
   
-  Print knows_fact. Print node_state.
   Lemma node_can_receive_known_fact rules g f n :
     knows_fact g f ->
     exists g',
-      (graph_step rules)^* g g' /\
+      (comp_step rules)^* g g' /\
         In f (g'.(node_states) n).(known_facts).
   Proof. Admitted.
 
   Lemma node_can_receive_known_facts rules g hyps n :
     Forall (knows_fact g) hyps ->
     exists g',
-      (graph_step rules)^* g g' /\
+      (comp_step rules)^* g g' /\
         Forall (fun f => In f (g'.(node_states) n).(known_facts)) hyps.
   Proof. Admitted.
 
-  Check expect_num_R_facts. Print expect_num_R_facts.
   Lemma node_can_receive_meta_facts g R rules S n :
     knows_datalog_fact g (meta_fact R S) ->
     exists g' num,
-      (graph_step rules)^* g g' /\
+      (comp_step rules)^* g g' /\
         expect_num_R_facts R (g'.(node_states) n).(known_facts) num.
   Proof. Admitted.
 
   Lemma steps_preserves_known_facts rules g g' n :
-    (graph_step rules)^* g g' ->
+    (comp_step rules)^* g g' ->
     incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
   Proof. Admitted.
 
   Lemma node_can_receive_expected_facts g R rules n num :
     expect_num_R_facts R (g.(node_states) n).(known_facts) num ->
     exists g',
-      (graph_step rules)^* g g' /\
+      (comp_step rules)^* g g' /\
         (g'.(node_states) n).(msgs_received) R = num.
   Proof. Admitted.
 
@@ -461,30 +455,46 @@ Section DistributedDatalog.
     | meta_fact R _ => R
     end.
 
-  Definition fact_equiv_dfact f df :=
-    match f, df with
-    | normal_fact R args, normal_dfact R' args' => R = R' /\ args = args'
-    | meta_fact R _, meta_dfact R' None _ => R = R'
-    | _, _ => False
+  Definition fact_in_inputs inps f :=
+    match f with
+    | normal_fact R args => In (normal_dfact R args) inps
+    | meta_fact R T =>
+        exists num,
+        In (meta_dfact R None num) inps /\
+          Existsn (fun x => exists args, x = normal_dfact R args) num inps /\
+          forall args, T args <-> In (normal_dfact R args) inps
     end.
   
   Definition graph_sound_for (p : list rule) rules g R :=
     forall g',
-      (graph_step rules)^* g g' ->
+      (comp_step rules)^* g g' ->
       good_inputs g'.(input_facts) ->
       forall f,
         rel_of f = R ->
         knows_datalog_fact g' f ->
-        prog_impl_implication p (fun x => Exists (fact_equiv_dfact x) g.(input_facts)) f.
+        prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
 
   Definition graph_complete_for (p : list rule) (rules : Node -> list drule) (g : graph_state) (R : rel) :=
     forall f,
-      prog_impl_implication p (fun x => Exists (fact_equiv_dfact x) g.(input_facts)) f ->
+      prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
       exists g' f',
-        (graph_step rules)^* g g' /\
+        (comp_step rules)^* g g' /\
           knows_datalog_fact g f'.
 
+  Definition good_meta_rules (p : list rule) :=
+    forall Q,
+      (forall R' S',
+          Q (meta_fact R' S') ->
+          forall x,
+            Q (normal_fact R' x) <-> S' x) ->
+      (forall R S,
+          prog_impl_implication p Q (meta_fact R S) ->
+          forall x,
+            prog_impl_implication p Q (normal_fact R x) <-> S x).          
+
   Lemma good_layout_complete' p r rules hyps g R f :
+    good_inputs g.(input_facts) ->
+    good_meta_rules p ->
     good_layout p rules ->
     sane_graph g ->
     meta_facts_correct g ->
@@ -494,10 +504,10 @@ Section DistributedDatalog.
     rule_impl r f hyps ->
     rel_of f = R ->
      exists g',
-       (graph_step rules)^* g g' /\
+       (comp_step rules)^* g g' /\
          knows_datalog_fact g' f.
   Proof.
-    intros Hgood Hsane Hmf Hrels Hhyps Hr Himpl Hf. invert Himpl.
+    intros Hinp Hmr Hgood Hsane Hmf Hrels Hhyps Hr Himpl Hf. invert Himpl.
     - cbv [good_layout] in Hgood. destruct Hgood as (Hgood&_).
       apply Hgood in Hr. clear Hgood.
       destruct Hr as (n&Hr).
@@ -535,7 +545,7 @@ Section DistributedDatalog.
         exact Hhyps. }
 
       pose proof Hmhyp as HS.
-      eapply steps_preserves_datalog_facts in Hmhyp; [|exact Hg1].
+      eapply comp_steps_preserves_datalog_facts in Hmhyp; [|exact Hg1].
       eapply node_can_receive_meta_facts in Hmhyp.
       destruct Hmhyp as (g2&num&Hg2&Hnum).
 
@@ -570,17 +580,20 @@ Section DistributedDatalog.
           cbv [graph_sound_for] in Hrels. move Hrels at bottom.
           specialize (Hrels g3 ltac:(eauto using Relations.trc_trans)).
           specialize' Hrels.
-          { admit. }
+          { repeat erewrite comp_steps_pres_inputs by eassumption. assumption. }
           pose proof Hrels as Hrels'.
           specialize (Hrels (normal_fact source_rel [x]) ltac:(reflexivity)).
           specialize' Hrels.
           { simpl. eauto. }
           specialize (Hrels' (meta_fact source_rel S) ltac:(reflexivity)).
           specialize' Hrels'.
-          { eapply steps_preserves_datalog_facts.
+          { eapply comp_steps_preserves_datalog_facts.
             1: eassumption. eauto using Relations.trc_trans. }
           (*should follow from Hrels plus Hrels'*)
-          admit.
+          move Hmr at bottom.
+          cbv [good_meta_rules] in Hmr. rewrite <- Hmr. 1,3: eassumption.
+          simpl. intros R' S' H' x0. fwd.
+          intros. symmetry. apply H'p2.
         - apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
           specialize (Hhyps1 _ Hx). Search incl known_facts.
           eapply steps_preserves_known_facts. 2: eassumption.
