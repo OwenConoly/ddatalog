@@ -268,11 +268,7 @@ Section DistributedDatalog.
           In (meta_dfact R None num) inputs ->
           exists num',
             num' <= num /\
-              Existsn (fun f => match f with
-                           | normal_dfact R' _ => R = R'
-                           | meta_dfact _ _ _ => False
-                           end)
-                num' inputs).
+              Existsn (fun f => exists args, f = normal_dfact R args) num' inputs).
 
   Definition sound_graph (*rules*) (p : list rule) g :=
     good_inputs g.(input_facts) ->
@@ -289,15 +285,15 @@ Section DistributedDatalog.
       (*     (*   In (normal_dfact R args) (g.(node_states) n).(known_facts) *)). *).
 
   Definition sane_graph g :=
-    (* (forall R num, *)
-    (*     knows_fact g (meta_dfact R None num) -> *)
-    (*     In (meta_dfact R None num) g.(input_facts)) /\ *)
-    (*   (forall R num n, *)
-    (*       knows_fact g (meta_dfact R (Some n) num) -> *)
-    (*       In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts)) /\ *)
-    (forall n f,
-        In (n, f) g.(travellers) ->
-        knows_fact g f) /\
+    (forall R num,
+        knows_fact g (meta_dfact R None num) ->
+        In (meta_dfact R None num) g.(input_facts)) /\
+      (forall R num n,
+          knows_fact g (meta_dfact R (Some n) num) ->
+          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts)) /\
+      (forall n f,
+          In (n, f) g.(travellers) ->
+          knows_fact g f) /\
       (forall R n num,
           In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
           (g.(node_states) n).(msgs_sent) R = num) /\
@@ -309,7 +305,13 @@ Section DistributedDatalog.
           Existsn (fun '(n', f) => n = n' /\ exists args, f = normal_dfact R args) num_trav g.(travellers) /\
             Existsn (fun f => exists args, f = normal_dfact R args) num_inp g.(input_facts) /\
             (g.(node_states) n).(msgs_received) R + num_trav =
-              fold_left Nat.add (map (fun n' => (g.(node_states) n').(msgs_sent) R) all_nodes) O + num_inp).
+              fold_left Nat.add (map (fun n' => (g.(node_states) n').(msgs_sent) R) all_nodes) O + num_inp) /\
+      (forall R,
+          if is_input R then
+            forall n, (g.(node_states) n).(msgs_sent) R = 0
+          else
+            Existsn (fun f => exists args, f = normal_dfact R args) 0 g.(input_facts)).
+            
 
   Definition meta_facts_correct_at_node rules ns :=
     forall R n args num,
@@ -390,6 +392,109 @@ Section DistributedDatalog.
     invert Hstep; simpl in *.
   Admitted.
 
+  Definition meta_facts_correct_at_node' rules ns :=
+    forall R n num,
+      In (meta_dfact R (Some n) num) ns.(known_facts) ->
+      Forall (fun r =>
+                match r with
+                | normal_drule concls hyps =>
+                    forall f' hyps',
+                      rule_impl (normal_rule concls hyps) f' hyps' ->
+                      Forall (fun c => expect_num_R_facts c.(fact_R) ns.(known_facts) (ns.(msgs_received) c.(fact_R))) hyps
+                | _ => True
+                end)
+        rules.
+
+  Definition meta_facts_correct' rules g :=
+    forall n, meta_facts_correct_at_node' (rules n) (g.(node_states) n).
+  
+  From Datalog Require Import List.
+
+  Lemma fold_left_add_repeat n m p :
+    fold_left Nat.add (repeat n m) p = n * m + p.
+  Proof.
+    revert p. induction m; simpl; try lia.
+    intros. rewrite IHm. lia.
+  Qed.
+
+  Lemma Existsn_unique U P n m (l : list U) :
+    Existsn P n l ->
+    Existsn P m l ->
+    n = m.
+  Proof.
+    intros H. revert m. induction H; invert 1; auto.
+    all: exfalso; auto.
+  Qed.
+
+  Lemma Existsn_0_Forall_not U P (l : list U) :
+    Existsn P 0 l ->
+    Forall (fun x => ~P x) l.
+  Proof. induction l; invert 1; auto. Qed.
+  
+  Lemma expect_num_R_facts_no_travellers R g n args :
+    sane_graph g ->
+    good_inputs g.(input_facts) ->
+    expect_num_R_facts R (node_states g n).(known_facts)
+                                             ((node_states g n).(msgs_received) R) ->
+    In (n, normal_dfact R args) g.(travellers) ->
+    False.
+  Proof.
+    intros Hs Hinp He Ht.
+    cbv [sane_graph] in Hs. cbv [expect_num_R_facts] in He.
+    destruct He as [He|He].
+    - destruct Hs as (HmfNone&_&Htrav&_&_&Hcnt&Hinp_sane).
+      specialize (Hcnt n R). fwd.
+      cbv [good_inputs] in Hinp. destruct Hinp as (Hrel&Hinp_cnt).
+      specialize (HmfNone _ _ ltac:(eauto)).
+      rewrite Forall_forall in Hrel.
+      specialize (Hrel _ HmfNone). simpl in Hrel.
+      specialize (Hinp_sane R). rewrite Hrel in Hinp_sane.
+      erewrite map_ext_in with (g := fun _ => 0) in Hcntp2 by auto.
+      rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
+      replace (0 * length all_nodes + 0 + num_inp) with num_inp in Hcntp2 by lia.
+      subst.
+      specialize (Hinp_cnt _ _ HmfNone).
+      fwd.
+      epose proof Existsn_unique as Hu.
+      specialize Hu with (1 := Hinp_cntp1) (2 := Hcntp1).
+      subst.
+      assert (num_trav = 0) by lia.
+      subst.
+      apply Existsn_0_Forall_not in Hcntp0.
+      rewrite Forall_forall in Hcntp0.
+      specialize (Hcntp0 _ Ht). simpl in Hcntp0. apply Hcntp0.
+      eauto.
+    - 
+  
+  Lemma step_preserves_mf_correct rules g g' :
+    meta_facts_correct' rules g ->
+    comp_step rules g g' ->
+    meta_facts_correct' rules g'.
+  Proof.
+    intros Hmf. invert 1.
+    - cbv [meta_facts_correct'] in *.
+      intros n'. simpl.
+      destr (node_eqb n n'); auto.
+      destruct f; simpl.
+      + specialize (Hmf n'). cbv [meta_facts_correct_at_node'] in *. simpl.
+        intros R n num [H'|H']; [discriminate|].
+        specialize Hmf with (1 := H').
+        eapply Forall_impl; [|eassumption].
+        simpl. intros r Hr. destruct r; auto.
+        intros f' hyps' Hf'. specialize (Hr _ _ Hf').
+        eapply Forall_impl; [|eassumption].
+        simpl. intros c Hc. destr (rel_eqb nf_rel c.(fact_R)).
+        2: { eapply expect_num_R_facts_incl; eauto with incl. }
+        exfalso.
+        Print sane_graph.
+
+        intros Hcan. right.
+        (*want that nf_rel is irrelevant...*)
+        Print sane_graph. Print meta_facts_correct_at_node.
+        cbv [can_learn_normal_fact_at_node] in Hcan.
+        simpl in Hcan. fwd. destruct r; fwd.
+  Abort.        
+
   Lemma steps_preserves_sanity rules g g' :
     sane_graph g ->
     (comp_step rules)^* g g' ->
@@ -469,8 +574,6 @@ Section DistributedDatalog.
       { apply Relations.TrcRefl. }
       assumption.
   Qed.
-
-  From Datalog Require Import List.
 
   Lemma step_preserves_known_facts rules g g' n :
     comp_step rules g g' ->
@@ -678,7 +781,7 @@ Section DistributedDatalog.
           specialize Hmf with (1 := Hor). eauto. }
           eexists. split.
           { (*first, step to a state where node n knows all the hypotheses;
-          then, one final step where n deduces the conclusion*)
+              then, one final step where n deduces the conclusion*)
             eapply Relations.trc_trans.
             { exact Hstep1. }
             eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
@@ -863,15 +966,6 @@ Section DistributedDatalog.
     induction l; simpl; f_equal; auto. destruct a; reflexivity.
   Qed.
 
-  Lemma Existsn_unique U P n m (l : list U) :
-    Existsn P n l ->
-    Existsn P m l ->
-    n = m.
-  Proof.
-    intros H. revert m. induction H; invert 1; auto.
-    all: exfalso; auto.
-  Qed.
-        
   Lemma facts_of_cons f fs f' :
     good_inputs (f :: fs) ->
     facts_of fs f' ->
