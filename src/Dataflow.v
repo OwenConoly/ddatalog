@@ -289,7 +289,6 @@ Section DistributedDatalog.
       (*     (*   In (normal_dfact R args) (g.(node_states) n).(known_facts) *)). *).
 
   Definition sane_graph g :=
-    good_inputs g.(input_facts) ->
     (* (forall R num, *)
     (*     knows_fact g (meta_dfact R None num) -> *)
     (*     In (meta_dfact R None num) g.(input_facts)) /\ *)
@@ -385,9 +384,7 @@ Section DistributedDatalog.
     comp_step rules g g' ->
     sane_graph g'.
   Proof.
-    intros Hsane Hstep. intros Hinp.
-    specialize' Hsane.
-    { erewrite comp_step_pres_inputs in Hinp by eassumption. assumption. }
+    intros Hsane Hstep.
     destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hcount).
     pose proof Hstep as Hstep'.
     invert Hstep; simpl in *.
@@ -448,13 +445,12 @@ Section DistributedDatalog.
   
   Lemma node_can_receive_known_fact rules g f n :
     sane_graph g ->
-    good_inputs g.(input_facts) ->
     knows_fact g f ->
     exists g',
       (comp_step rules)^* g g' /\
         In f (g'.(node_states) n).(known_facts).
   Proof.
-    intros Hs Hg Hk. specialize (Hs Hg). destruct Hs as (_&_&Heverywhere&_).
+    intros Hs Hk. destruct Hs as (_&_&Heverywhere&_).
     apply Heverywhere with (n := n) in Hk. destruct Hk as [Hk|Hk].
     - apply in_split in Hk. fwd. eexists. split.
       { eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
