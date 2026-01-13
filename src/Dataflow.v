@@ -570,7 +570,13 @@ Section DistributedDatalog.
         eapply Forall_impl; [|eassumption].
         simpl. intros c Hc.
         eapply expect_num_R_facts_incl; eauto with incl.
-      + 
+      + cbv [meta_facts_correct_at_node']. simpl. intros R num [H'|H'].
+        2: { apply Hmf in H'. eapply Forall_impl; [|eassumption].
+             simpl. intros r Hr. destruct r; auto. intros.
+             eapply Forall_impl; [|eauto]. simpl.
+             intros. eapply expect_num_R_facts_incl; [eassumption|].
+             auto with incl. }
+        invert H'.
   Abort.
 
   Lemma steps_preserves_sanity rules g g' :
