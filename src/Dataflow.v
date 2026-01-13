@@ -2,6 +2,7 @@ From Stdlib Require Import List Bool.
 From Datalog Require Import Datalog Tactics.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 From Stdlib Require Import Lia.
+From ATL Require Import Relations. (*TODO i did not actually mean to use trc from here; should i use the stdlib thing instead?*)
 
 Import ListNotations.
 
@@ -273,7 +274,6 @@ Section DistributedDatalog.
                            end)
                 num' inputs).
 
-  Notation "R ^*" := (Relations.trc R) (at level 0).
   Definition sound_graph (*rules*) (p : list rule) g :=
     good_inputs g.(input_facts) ->
     (forall R args,
@@ -379,7 +379,7 @@ Section DistributedDatalog.
   Proof. induction 1; eauto using eq_trans, comp_step_pres_inputs. Qed.
 
   Hint Unfold knows_fact : core.
-  Lemma good_layout_preserves_sanity rules g g' :
+  Lemma step_preserves_sanity rules g g' :
     sane_graph g ->
     comp_step rules g g' ->
     sane_graph g'.
@@ -389,6 +389,14 @@ Section DistributedDatalog.
     pose proof Hstep as Hstep'.
     invert Hstep; simpl in *.
   Admitted.
+
+  Lemma steps_preserves_sanity rules g g' :
+    sane_graph g ->
+    (comp_step rules)^* g g' ->
+    sane_graph g'.
+  Proof.
+    induction 2; eauto using step_preserves_sanity.
+  Qed.
 
   Definition noncyclic_aggregation (p : list rule) :=
     well_founded (fun R1 R2 => exists Rs f, In R2 Rs /\ In (meta_rule R1 f Rs) p).
@@ -462,12 +470,48 @@ Section DistributedDatalog.
       assumption.
   Qed.
 
+  From Datalog Require Import List.
+
+  Lemma step_preserves_known_facts rules g g' n :
+    comp_step rules g g' ->
+    incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
+  Proof.
+    invert 1; simpl.
+    - destr (node_eqb n0 n); auto with incl.
+      intros ? ?. apply receive_fact_at_node_gets_more_facts. assumption.
+    - destr (node_eqb n0 n); auto with incl.
+      intros ? ?. apply receive_fact_at_node_gets_more_facts. assumption.
+  Qed.
+  
+  Lemma steps_preserves_known_facts rules g g' n :
+    (comp_step rules)^* g g' ->
+    incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
+  Proof.
+    induction 1; auto with incl.
+    eapply incl_tran; eauto using step_preserves_known_facts.
+    About incl_tran. (*HWY would you call it that*)
+  Qed.
+    
+  Hint Resolve TrcRefl TrcFront : core.
   Lemma node_can_receive_known_facts rules g hyps n :
+    sane_graph g ->
     Forall (knows_fact g) hyps ->
     exists g',
       (comp_step rules)^* g g' /\
         Forall (fun f => In f (g'.(node_states) n).(known_facts)) hyps.
-  Proof. Admitted.
+  Proof.
+    intros Hs. induction 1.
+    - eauto.
+    - fwd. pose proof node_can_receive_known_fact as Hg'.
+      specialize (Hg' rules g'). epose_dep Hg'.
+      specialize (Hg' ltac:(eauto using steps_preserves_sanity) ltac:(eauto using steps_preserves_facts)).
+      fwd.
+      eexists. split.
+      { eapply trc_trans; eassumption. }
+      constructor; [eassumption|].
+      eapply Forall_impl; [|eassumption].
+      simpl. intros. eapply steps_preserves_known_facts; eauto.
+  Qed.          
 
   Lemma node_can_receive_meta_facts g R rules S n :
     knows_datalog_fact g (meta_fact R S) ->
@@ -481,11 +525,6 @@ Section DistributedDatalog.
     exists g',
       (comp_step rules)^* g g' /\
         (g'.(node_states) n).(msgs_received) R = num.
-  Proof. Admitted.
-
-  Lemma steps_preserves_known_facts rules g g' n :
-    (comp_step rules)^* g g' ->
-    incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
   Proof. Admitted.
 
   Lemma steps_preserves_meta_facts_correct rules g g' :
@@ -518,7 +557,7 @@ Section DistributedDatalog.
   Proof.
     revert Ss. induction Rs; intros [|R ?] Hlen; simpl in Hlen;
       try discriminate; simpl; invert 1.
-    - exists g. split; auto. constructor.
+    - eauto.
     - specialize IHRs with (2 := H3). specialize (IHRs ltac:(lia)). fwd.
       rename H2 into HR. eapply comp_steps_preserves_datalog_facts in HR; [|eassumption].
       eapply node_can_expect in HR. fwd.
@@ -624,6 +663,7 @@ Section DistributedDatalog.
       destruct Hr as (n&Hr).
       
       edestruct node_can_receive_known_facts as (g1&Hstep1&Hhyps1).
+      { eassumption. }
       { apply Forall_map with (f := fun '(R, args) => normal_dfact R args).
         rewrite Lists.List.Forall_map in Hhyps.
         eapply Forall_impl; [|exact Hhyps].
@@ -661,6 +701,7 @@ Section DistributedDatalog.
       invert Hhyps. rename H2 into Hmhyp. rename H3 into Hhyps.
       
       edestruct node_can_receive_known_facts with (g := g) as (g1&Hg1&Hhyps1).
+      { eassumption. }
       { eapply Forall_map.
         rewrite Lists.List.Forall_map in Hhyps.
         exact Hhyps. }
