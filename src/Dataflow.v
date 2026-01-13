@@ -116,10 +116,12 @@ Section DistributedDatalog.
 (*       network_step net (Output n f) [FactOnNode n f]. *)
 
   Definition expect_num_R_facts R known_facts num :=
-    In (meta_dfact R None num) known_facts \/
+    if is_input R then
+      In (meta_dfact R None num) known_facts
+    else
       exists expected_msgss,
         Forall2 (fun n expected_msgs => In (meta_dfact R (Some n) expected_msgs) known_facts) all_nodes expected_msgss /\
-          num = fold_right Nat.add O expected_msgss.
+          num = fold_left Nat.add expected_msgss O.
 
   Lemma expect_num_R_facts_incl R kf1 kf2 num :
     expect_num_R_facts R kf1 num ->
@@ -441,7 +443,7 @@ Section DistributedDatalog.
   Proof.
     intros Hs Hinp He Ht.
     cbv [sane_graph] in Hs. cbv [expect_num_R_facts] in He.
-    destruct He as [He|He].
+    destruct (is_input R) eqn:ER.
     - destruct Hs as (HmfNone&_&Htrav&_&_&Hcnt&Hinp_sane).
       specialize (Hcnt n R). fwd.
       cbv [good_inputs] in Hinp. destruct Hinp as (Hrel&Hinp_cnt).
@@ -464,7 +466,30 @@ Section DistributedDatalog.
       rewrite Forall_forall in Hcntp0.
       specialize (Hcntp0 _ Ht). simpl in Hcntp0. apply Hcntp0.
       eauto.
-    - 
+    - destruct Hs as (_&HmfSome&Htrav&Hmfcorrect&_&Hcnt&Hinp_sane).
+      specialize (Hcnt n R). fwd.
+      assert (Hem: expected_msgss = map (fun n' : Node => msgs_sent (node_states g n') R) all_nodes).
+      { symmetry. apply Forall2_eq_eq.
+        rewrite <- Forall2_map_l. eapply Forall2_impl; [|eassumption].
+        simpl. intros n0 em Hn0.
+        specialize (HmfSome _ _ _ ltac:(eauto)).
+        specialize (Hmfcorrect _ _ _ ltac:(eassumption)).
+        exact Hmfcorrect. }
+      rewrite <- Hem in *. subst. clear Hep0.
+      rewrite Hep1 in Hcntp2.
+      assert (num_trav = num_inp) by lia.
+      subst.
+      specialize (Hinp_sane R). rewrite ER in Hinp_sane.
+      epose proof Existsn_unique as Hu.
+      specialize Hu with (1 := Hinp_sane) (2 := Hcntp1).
+      subst.
+      apply Existsn_0_Forall_not in Hcntp0.
+      rewrite Forall_forall in Hcntp0.
+      specialize (Hcntp0 _ Ht).
+      simpl in Hcntp0.
+      apply Hcntp0.
+      eauto.
+  Qed.
   
   Lemma step_preserves_mf_correct rules g g' :
     meta_facts_correct' rules g ->
@@ -486,6 +511,8 @@ Section DistributedDatalog.
         simpl. intros c Hc. destr (rel_eqb nf_rel c.(fact_R)).
         2: { eapply expect_num_R_facts_incl; eauto with incl. }
         exfalso.
+        eapply expect_num_R_facts_no_travellers.
+        3: eassumption.
         Print sane_graph.
 
         intros Hcan. right.
