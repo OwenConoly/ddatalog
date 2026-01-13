@@ -290,18 +290,21 @@ Section DistributedDatalog.
 
   Definition sane_graph g :=
     good_inputs g.(input_facts) ->
-    (forall R num,
-        knows_fact g (meta_dfact R None num) ->
-        In (meta_dfact R None num) g.(input_facts)) /\
-      (forall R num n,
-          knows_fact g (meta_dfact R (Some n) num) ->
-          In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts)) /\
-      (forall n f,
-          In (n, f) g.(travellers) ->
-          knows_fact g f) /\
+    (* (forall R num, *)
+    (*     knows_fact g (meta_dfact R None num) -> *)
+    (*     In (meta_dfact R None num) g.(input_facts)) /\ *)
+    (*   (forall R num n, *)
+    (*       knows_fact g (meta_dfact R (Some n) num) -> *)
+    (*       In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts)) /\ *)
+    (forall n f,
+        In (n, f) g.(travellers) ->
+        knows_fact g f) /\
       (forall R n num,
           In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) ->
           (g.(node_states) n).(msgs_sent) R = num) /\
+      (forall f, knows_fact g f ->
+            forall n,
+              In (n, f) g.(travellers) \/ In f (g.(node_states) n).(known_facts)) /\
       (forall n R,
         exists num_trav num_inp,
           Existsn (fun '(n', f) => n = n' /\ exists args, f = normal_dfact R args) num_trav g.(travellers) /\
@@ -343,6 +346,10 @@ Section DistributedDatalog.
   Qed.
   Hint Resolve receive_fact_at_node_gets_more_facts : core.
 
+  Lemma receive_fact_at_node_receives_facts f ns :
+    In f (receive_fact_at_node ns f).(known_facts).
+  Proof. destruct f; simpl; auto. Qed.
+  
   Lemma step_preserves_facts rules f g g' :
     knows_fact g f ->
     comp_step rules g g' ->
@@ -389,7 +396,6 @@ Section DistributedDatalog.
   Definition noncyclic_aggregation (p : list rule) :=
     well_founded (fun R1 R2 => exists Rs f, In R2 Rs /\ In (meta_rule R1 f Rs) p).
 
-  Check agg_drule.
   Definition rel_edge (rules : Layout) R1 R2 :=
     exists n a, (*In R2 Rs /\*) In (*(meta_drule R1 Rs)*) (agg_drule a R2 R1) (rules n).
 
@@ -416,18 +422,49 @@ Section DistributedDatalog.
           (forall n, exists num, knows_fact g (meta_dfact R (Some n) num))
     end.
 
+  Lemma comp_step_preserves_datalog_facts rules f g g' :
+    knows_datalog_fact g f ->
+    comp_step rules g g' ->
+    knows_datalog_fact g' f.
+  Proof.
+    intros Hknows Hstep. pose proof Hstep as Hstep'. invert Hstep'.
+    - cbv [knows_datalog_fact]. destruct f; simpl.
+      + destruct Hknows; fwd; eauto.
+      + destruct Hknows as [Hknows|Hknows]; fwd; eauto.
+        right. intros n'. specialize (Hknows n'). fwd. eauto.
+    - cbv [knows_datalog_fact]. destruct f; simpl.
+      + destruct Hknows; fwd; eauto.
+      + destruct Hknows as [Hknows|Hknows]; fwd; eauto.
+        right. intros n'. specialize (Hknows n'). fwd. eauto.
+  Qed.
+  
   Lemma comp_steps_preserves_datalog_facts rules f g g' :
     knows_datalog_fact g f ->
     (comp_step rules)^* g g' ->
     knows_datalog_fact g' f.
-  Proof. Admitted.
+  Proof.
+    induction 2; eauto using comp_step_preserves_datalog_facts.
+  Qed.    
   
   Lemma node_can_receive_known_fact rules g f n :
+    sane_graph g ->
+    good_inputs g.(input_facts) ->
     knows_fact g f ->
     exists g',
       (comp_step rules)^* g g' /\
         In f (g'.(node_states) n).(known_facts).
-  Proof. Admitted.
+  Proof.
+    intros Hs Hg Hk. specialize (Hs Hg). destruct Hs as (_&_&Heverywhere&_).
+    apply Heverywhere with (n := n) in Hk. destruct Hk as [Hk|Hk].
+    - apply in_split in Hk. fwd. eexists. split.
+      { eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        apply ReceiveFact. eassumption. }
+      simpl. destr (node_eqb n n); [|congruence].
+      apply receive_fact_at_node_receives_facts.
+    - exists g. split.
+      { apply Relations.TrcRefl. }
+      assumption.
+  Qed.
 
   Lemma node_can_receive_known_facts rules g hyps n :
     Forall (knows_fact g) hyps ->
@@ -502,7 +539,8 @@ Section DistributedDatalog.
     | normal_fact R _ => R
     | meta_fact R _ => R
     end.
-
+  
+  (*oops this is the same as "facts_of" defined up above*)
   Definition fact_in_inputs inps f :=
     match f with
     | normal_fact R args => In (normal_dfact R args) inps
