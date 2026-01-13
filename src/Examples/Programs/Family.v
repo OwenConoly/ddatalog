@@ -6,8 +6,6 @@ Open Scope string_scope.
 
 Import StringDatalogParams.
 
-Module family_examples.
-
 (* Individual rules using fancy Datalog notation *)
 
 Definition r_ancestor1 : rule :=
@@ -33,8 +31,6 @@ Definition family_program : list rule :=
     r_aunt_uncle;
     r_cousin ].
 
-End family_examples.
-
 (* Temp fix, may use typeclasses later *)
 Definition get_program_dependencies (p : list rule) :=
   DependencyGenerator.get_program_dependencies
@@ -56,10 +52,9 @@ Definition get_program_dependencies_flat (p : list rule) :=
     p.
 
 (* Example computations *)
-Compute get_program_dependencies family_examples.family_program.
+Compute get_program_dependencies family_program.
 Compute get_rule_dependencies
-        family_examples.family_program
-        family_examples.r_ancestor2.
+        family_program
+        r_ancestor2.
 
-Compute get_program_dependencies_flat
-        family_examples.family_program.
+Compute get_program_dependencies_flat family_program.

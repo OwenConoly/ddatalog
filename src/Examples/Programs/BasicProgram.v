@@ -1,6 +1,5 @@
 From Stdlib Require Import Strings.String.
-From Datalog Require Import Datalog.
-From Datalog Require Import FancyNotations.
+From Datalog Require Import Datalog FancyNotations JSON.
 From Stdlib Require Import List.
 Import ListNotations.
 Open Scope string_scope.
@@ -62,8 +61,8 @@ Definition alice_bob_friend : rule :=
      ];
      rule_set_hyps := [] |}.
 
-Definition example_program: list rule :=
+Definition basic_program: list rule :=
    [edge_path_rule; everything_connects_to_42_rule; alice_bob_friend].
 
-Definition computed_example_program := Eval compute in example_program.
-Print computed_example_program.
+Definition computed_basic_program := Eval compute in basic_program.
+Print computed_basic_program.
