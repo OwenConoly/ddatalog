@@ -7,30 +7,40 @@ Open Scope string_scope.
 
 Import StringDatalogParams.
 
-Definition path_base_r : rule := datalog_rule:([ Path($a, $b) ] :- [ Edge($a, $b) ]).
-Definition path_step_r : rule := datalog_rule:([ Path($a, $c) ] :- [ Edge($a, $b); Path($b, $c) ]).
-Definition two_step_r : rule := datalog_rule:([ TwoStep($a, $c) ] :- [ Edge($a, $b); Edge($b, $c) ]).
-Definition cycle_r : rule := datalog_rule:([ Cycle($a) ] :- [ Path($a, $a) ]).
-Definition triangle_r : rule := datalog_rule:([ Triangle($a, $b) ] :- [ Edge($a, $b); Edge($b, $c); Edge($c, $a) ]).
-Definition bipath_r : rule := datalog_rule:([ BiPath($a, $b) ] :- [ Path($a, $b); Path($b, $a) ]).
+Definition r_path_base : rule := 
+  datalog_rule:([ Path($a, $b) ] :- [ Edge($a, $b) ]).
+
+Definition r_path_step : rule := 
+  datalog_rule:([ Path($a, $c) ] :- [ Edge($a, $b); Path($b, $c) ]).
+
+Definition r_two_step : rule := 
+  datalog_rule:([ TwoStep($a, $c) ] :- [ Edge($a, $b); Edge($b, $c) ]).
+
+Definition r_cycle : rule := 
+  datalog_rule:([ Cycle($a) ] :- [ Path($a, $a) ]).
+
+Definition r_triangle : rule := 
+  datalog_rule:([ Triangle($a, $b) ] :- [ Edge($a, $b); Edge($b, $c); Edge($c, $a) ]).
+
+Definition r_bipath : rule := 
+  datalog_rule:([ BiPath($a, $b) ] :- [ Path($a, $b); Path($b, $a) ]).
 
 Definition graph_program : list rule :=
-   [ path_base_r;
-    path_step_r;
-    two_step_r;
-    cycle_r;
-    triangle_r;
-    bipath_r ].
+   [ r_path_base;
+    r_path_step;
+    r_two_step;
+    r_cycle;
+    r_triangle;
+    r_bipath ].
 
 Definition name_overrides : list (rule * string) :=
-  [ (path_base_r, "path_base");
-    (path_step_r, "path_step");
-    (two_step_r, "two_step");
-    (cycle_r, "cycle");
-    (triangle_r, "triangle");
-    (bipath_r, "bipath")
+  [ (r_path_base, "path_base");
+    (r_path_step, "path_step");
+    (r_two_step, "two_step");
+    (r_cycle, "cycle");
+    (r_triangle, "triangle");
+    (r_bipath, "bipath")
   ].
-
 
 (* Temp fix, may use typeclasses later *)
 Definition get_program_dependencies (p : list rule) :=

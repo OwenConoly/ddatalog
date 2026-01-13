@@ -17,19 +17,43 @@ Definition r_ancestor2 : rule :=
 Definition r_sibling : rule :=
   datalog_rule:( [ sibling($x, $y) ] :- [ parent($p, $x); parent($p, $y) ] ).
 
-Definition r_aunt_uncle : rule :=
-  datalog_rule:( [ aunt_uncle($x, $y) ] :- [ sibling($x, $p); parent($p, $y) ] ).
+Definition r_aunt: rule :=
+  datalog_rule:( [ aunt($x, $y) ] :- [ sibling($x, $p); parent($p, $y); female($x) ] ).
+
+Definition r_uncle : rule :=
+  datalog_rule:( [ uncle($x, $y) ] :- [ sibling($x, $p); parent($p, $y); male($x) ] ).
 
 Definition r_cousin : rule :=
   datalog_rule:( [ cousin($x, $y) ] :- [ parent($px, $x); parent($py, $y); sibling($px, $py) ] ).
+
+Definition r_related1 : rule :=
+  datalog_rule:( [ related($x, $y) ] :- [ ancestor($x, $y) ] ).
+
+Definition r_related2 : rule :=
+  datalog_rule:( [ related($x, $y) ] :- [ ancestor($y, $x) ] ).
 
 (* The full program, referencing the rules directly *)
 Definition family_program : list rule :=
   [ r_ancestor1;
     r_ancestor2;
     r_sibling;
-    r_aunt_uncle;
-    r_cousin ].
+    r_aunt;
+    r_uncle;
+    r_cousin;
+    r_related1;
+    r_related2].
+
+
+Definition name_overrides : list (rule * string) :=
+  [ (r_ancestor1, "ancestor1");
+    (r_ancestor2, "ancestor2");
+    (r_sibling, "sibling");
+    (r_aunt, "aunt");
+    (r_uncle, "uncle");
+    (r_cousin, "cousin");
+    (r_related1, "related1");
+    (r_related2, "related2")
+  ].
 
 (* Temp fix, may use typeclasses later *)
 Definition get_program_dependencies (p : list rule) :=

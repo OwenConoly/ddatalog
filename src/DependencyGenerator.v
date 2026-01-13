@@ -61,6 +61,11 @@ Definition get_const (e : expr) : option fn :=
   | _ => None
   end.
 
+Definition dedup {A : Type} (eqb : A -> A -> bool) (lst : list A) : list A :=
+  fold_right (fun x acc =>
+                if existsb (eqb x) acc then acc
+                else x :: acc) [] (lst).
+
 (* Eqb *)
 
 Fixpoint list_eqb_fuel
@@ -323,6 +328,14 @@ Definition get_rule_dependencies (p : program) (r : rule) : program :=
 Definition get_rules_dependent_on (p : program) (r : rule) : program :=
   filter (fun r' => rule_depends_on r r') p.
 
+Definition rel_appears_in_hyps (R : rel) (r : rule) : bool :=
+  existsb (fun f => rel_eqb (Datalog.fact_R f) R) (Datalog.rule_hyps r).
+
+Definition rel_appears_in_concls (R : rel) (r : rule) : bool :=
+  existsb (fun f => rel_eqb (Datalog.fact_R f) R) (Datalog.rule_concls r).
+
+(* Program Dependencies *)
+
 Definition get_program_dependencies (p : program) : list (rule * list rule) :=
   map (fun r => (r, get_rule_dependencies p r)) p.
 
@@ -354,5 +367,78 @@ Definition get_program_dependencies_by_index (p : program) : list (nat * list na
 Definition get_program_dependencies_flat (p : program) : list (nat * nat) :=
   flat_map (fun '(n, deps) => List.map (fun idx => (n, idx)) deps)
            (get_program_dependencies_by_index p).
+
+Definition get_program_input_rels (p : program) : list rel :=
+  dedup rel_eqb (flat_map get_rule_hyps_rels p).
+
+Definition get_program_output_rels (p : program) : list rel :=
+  dedup rel_eqb (flat_map get_rule_concls_rels p).
+
+Fixpoint lookup_rel_number (R : rel) (rels : list rel) (n : nat) : option nat :=
+  match rels with
+  | [] => None
+  | R' :: Rs =>
+      if rel_eqb R R' then Some n
+      else lookup_rel_number R Rs (n + 1)
+  end.
+
+Definition get_input_rels_depedencies (p : program) : list (rel * list rule) :=
+  map (fun R =>
+         let dependent_rules := filter (fun r => rel_appears_in_hyps R r) p in
+         (R, dependent_rules))
+      (get_program_input_rels p).
+
+Definition get_input_rels_depedencies_by_index (p : program) : list (nat * list nat) :=
+  let input_rels := get_program_input_rels p in
+  let fix aux rels n :=
+      match rels with
+      | [] => []
+      | R :: Rs =>
+          let dependent_rules := filter (fun r => rel_appears_in_hyps R r) p in
+          let dependent_rule_indices :=
+            flat_map (fun r =>
+                        match lookup_rule_number r p 0 with
+                        | Some idx => [idx]
+                        | None => []
+                        end) dependent_rules
+          in
+          (n, dependent_rule_indices) :: aux Rs (n + 1)
+      end
+  in aux input_rels 0.
+
+Definition get_input_rels_depedencies_flat (p : program) : list (nat * nat) :=
+  flat_map (fun '(rel_idx, rule_indices) =>
+               List.map (fun rule_idx => (rel_idx, rule_idx)) rule_indices)
+           (get_input_rels_depedencies_by_index p).
+
+Definition get_output_rels_dependencies (p : program) : list (rel * list rule) :=
+  map (fun R =>
+         let producing_rules := filter (fun r => rel_appears_in_concls R r) p in
+         (R, producing_rules))
+      (get_program_output_rels p).
+
+Definition get_output_rels_dependencies_by_index (p : program) : list (nat * list nat) :=
+  let output_rels := get_program_output_rels p in
+  let output := get_program_output_rels p in
+  let fix aux rels n :=
+      match rels with
+      | [] => []
+      | R :: Rs =>
+          let producing_rules := filter (fun r => rel_appears_in_concls R r) p in
+          let producing_rule_indices :=
+            flat_map (fun r =>
+                        match lookup_rule_number r p 0 with
+                        | Some idx => [idx]
+                        | None => []
+                        end) producing_rules
+          in
+          (n, producing_rule_indices) :: aux Rs (n + 1)
+      end
+  in aux output_rels 0.
+
+Definition get_output_rels_dependencies_flat (p : program) : list (nat * nat) :=
+  flat_map (fun '(rel_idx, rule_indices) =>
+               List.map (fun rule_idx => (rule_idx, rel_idx)) rule_indices)
+           (get_output_rels_dependencies_by_index p).
 
 End DependencyGenerator.
