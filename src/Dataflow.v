@@ -526,15 +526,35 @@ Section DistributedDatalog.
         In (normal_dfact R' args') ns'.(known_facts)) ->
     can_learn_normal_fact_at_node rules ns' R args.
   Proof. Admitted.
-  
+
   Lemma can_learn_normal_fact_at_node_relevant_normal_facts_incl rules ns ns' R args :
     can_learn_normal_fact_at_node rules ns R args ->
     (forall R' args',
         In (normal_dfact R' args') ns.(known_facts) ->
-        (*TODO: add hyp saying that there Exists rule in rules with R in concls and R' in hyps*)
+        Exists (fun r =>
+                  match r with
+                  | normal_drule concls hyps =>
+                      In R (map fact_R concls) /\ In R' (map fact_R hyps)
+                  | _ => False
+                  end
+          ) rules ->
         In (normal_dfact R' args') ns'.(known_facts)) ->
     can_learn_normal_fact_at_node rules ns' R args.
-  Proof. Abort.
+  Proof.
+    intros Hlearn Hrs. cbv [can_learn_normal_fact_at_node] in *. fwd.
+    eexists. split; [eassumption|]. destruct r; fwd.
+    - do 2 eexists. split; [eassumption|]. split; [eassumption|].
+      intros R' args' H'. apply Hrs; auto.
+      apply Exists_exists. eexists. split; [eassumption|]. simpl.
+      apply Exists_exists in Hlearnp1p0. fwd. invert Hlearnp1p0p1.
+      split.
+      { apply in_map. assumption. }
+      eapply Forall2_forget_l in Hlearnp1p1. rewrite Forall_forall in Hlearnp1p1.
+      specialize (Hlearnp1p1 _ H'). fwd. invert Hlearnp1p1p1. apply in_map.
+      assumption.
+    - (*similar*) admit.
+    - contradiction.
+  Admitted.
 
   Lemma step_preserves_mf_correct rules g g' :
     sane_graph g ->
@@ -543,7 +563,10 @@ Section DistributedDatalog.
     comp_step rules g g' ->
     meta_facts_correct' rules g'.
   Proof.
-    intros Hs Hinp Hmf. invert 1.
+    intros Hs Hinp Hmf Hstep.
+    assert (Hs': sane_graph g').
+    { eauto using step_preserves_sanity. }
+    invert Hstep.
     - cbv [meta_facts_correct'] in *.
       intros n'. simpl.
       destr (node_eqb n n'); auto.
@@ -559,38 +582,17 @@ Section DistributedDatalog.
            simpl. intros c Hc. destr (rel_eqb nf_rel c.(fact_R)).
            2: { eapply expect_num_R_facts_incl; eauto with incl. }
            exfalso.
-           eapply expect_num_R_facts_no_travellers; try eassumption.
-           rewrite H0. apply in_app_iff. simpl. eauto.
+           eapply expect_num_R_facts_no_travellers with (g := g); try eassumption.
+           rewrite H. apply in_app_iff. simpl. eauto.
         -- intros args Hargs. right. apply Hmfp1. move Hmfp0 at bottom.
-           (*Hargs and Hmfp0 (almost) together imply this.  should be a lemma or smth*)
-           (*TODO: prove and use the lemma can_learn_normal_fact_at_node_relevant_normal_facts_incl*)
-           clear -Hargs Hmfp0 Hinp H0 Hs.
-           cbv [can_learn_normal_fact_at_node] in Hargs.
-           simpl in Hargs. fwd. exists r. split; [assumption|]. destruct r; fwd.
-           ++ do 2 eexists. split; [eassumption|]. split; [eassumption|].
-              rewrite Forall_forall in Hmfp0. specialize (Hmfp0 _ Hargsp0).
-              simpl in Hmfp0. apply Exists_exists in Hargsp1p0. fwd.
-              invert Hargsp1p0p1. rename H2 into Hargsp1p0p1.
-              specialize' Hmfp0.
-              { apply in_map. assumption. }
-              intros R' args' H'.
-              specialize Hargsp1p2 with (1 := H').
-              destruct Hargsp1p2 as [Hargsp1p2|Hargsp1p2]; auto.
-              exfalso.
-              invert Hargsp1p2.
-              assert (Forall (fun '(R, _) => expect_num_R_facts R (known_facts (node_states g n'))
-         (msgs_received (node_states g n') R)) hyps') as Hhyps'.
-              { eapply Forall_impl.
-                2: eapply Forall2_forget_l. 2: eassumption.
-                simpl. intros [R0 args0] HR0. fwd. invert HR0p1.
-                rewrite Forall_forall in Hmfp0. specialize (Hmfp0 _ HR0p0).
-                exact Hmfp0. }
-              rewrite Forall_forall in Hhyps'.
-              specialize (Hhyps' _ H'). simpl in Hhyps'.
-              eapply expect_num_R_facts_no_travellers; try eassumption.
-              rewrite H0. apply in_app_iff. simpl. eauto.
-           ++ (*similar*) admit.
-           ++ contradiction.
+           eapply can_learn_normal_fact_at_node_relevant_normal_facts_incl; [eassumption|].
+           simpl. intros R' args' [HR'|HR'] Hex; auto. invert HR'. exfalso.
+           apply Exists_exists in Hex. rewrite Forall_forall in Hmfp0.
+           fwd. apply Hmfp0 in Hexp0. specialize (Hexp0 Hexp1p0).
+           rewrite Forall_forall in Hexp0. apply in_map_iff in Hexp1p1.
+           fwd. specialize (Hexp0 _ Hexp1p1p1).
+           eapply expect_num_R_facts_no_travellers with (g := g); try eassumption.
+           rewrite H. apply in_app_iff. simpl. eauto.
       + cbv [meta_facts_correct_at_node']. simpl. intros R num [H'|H'].
         2: { apply Hmf in H'. fwd. split.
              - eapply Forall_impl; [|eassumption].
@@ -603,7 +605,7 @@ Section DistributedDatalog.
                simpl. intros ? ? [?|?]; [congruence|auto]. }
         invert H'.
         cbv [sane_graph] in Hs. destruct Hs as (_&HmfSome&Htrav&_).
-        rewrite H0 in Htrav. epose_dep Htrav.
+        rewrite H in Htrav. epose_dep Htrav.
         rewrite in_app_iff in Htrav. simpl in Htrav.
         specialize (Htrav ltac:(eauto)).
         apply HmfSome in Htrav.
@@ -618,12 +620,13 @@ Section DistributedDatalog.
         -- intros args Hargs. right. apply Hmfp1.
            eapply can_learn_normal_fact_at_node_normal_facts_incl; [eassumption|].
            simpl. intros ? ? [?|?]; [congruence|auto].
-    - rename H0 into Hf.
+    - rename H into Hf.
       cbv [meta_facts_correct'] in *.
       intros n'. simpl.
       destr (node_eqb n n'); auto.
       destruct f; simpl in *; fwd.
-      + specialize (Hmf n'). cbv [meta_facts_correct_at_node'] in *. simpl.
+      + pose proof Hmf as Hmf'.
+        specialize (Hmf n'). cbv [meta_facts_correct_at_node'] in *. simpl.
         intros R num [H'|H']; [discriminate|].
         specialize Hmf with (1 := H'). fwd. split.
         -- eapply Forall_impl; [|eassumption].
@@ -632,7 +635,26 @@ Section DistributedDatalog.
            eapply Forall_impl; [|eassumption].
            simpl. intros c Hc.
            eapply expect_num_R_facts_incl; eauto with incl.
-        -- (*TODO: idk how hard this is*) admit.
+        -- intros args Hargs. right. apply Hmfp1. move Hmfp0 at bottom.
+           eapply can_learn_normal_fact_at_node_relevant_normal_facts_incl; [eassumption|].
+           simpl. intros R' args' [HR'|HR'] Hex; auto. invert HR'.
+           apply Exists_exists in Hex. rewrite Forall_forall in Hmfp0.
+           fwd. apply Hmfp0 in Hexp0. specialize (Hexp0 Hexp1p0).
+           rewrite Forall_forall in Hexp0. apply in_map_iff in Hexp1p1.
+           fwd. specialize (Hexp0 _ Hexp1p1p1).
+           move Hmf' at bottom. cbv [expect_num_R_facts] in Hexp0.
+           destruct (is_input x.(fact_R)) eqn:Ex.
+           { exfalso. move Hs' at bottom. cbv [sane_graph] in Hs'. simpl in Hs'.
+             destruct Hs' as (_&_&_&_&_&_&Hinp_sane).
+             specialize (Hinp_sane x.(fact_R)). rewrite Ex in Hinp_sane.
+             specialize (Hinp_sane n'). destr (node_eqb n' n'); [|congruence].
+             simpl in Hinp_sane. destr (rel_eqb x.(fact_R) x.(fact_R)); [|congruence].
+             discriminate Hinp_sane. }
+           fwd. apply Forall2_forget_r in Hexp0p0. rewrite Forall_forall in Hexp0p0.
+           specialize (Hexp0p0 n'). specialize' Hexp0p0.
+           { destruct Hall_nodes. auto. }
+           fwd. specialize (Hmf' _ _ _ ltac:(eassumption)). fwd. apply Hmf'p1.
+           assumption.
       + cbv [meta_facts_correct_at_node']. simpl. intros R num [H'|H'].
         2: { apply Hmf in H'. fwd. split.
              - eapply Forall_impl; [|eassumption].
