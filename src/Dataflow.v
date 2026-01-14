@@ -427,7 +427,7 @@ Section DistributedDatalog.
                 match r with
                 | normal_drule concls hyps =>
                     In R (map fact_R concls) ->
-                    Forall (fun c => expect_num_R_facts c.(fact_R) ns.(known_facts) (ns.(msgs_received) c.(fact_R))) hyps
+                    Forall (fun R' => expect_num_R_facts R' ns.(known_facts) (ns.(msgs_received) R')) (map fact_R hyps)
                 | _ => True
                 end)
         rules /\
@@ -591,7 +591,7 @@ Section DistributedDatalog.
            simpl. intros r Hr. destruct r; auto. intros Hcs.
            specialize (Hr Hcs).
            eapply Forall_impl; [|eassumption].
-           simpl. intros c Hc. destr (rel_eqb nf_rel c.(fact_R)).
+           simpl. intros R' HR'. destr (rel_eqb nf_rel R').
            2: { eapply expect_num_R_facts_incl; eauto with incl. }
            exfalso.
            eapply expect_num_R_facts_no_travellers with (g := g); try eassumption.
@@ -601,8 +601,8 @@ Section DistributedDatalog.
            simpl. intros R' args' [HR'|HR'] Hex; auto. invert HR'. exfalso.
            apply Exists_exists in Hex. rewrite Forall_forall in Hmfp0.
            fwd. apply Hmfp0 in Hexp0. specialize (Hexp0 Hexp1p0).
-           rewrite Forall_forall in Hexp0. apply in_map_iff in Hexp1p1.
-           fwd. specialize (Hexp0 _ Hexp1p1p1).
+           rewrite Forall_forall in Hexp0.
+           specialize (Hexp0 _ Hexp1p1).
            eapply expect_num_R_facts_no_travellers with (g := g); try eassumption.
            rewrite H. apply in_app_iff. simpl. eauto.
       + cbv [meta_facts_correct_at_node']. simpl. intros R num [H'|H'].
@@ -652,15 +652,15 @@ Section DistributedDatalog.
            simpl. intros R' args' [HR'|HR'] Hex; auto. invert HR'.
            apply Exists_exists in Hex. rewrite Forall_forall in Hmfp0.
            fwd. apply Hmfp0 in Hexp0. specialize (Hexp0 Hexp1p0).
-           rewrite Forall_forall in Hexp0. apply in_map_iff in Hexp1p1.
-           fwd. specialize (Hexp0 _ Hexp1p1p1).
+           rewrite Forall_forall in Hexp0.
+           specialize (Hexp0 _ Hexp1p1).
            move Hmf' at bottom. cbv [expect_num_R_facts] in Hexp0.
-           destruct (is_input x.(fact_R)) eqn:Ex.
+           destruct (is_input R') eqn:Ex.
            { exfalso. move Hs' at bottom. cbv [sane_graph] in Hs'. simpl in Hs'.
              destruct Hs' as (_&_&_&_&_&_&Hinp_sane).
-             specialize (Hinp_sane x.(fact_R)). rewrite Ex in Hinp_sane.
+             specialize (Hinp_sane R'). rewrite Ex in Hinp_sane.
              specialize (Hinp_sane n'). destr (node_eqb n' n'); [|congruence].
-             simpl in Hinp_sane. destr (rel_eqb x.(fact_R) x.(fact_R)); [|congruence].
+             simpl in Hinp_sane. destr (rel_eqb R' R'); [|congruence].
              discriminate Hinp_sane. }
            fwd. apply Forall2_forget_r in Hexp0p0. rewrite Forall_forall in Hexp0p0.
            specialize (Hexp0p0 n'). specialize' Hexp0p0.
@@ -681,9 +681,27 @@ Section DistributedDatalog.
         cbv [can_learn_meta_fact_at_node] in Hfp1. fwd. move Hs' at top.
         split.
         -- apply Forall_forall. intros r Hr. destruct r.
-           ++ intros HR. specialize (Hfp1p1p1 _ Hr).
-        
-  Abort.
+           ++ intros HR. pose proof Hfp1p0 as Hfp1p0'.
+              cbv [good_layout] in Hlayout. destruct Hlayout as (Hn&_&_&Hm).
+              eassert (In _ _) as Hr'.
+              { apply Hn. eexists. eassumption. }
+              apply Hm in Hfp1p0'. fwd.
+              move Hp at bottom. cbv [good_prog] in Hp.
+              specialize (Hp _ _ _ Hfp1p0').
+              specialize Hp with (1 := Hr') (2 := HR).
+              rewrite Hn in Hr'. fwd.
+              apply Forall_forall.
+              intros R' HR'.
+              apply Hp in HR'.
+              apply Hfp1p1p1 in HR'.
+              eapply expect_num_R_facts_incl; [eassumption|].
+              auto with incl.
+           ++ constructor. (*TODO this will get harder*)
+           ++ constructor.
+        -- intros args Hargs. right. apply Hfp1p1p2.
+           eapply can_learn_normal_fact_at_node_normal_facts_incl; [eassumption|].
+           simpl. intros R' args' [H'|H']; [congruence|]. assumption.
+  Qed.
 
   Lemma steps_preserves_sanity rules g g' :
     sane_graph g ->
@@ -773,7 +791,7 @@ Section DistributedDatalog.
     - destr (node_eqb n0 n); auto with incl.
       intros ? ?. apply receive_fact_at_node_gets_more_facts. assumption.
     - destr (node_eqb n0 n); auto with incl.
-      intros ? ?. apply receive_fact_at_node_gets_more_facts. assumption.
+      intros ? ?. apply learn_fact_at_node_gets_more_facts. assumption.
   Qed.
   
   Lemma steps_preserves_known_facts rules g g' n :
