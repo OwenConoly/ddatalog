@@ -556,14 +556,26 @@ Section DistributedDatalog.
     - contradiction.
   Admitted.
 
-  Lemma step_preserves_mf_correct rules g g' :
+  (*we can assume this wlog, since any normal rules violating it are useless*)
+  Definition good_prog (p : list rule) :=
+    forall R f Rs,
+      In (meta_rule R f Rs) p ->
+      forall concls hyps R',
+        In (normal_rule concls hyps) p ->
+        In R (map fact_R concls) ->
+        In R' (map fact_R hyps) ->
+        In R' Rs.        
+
+  Lemma step_preserves_mf_correct p rules g g' :
+    good_layout p rules ->
+    good_prog p ->
     sane_graph g ->
     good_inputs g.(input_facts) ->
     meta_facts_correct' rules g ->
     comp_step rules g g' ->
     meta_facts_correct' rules g'.
   Proof.
-    intros Hs Hinp Hmf Hstep.
+    intros Hlayout Hp Hs Hinp Hmf Hstep.
     assert (Hs': sane_graph g').
     { eauto using step_preserves_sanity. }
     invert Hstep.
@@ -666,7 +678,11 @@ Section DistributedDatalog.
                eapply can_learn_normal_fact_at_node_normal_facts_incl; [eassumption|].
                simpl. intros ? ? [?|?]; [congruence|auto]. }
         invert H'.
-        cbv [can_learn_meta_fact_at_node] in Hfp1. fwd.
+        cbv [can_learn_meta_fact_at_node] in Hfp1. fwd. move Hs' at top.
+        split.
+        -- apply Forall_forall. intros r Hr. destruct r.
+           ++ intros HR. specialize (Hfp1p1p1 _ Hr).
+        
   Abort.
 
   Lemma steps_preserves_sanity rules g g' :
