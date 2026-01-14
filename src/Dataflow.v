@@ -417,7 +417,7 @@ Section DistributedDatalog.
     invert Hstep; simpl in *.
   Admitted.
 
-  Definition meta_facts_correct_at_node' rules n ns :=
+  Definition meta_facts_correct_at_node rules n ns :=
     forall R num,
       In (meta_dfact R (Some n) num) ns.(known_facts) ->
       Forall (fun r =>
@@ -432,8 +432,8 @@ Section DistributedDatalog.
             can_learn_normal_fact_at_node rules ns R args ->
             In (normal_dfact R args) (known_facts ns)).
 
-  Definition meta_facts_correct' rules g :=
-    forall n, meta_facts_correct_at_node' (rules n) n (g.(node_states) n).
+  Definition meta_facts_correct rules g :=
+    forall n, meta_facts_correct_at_node (rules n) n (g.(node_states) n).
   
   Lemma fold_left_add_repeat n m p :
     fold_left Nat.add (repeat n m) p = n * m + p.
@@ -566,19 +566,19 @@ Section DistributedDatalog.
     good_prog p ->
     sane_graph g ->
     good_inputs g.(input_facts) ->
-    meta_facts_correct' rules g ->
+    meta_facts_correct rules g ->
     comp_step rules g g' ->
-    meta_facts_correct' rules g'.
+    meta_facts_correct rules g'.
   Proof.
     intros Hlayout Hp Hs Hinp Hmf Hstep.
     assert (Hs': sane_graph g').
     { eauto using step_preserves_sanity. }
     invert Hstep.
-    - cbv [meta_facts_correct'] in *.
+    - cbv [meta_facts_correct] in *.
       intros n'. simpl.
       destr (node_eqb n n'); auto.
       destruct f; simpl.
-      + specialize (Hmf n'). cbv [meta_facts_correct_at_node'] in *. simpl.
+      + specialize (Hmf n'). cbv [meta_facts_correct_at_node] in *. simpl.
         intros R num [H'|H']; [discriminate|].
         specialize Hmf with (1 := H'). fwd.
         split.
@@ -600,7 +600,7 @@ Section DistributedDatalog.
            specialize (Hexp0 _ Hexp1p1).
            eapply expect_num_R_facts_no_travellers with (g := g); try eassumption.
            rewrite H. apply in_app_iff. simpl. eauto.
-      + cbv [meta_facts_correct_at_node']. simpl. intros R num [H'|H'].
+      + cbv [meta_facts_correct_at_node]. simpl. intros R num [H'|H'].
         2: { apply Hmf in H'. fwd. split.
              - eapply Forall_impl; [|eassumption].
                simpl. intros r Hr. destruct r; auto. intros.
@@ -628,12 +628,12 @@ Section DistributedDatalog.
            eapply can_learn_normal_fact_at_node_normal_facts_incl; [eassumption|].
            simpl. intros ? ? [?|?]; [congruence|auto].
     - rename H into Hf.
-      cbv [meta_facts_correct'] in *.
+      cbv [meta_facts_correct] in *.
       intros n'. simpl.
       destr (node_eqb n n'); auto.
       destruct f; simpl in *; fwd.
       + pose proof Hmf as Hmf'.
-        specialize (Hmf n'). cbv [meta_facts_correct_at_node'] in *. simpl.
+        specialize (Hmf n'). cbv [meta_facts_correct_at_node] in *. simpl.
         intros R num [H'|H']; [discriminate|].
         specialize Hmf with (1 := H'). fwd. split.
         -- eapply Forall_impl; [|eassumption].
@@ -662,7 +662,7 @@ Section DistributedDatalog.
            { destruct Hall_nodes. auto. }
            fwd. specialize (Hmf' _ _ _ ltac:(eassumption)). fwd. apply Hmf'p1.
            assumption.
-      + cbv [meta_facts_correct_at_node']. simpl. intros R num [H'|H'].
+      + cbv [meta_facts_correct_at_node]. simpl. intros R num [H'|H'].
         2: { apply Hmf in H'. fwd. split.
              - eapply Forall_impl; [|eassumption].
                simpl. intros r Hr. destruct r; auto. intros.
@@ -843,12 +843,14 @@ Section DistributedDatalog.
         (g'.(node_states) n).(msgs_received) R = num.
   Proof. Admitted.
 
-  (*not true; i should use meta_facts_correct' instead*)
   Lemma steps_preserves_meta_facts_correct rules g g' :
     (comp_step rules)^* g g' ->
-    meta_facts_correct' rules g ->
-    meta_facts_correct' rules g'.
-  Proof. Admitted.
+    meta_facts_correct rules g ->
+    meta_facts_correct rules g'.
+  Proof.
+    induction 1; eauto using step_preserves_mf_correct.
+    (*TODO add some hypotheses so that this proof works*)
+  Admitted.
 
   Lemma node_can_expect g R rules S n :
     sane_graph g ->
@@ -972,7 +974,7 @@ Section DistributedDatalog.
     good_meta_rules p ->
     good_layout p rules ->
     sane_graph g ->
-    meta_facts_correct' rules g ->
+    meta_facts_correct rules g ->
     (forall R', rel_edge rules R' R -> graph_sound_for p rules g R') ->
     Forall (knows_datalog_fact g) hyps ->
     In r p ->
@@ -999,7 +1001,7 @@ Section DistributedDatalog.
         destruct Hor as [Hor|Hor].
         { fwd. exists g1. split; [eassumption|]. simpl. cbv [knows_fact].
           eapply steps_preserves_meta_facts_correct in Hmf; [|exact Hstep1].
-          cbv [meta_facts_correct' meta_facts_correct_at_node'] in Hmf.
+          cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
           specialize Hmf with (1 := Hor). destruct Hmf as (_&Hmf). eauto. }
           eexists. split.
           { (*first, step to a state where node n knows all the hypotheses;
@@ -1048,7 +1050,7 @@ Section DistributedDatalog.
         { fwd. exists g3. split; [eauto using Relations.trc_trans|]. simpl. cbv [knows_fact].
           eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf.
           2: { eauto using Relations.trc_trans. }
-          cbv [meta_facts_correct' meta_facts_correct_at_node'] in Hmf.
+          cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
           move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
           right. eexists. eapply Hmf. eauto. }
         eexists. split.
