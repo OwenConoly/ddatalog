@@ -951,6 +951,7 @@ Section DistributedDatalog.
   Qed.
 
   (*requires some hypothesis about the source program: for each rule, for each assignment of facts to hypotheses, we get at most one fact as a conclusion*)
+  (*this lemma is very stupid.  should be able to not have th e hypothesis, only conclude the second conjunct about g', and just say that g' has all msgs_received and msgs_sent being the same*)
   Lemma node_can_find_all_conclusions rules Rs g n R :
     Forall
       (fun R =>
