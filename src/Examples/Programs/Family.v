@@ -12,7 +12,7 @@ Definition r_ancestor1 : rule :=
   datalog_rule:( [ ancestor($x, $y) ] :- [ parent($x, $y) ] ).
 
 Definition r_ancestor2 : rule :=
-  datalog_rule:( [ ancestor($x, $y) ] :- [ parent($x, $z); ancestor($z, $y) ] ).
+  datalog_rule:( [ ancestor($y, $x) ] :- [ parent($p, $x); ancestor($y, $p) ] ).
 
 Definition r_sibling : rule :=
   datalog_rule:( [ sibling($x, $y) ] :- [ parent($p, $x); parent($p, $y) ] ).

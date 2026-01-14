@@ -37,9 +37,9 @@ Fixpoint expr_compatible (e1 e2 : expr) : bool :=
   match e1, e2 with
   | Datalog.var_expr _, Datalog.var_expr _ =>
       true
-  | Datalog.var_expr _, Datalog.fun_expr _ [] =>
+  | Datalog.var_expr _, Datalog.fun_expr _ _ =>
       true
-  | Datalog.fun_expr _ [], Datalog.var_expr _ =>
+  | Datalog.fun_expr _ _, Datalog.var_expr _ =>
       true
   | Datalog.fun_expr f1 args1, Datalog.fun_expr f2 args2 =>
       fn_eqb f1 f2 &&
@@ -50,5 +50,4 @@ Fixpoint expr_compatible (e1 e2 : expr) : bool :=
              expr_compatible x1 x2 && expr_list_eqb t1 t2
          | _, _ => false
          end) args1 args2
-  | _, _ => false
   end.
