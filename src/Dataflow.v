@@ -3,6 +3,7 @@ From Datalog Require Import Datalog Tactics.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 From Stdlib Require Import Lia.
 From ATL Require Import Relations. (*TODO i did not actually mean to use trc from here; should i use the stdlib thing instead?*)
+From Datalog Require Import List.
 
 Import ListNotations.
 
@@ -127,7 +128,13 @@ Section DistributedDatalog.
     expect_num_R_facts R kf1 num ->
     incl kf1 kf2 ->
     expect_num_R_facts R kf2 num.
-  Proof. Admitted.
+  Proof.
+    intros H Hincl. cbv [expect_num_R_facts] in *.
+    destruct (is_input R); auto.
+    fwd. eexists. split; eauto.
+    eapply Forall2_impl; [|eassumption].
+    simpl. auto.
+  Qed.
   
   Definition can_learn_normal_fact_at_node rules ns R args :=
     exists r, In r rules /\
@@ -438,8 +445,6 @@ Section DistributedDatalog.
   Definition meta_facts_correct' rules g :=
     forall n, meta_facts_correct_at_node' (rules n) n (g.(node_states) n).
   
-  From Datalog Require Import List.
-
   Lemma fold_left_add_repeat n m p :
     fold_left Nat.add (repeat n m) p = n * m + p.
   Proof.
@@ -519,14 +524,6 @@ Section DistributedDatalog.
       eauto.
   Qed.
 
-  Lemma can_learn_normal_fact_at_node_normal_facts_incl rules ns ns' R args :
-    can_learn_normal_fact_at_node rules ns R args ->
-    (forall R' args',
-        In (normal_dfact R' args') ns.(known_facts) ->
-        In (normal_dfact R' args') ns'.(known_facts)) ->
-    can_learn_normal_fact_at_node rules ns' R args.
-  Proof. Admitted.
-
   Lemma can_learn_normal_fact_at_node_relevant_normal_facts_incl rules ns ns' R args :
     can_learn_normal_fact_at_node rules ns R args ->
     (forall R' args',
@@ -555,6 +552,14 @@ Section DistributedDatalog.
     - (*similar*) admit.
     - contradiction.
   Admitted.
+
+  Lemma can_learn_normal_fact_at_node_normal_facts_incl rules ns ns' R args :
+    can_learn_normal_fact_at_node rules ns R args ->
+    (forall R' args',
+        In (normal_dfact R' args') ns.(known_facts) ->
+        In (normal_dfact R' args') ns'.(known_facts)) ->
+    can_learn_normal_fact_at_node rules ns' R args.
+  Proof. eauto using can_learn_normal_fact_at_node_relevant_normal_facts_incl. Qed.
 
   (*we can assume this wlog, since any normal rules violating it are useless*)
   Definition good_prog (p : list rule) :=
@@ -720,18 +725,6 @@ Section DistributedDatalog.
   Definition dnoncyclic_aggregation (rules : Layout) :=
     well_founded (rel_edge rules).
   
-  (* Lemma meta_facts_stay_correct rules g g' R : *)
-  (*   sane_graph g -> *)
-  (*   graph_step rules g g' -> *)
-  (*   meta_facts_correct_for g R -> *)
-  (*   good_inputs g'.(input_facts) -> *)
-  (*   dnoncyclic_aggregation rules -> *)
-  (*   meta_facts_correct_for g' R. *)
-  (* Proof. *)
-  (*   intros Hsane Hstep Hmf Hinp Hnc. *)
-  (*   specialize (Hsane ltac:(eauto using good_inputs_unstep)). *)
-  (*   destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hcount). *)
-      
   Definition knows_datalog_fact g f :=
     match f with
     | normal_fact R args => knows_fact g (normal_dfact R args)
@@ -825,11 +818,33 @@ Section DistributedDatalog.
   Qed.          
 
   Lemma node_can_receive_meta_facts g R rules S n :
+    sane_graph g ->
+    good_inputs g.(input_facts) ->
     knows_datalog_fact g (meta_fact R S) ->
     exists g' num,
       (comp_step rules)^* g g' /\
         expect_num_R_facts R (g'.(node_states) n).(known_facts) num.
-  Proof. Admitted.
+  Proof.
+    intros Hsane Hinp [H|H].
+    - fwd. cbv [sane_graph] in Hsane.
+      destruct Hsane as (Hmfinp&_&_&_&Heverywhere&_).
+      assert (is_input R = true) as HRinp.
+      { specialize (Hmfinp _ _ H).
+        cbv [good_inputs] in Hinp. destruct Hinp as (Hinp&_).
+        rewrite Forall_forall in Hinp. specialize (Hinp _ Hmfinp).
+        simpl in Hinp. auto. }
+      cbv [expect_num_R_facts]. rewrite HRinp.
+      apply Heverywhere with (n := n) in H. destruct H as [H|H].
+      + apply in_split in H. fwd.
+        eexists. eexists. split.
+        { eapply TrcFront. 2: apply TrcRefl.
+          apply ReceiveFact. eassumption. }
+        simpl. destr (node_eqb n n); [|congruence]. simpl. eauto.
+      + eexists. eexists. split.
+        { apply TrcRefl. }
+        eassumption.
+    - admit.
+  Admitted.        
 
   Lemma node_can_receive_expected_facts g R rules n num :
     expect_num_R_facts R (g.(node_states) n).(known_facts) num ->
@@ -838,6 +853,7 @@ Section DistributedDatalog.
         (g'.(node_states) n).(msgs_received) R = num.
   Proof. Admitted.
 
+  (*not true; i should use meta_facts_correct' instead*)
   Lemma steps_preserves_meta_facts_correct rules g g' :
     (comp_step rules)^* g g' ->
     meta_facts_correct rules g ->
