@@ -2,7 +2,7 @@
    which will then be fed into gurobi to find an optimal layout. *)
 
 From Datalog Require Import Datalog.
-From Stdlib Require Import List String Bool Lia.
+From Stdlib Require Import List String Bool ZArith Lia.
 From coqutil Require Import Datatypes.List Map.Interface.
 From DatalogRocq Require Import EqbSpec.
 
@@ -15,7 +15,7 @@ Section DependencyGenerator.
 Context {rel var fn aggregator T : Type}.
 Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
 Context {context : map.map var T} {context_ok : map.ok context}.
-Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
+Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}. 
 Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : forall x0 y0 : rel, BoolSpec (x0 = y0) (x0 <> y0) (rel_eqb x0 y0)}.
 Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : forall x0 y0 : fn, BoolSpec (x0 = y0) (x0 <> y0) (fn_eqb x0 y0)}.
 Context {aggregator_eqb : aggregator -> aggregator -> bool}
@@ -84,12 +84,32 @@ Fixpoint expr_eqb (e1 e2 : expr) : bool :=
   | _, _ => false
   end.
 
+Lemma fold_map_andb_spec_forall :
+  forall f : expr -> expr -> bool,
+  forall l1 l2,
+    List.length l1 = List.length l2 ->
+    Forall (fun e1 => forall e2, BoolSpec (e1 = e2) (e1 <> e2) (f e1 e2)) l1 ->
+    BoolSpec (l1 = l2)
+             (l1 <> l2)
+             (fold_right andb true (map2 f l1 l2)).
+Proof.
+  intros f.
+  induction l1 as [|x1 xs1 IH]; intros l2 Hbd Hf; destruct l2 as [|x2 xs2]; simpl in *; try (constructor; congruence).
+  inversion Hf; subst.
+  destruct (H1 x2); subst; simpl; try (constructor; congruence).
+  destruct (IH xs2); try (constructor; congruence); inversion Hbd; auto.
+Qed.
+
 Lemma expr_eqb_spec :
   forall e1 e2,
     BoolSpec (e1 = e2) (e1 <> e2) (expr_eqb e1 e2).
 Proof.
-  (*should be easy, by induction on e1*)
-Admitted.
+  induction e1; destruct e2; simpl; try (constructor; congruence).
+  - destruct (var_eqb_spec v v0); subst; simpl; try (constructor; congruence).
+  - destruct (fn_eqb_spec f f0); subst; simpl; try (constructor; congruence).
+    destruct (Nat.eqb_spec (List.length args) (List.length args0)); simpl; try (constructor; congruence).
+    destruct (fold_map_andb_spec_forall expr_eqb  args args0 e H); try (constructor; congruence).
+Qed.
 
 Definition fact_eqb (f1 f2 : fact) : bool :=
   rel_eqb (fact_R f1) (fact_R f2) &&
