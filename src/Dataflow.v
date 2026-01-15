@@ -22,9 +22,10 @@ Section DistributedDatalog.
   Context {rel_eqb : rel -> rel -> bool}.
   Context {rel_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rel_eqb x y)}.
 
+  Print Datalog.fact.
   Inductive dfact :=
   | normal_dfact (nf_rel: rel) (nf_args: list T)
-  | meta_dfact (mf_rel: rel) (source: option Node) (expected_msgs: nat).
+  | meta_dfact (mf_rel: rel) (source: option Node) (expected_msgs: nat) (*number of messages that node "source" will ever send about mf_rel*).
 
   Let clause := clause rel var fn.
   Let rule := rule rel var fn aggregator T.
@@ -42,8 +43,6 @@ Section DistributedDatalog.
       msgs_received: rel -> nat;
       (*how many messages have i sent about this relation*)
       msgs_sent: rel -> nat;
-      (*am i guaranteed to be completely done sending messages about this relation?*)
-      (* finished_rel : rel -> bool; *)
     }.
 
   Record graph_state := {
@@ -220,7 +219,7 @@ Section DistributedDatalog.
       g
       {| node_states := g.(node_states);
         travellers := map (fun n => (n, f)) all_nodes ++ g.(travellers);
-        input_facts := f :: g.(input_facts); |}.  
+        input_facts := f :: g.(input_facts); |}.
   
   Inductive comp_step (rule_assignments : Node -> list drule) : graph_state -> graph_state -> Prop :=
   | ReceiveFact g n f fs1 fs2 :
@@ -719,8 +718,10 @@ Section DistributedDatalog.
     match f with
     | normal_fact R args => knows_fact g (normal_dfact R args)
     | meta_fact R Rset =>
-        (exists num, knows_fact g (meta_dfact R None num)) \/
-          (forall n, exists num, knows_fact g (meta_dfact R (Some n) num))
+        if is_input R then
+          exists num, knows_fact g (meta_dfact R None num)
+        else
+          forall n, exists num, knows_fact g (meta_dfact R (Some n) num)
     end.
 
   Lemma comp_step_preserves_datalog_facts rules f g g' :
@@ -731,12 +732,14 @@ Section DistributedDatalog.
     intros Hknows Hstep. pose proof Hstep as Hstep'. invert Hstep'.
     - cbv [knows_datalog_fact]. destruct f; simpl.
       + destruct Hknows; fwd; eauto.
-      + destruct Hknows as [Hknows|Hknows]; fwd; eauto.
-        right. intros n'. specialize (Hknows n'). fwd. eauto.
+      + cbv [knows_datalog_fact] in Hknows.
+        destruct (is_input mf_rel); fwd; eauto.
+        intros n'. specialize (Hknows n'). fwd. eauto.
     - cbv [knows_datalog_fact]. destruct f; simpl.
       + destruct Hknows; fwd; eauto.
-      + destruct Hknows as [Hknows|Hknows]; fwd; eauto.
-        right. intros n'. specialize (Hknows n'). fwd. eauto.
+      + cbv [knows_datalog_fact] in Hknows.
+        destruct (is_input mf_rel); fwd; eauto.
+        intros n'. specialize (Hknows n'). fwd. eauto.
   Qed.
   
   Lemma comp_steps_preserves_datalog_facts rules f g g' :
@@ -807,6 +810,16 @@ Section DistributedDatalog.
       simpl. intros. eapply steps_preserves_known_facts; eauto.
   Qed.          
 
+  Lemma firstn_plus {U} n m (l : list U) :
+    firstn (n + m) l = firstn n l ++ firstn m (skipn n l).
+  Proof.
+    revert l.
+    induction n; intros l; simpl; [reflexivity|].
+    destruct l.
+    - rewrite firstn_nil. reflexivity.
+    - simpl. f_equal. auto.
+  Qed.
+
   Lemma node_can_receive_meta_facts g R rules S n :
     sane_graph g ->
     good_inputs g.(input_facts) ->
@@ -815,26 +828,34 @@ Section DistributedDatalog.
       (comp_step rules)^* g g' /\
         expect_num_R_facts R (g'.(node_states) n).(known_facts) num.
   Proof.
-    intros Hsane Hinp [H|H].
-    - fwd. cbv [sane_graph] in Hsane.
-      destruct Hsane as (Hmfinp&_&_&_&Heverywhere&_).
-      assert (is_input R = true) as HRinp.
-      { specialize (Hmfinp _ _ H).
-        cbv [good_inputs] in Hinp. destruct Hinp as (Hinp&_).
-        rewrite Forall_forall in Hinp. specialize (Hinp _ Hmfinp).
-        simpl in Hinp. auto. }
-      cbv [expect_num_R_facts]. rewrite HRinp.
-      apply Heverywhere with (n := n) in H. destruct H as [H|H].
-      + apply in_split in H. fwd.
-        eexists. eexists. split.
-        { eapply TrcFront. 2: apply TrcRefl.
-          apply ReceiveFact. eassumption. }
-        simpl. destr (node_eqb n n); [|congruence]. simpl. eauto.
-      + eexists. eexists. split.
-        { apply TrcRefl. }
-        eassumption.
-    - admit.
-  Admitted.
+    intros Hsane Hinp H. cbv [knows_datalog_fact] in H.
+    cbv [expect_num_R_facts].
+    destruct (is_input R).
+    - fwd. eapply node_can_receive_known_fact in H; eauto. fwd. eauto.
+    - pose proof node_can_receive_known_facts as H'.
+      assert (exists nums, Forall2 (fun n0 num => knows_fact g (meta_dfact R (Some n0) num)) all_nodes nums) as H''.
+      { clear -H Hall_nodes.
+        enough (forall len, exists nums,
+                   Forall2 (fun (n0 : Node) (num : nat) => knows_fact g (meta_dfact R (Some n0) num))
+                     (firstn len all_nodes) nums) as H'.
+        { specialize (H' (length all_nodes)). rewrite firstn_all in H'. assumption. }
+        intros len. induction len.
+        { simpl. eauto. }
+        fwd. replace (Datatypes.S len) with (len + 1) by lia.
+        rewrite firstn_plus.
+      destruct (skipn len all_nodes) as [|n' ?].
+      { simpl. rewrite app_nil_r. eauto. }
+      simpl. specialize (H n'). fwd. eexists (_ ++ [_]).
+      apply Forall2_app; eauto. }
+      fwd. edestruct H'.
+      + eassumption.
+      + eapply Forall_zip. eapply Forall2_impl; [|eassumption]. simpl.
+        instantiate (1 := fun _ _ => _). simpl. intros. eassumption.
+      + fwd. eexists. eexists. split; [eassumption|].
+        eexists. split; [|reflexivity]. eapply Forall2_impl.
+        2: { eapply Forall2_zip; [|eassumption]. eapply Forall2_length. eassumption. }
+        simpl. eauto.
+  Qed.
 
   Lemma node_can_receive_expected_facts g R rules n num :
     expect_num_R_facts R (g.(node_states) n).(known_facts) num ->
@@ -940,16 +961,6 @@ Section DistributedDatalog.
           forall x,
             prog_impl_implication p Q (normal_fact R x) <-> S x).
 
-  Lemma firstn_plus {U} n m (l : list U) :
-    firstn (n + m) l = firstn n l ++ firstn m (skipn n l).
-  Proof.
-    revert l.
-    induction n; intros l; simpl; [reflexivity|].
-    destruct l.
-    - rewrite firstn_nil. reflexivity.
-    - simpl. f_equal. auto.
-  Qed.
-
   (*requires some hypothesis about the source program: for each rule, for each assignment of facts to hypotheses, we get at most one fact as a conclusion*)
   (*this lemma is very stupid.  should be able to not have th e hypothesis, only conclude the second conjunct about g', and just say that g' has all msgs_received and msgs_sent being the same*)
   Lemma node_can_find_all_conclusions rules Rs g n R :
@@ -969,7 +980,7 @@ Section DistributedDatalog.
             can_learn_normal_fact_at_node (rules n) (node_states g' n) R args ->
             In (normal_dfact R args) (known_facts (node_states g' n))).
   Proof. Admitted.
-
+  Print rel_edge.
   Lemma good_layout_complete' p r rules hyps g R f :
     good_inputs g.(input_facts) ->
     good_meta_rules p ->
