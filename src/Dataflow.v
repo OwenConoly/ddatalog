@@ -858,11 +858,16 @@ Section DistributedDatalog.
   Qed.
 
   Lemma node_can_receive_expected_facts g R rules n num :
+    sane_graph g ->
     expect_num_R_facts R (g.(node_states) n).(known_facts) num ->
     exists g',
       (comp_step rules)^* g g' /\
         (g'.(node_states) n).(msgs_received) R = num.
-  Proof. Admitted.
+  Proof.
+    intros Hs H. cbv [expect_num_R_facts] in H.
+    destruct (is_input R).
+    - Admitted.
+    
 
   Lemma steps_preserves_meta_facts_correct rules g g' :
     (comp_step rules)^* g g' ->
