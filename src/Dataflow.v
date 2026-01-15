@@ -866,10 +866,18 @@ Section DistributedDatalog.
       (comp_step rules)^* g g' /\
         (g'.(node_states) n).(msgs_received) R = num.
   Proof.
-    intros Hs H. cbv [expect_num_R_facts] in H.
-    destruct (is_input R).
-    - Admitted.
-    
+    intros Hs Hk H. cbv [knows_datalog_fact expect_num_R_facts] in *.
+    destruct (is_input R) eqn:ER.
+    - fwd. cbv [sane_graph] in Hs. destruct Hs as (_&_&_&_&_&Hcnt&Hinp_sane).
+      specialize (Hcnt n R). fwd. eapply Existsn_unique in Hkp1; [|exact Hcntp1].
+      subst.
+      specialize (Hinp_sane R). rewrite ER in Hinp_sane.
+      erewrite map_ext with (g := fun _ => 0) in Hcntp2 by auto.      
+      rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
+      replace (0 * length all_nodes + 0 + num0) with num0 in Hcntp2 by lia.
+      subst.
+      (*It appears we have to know that num = num0.  i think this is just because we lost information from the exists in the previous lemma.  to avoid doing this, may just have to squich together this lemma with previous*)
+  Admitted.
 
   Lemma steps_preserves_meta_facts_correct rules g g' :
     (comp_step rules)^* g g' ->
