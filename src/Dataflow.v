@@ -719,7 +719,8 @@ Section DistributedDatalog.
     | normal_fact R args => knows_fact g (normal_dfact R args)
     | meta_fact R Rset =>
         if is_input R then
-          exists num, knows_fact g (meta_dfact R None num)
+          exists num, knows_fact g (meta_dfact R None num) /\
+                   Existsn (fun f => exists args, f = normal_dfact R args) num g.(input_facts)
         else
           forall n, exists num, knows_fact g (meta_dfact R (Some n) num)
     end.
@@ -831,7 +832,7 @@ Section DistributedDatalog.
     intros Hsane Hinp H. cbv [knows_datalog_fact] in H.
     cbv [expect_num_R_facts].
     destruct (is_input R).
-    - fwd. eapply node_can_receive_known_fact in H; eauto. fwd. eauto.
+    - fwd. eapply node_can_receive_known_fact in Hp0; eauto. fwd. eauto.
     - pose proof node_can_receive_known_facts as H'.
       assert (exists nums, Forall2 (fun n0 num => knows_fact g (meta_dfact R (Some n0) num)) all_nodes nums) as H''.
       { clear -H Hall_nodes.
@@ -857,8 +858,9 @@ Section DistributedDatalog.
         simpl. eauto.
   Qed.
 
-  Lemma node_can_receive_expected_facts g R rules n num :
+  Lemma node_can_receive_expected_facts g R S rules n num :
     sane_graph g ->
+    knows_datalog_fact g (meta_fact R S) ->
     expect_num_R_facts R (g.(node_states) n).(known_facts) num ->
     exists g',
       (comp_step rules)^* g g' /\
@@ -888,12 +890,14 @@ Section DistributedDatalog.
   Proof.
     intros Hsane Hinp H. eapply node_can_receive_meta_facts in H; try assumption.
     fwd. pose proof Hp1.
-    eapply node_can_receive_expected_facts in Hp1. fwd.
-    eexists. split; cycle 1.
+    eapply node_can_receive_expected_facts in Hp1.
+    2: { admit. }
+    2: { admit. }
+    fwd. eexists. split; cycle 1.
     { eapply expect_num_R_facts_incl. 1: eassumption.
       eapply steps_preserves_known_facts. eassumption. }
     eauto using Relations.trc_trans.
-  Qed.
+  Admitted.
 
   Lemma node_can_expect_much g Rs Ss rules n :
     sane_graph g ->
@@ -1058,8 +1062,13 @@ Section DistributedDatalog.
       destruct Hmhyp as (g2&num&Hg2&Hnum).
 
       pose proof node_can_receive_expected_facts as Hrcv.
-      Fail specialize Hrcv with (1 := Hnum). (*hmm*)
-      epose_dep Hrcv. specialize (Hrcv Hnum). destruct Hrcv as (g3&Hg3&num').
+      specialize Hrcv with (g := g2).
+      Fail specialize Hrcv with (1 := Hnum). (*hmm*) Print meta_facts_correct_at_node.
+      epose_dep Hrcv. specialize' Hrcv.
+      { eapply steps_preserves_sanity; eauto using trc_trans. }
+      specialize' Hrcv.
+      { eapply comp_steps_preserves_datalog_facts; eauto using trc_trans. }
+      specialize (Hrcv Hnum). destruct Hrcv as (g3&Hg3&num').
       
       eenough (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g3 n) _ _).
       { epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
@@ -1131,8 +1140,10 @@ Section DistributedDatalog.
                        In n (firstn len all_nodes) ->
                        exists num : nat, knows_fact g' (meta_dfact target_rel (Some n) num))) as H'.
       { specialize (H' (length all_nodes)). rewrite firstn_all in H'. fwd.
-        eexists. split;  eauto. right. intros n. apply H'p1.
-        destruct Hall_nodes. auto. }
+        eexists. split; eauto.
+        destruct (is_input target_rel).
+        { admit. }
+        intros n. apply H'p1. destruct Hall_nodes. auto. }
       intros len. induction len.
       { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
 
@@ -1205,7 +1216,7 @@ Section DistributedDatalog.
       destruct Hn' as [?|?]; [subst|contradiction].
       eexists. cbv [knows_fact]. simpl. right.
       exists n'. destr (node_eqb n' n'); [|congruence]. simpl. left. reflexivity.
-  Qed.
+  Admitted.
     
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
