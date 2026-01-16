@@ -22,7 +22,6 @@ Section DistributedDatalog.
   Context {rel_eqb : rel -> rel -> bool}.
   Context {rel_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rel_eqb x y)}.
 
-  Print Datalog.fact.
   Inductive dfact :=
   | normal_dfact (nf_rel: rel) (nf_args: list T)
   | meta_dfact (mf_rel: rel) (source: option Node) (expected_msgs: nat) (*number of messages that node "source" will ever send about mf_rel*).
@@ -897,6 +896,20 @@ Section DistributedDatalog.
         simpl. eauto.
   Qed.
 
+  Lemma Existsn_S (X : Type) P n (l : list X) :
+    Existsn P (S n) l ->
+    exists l1 x l2,
+      l = l1 ++ x :: l2 /\
+        P x /\
+        Existsn P n (l1 ++ l2).
+  Proof.
+    induction l; invert 1.
+    - specialize (IHl ltac:(assumption)). fwd. do 3 eexists. split.
+      { apply app_comm_cons. }
+      simpl. auto.
+    - exists nil. simpl. eauto.
+  Qed.
+      
   Lemma node_can_receive_travellers rules g num_trav n R :
     Existsn (fun '(n', f) => n = n' /\ (exists args : list T, f = normal_dfact R args))
       num_trav g.(travellers) ->
@@ -904,7 +917,19 @@ Section DistributedDatalog.
       trc (comp_step rules) g g' /\
         msgs_received (node_states g' n) R =
           msgs_received (node_states g n) R + num_trav.
-  Proof. Admitted.
+  Proof.
+    revert g. induction num_trav; intros g Hg.
+    - eauto.
+    - apply Existsn_S in Hg. fwd. epose (g1 := _).
+      specialize (IHnum_trav g1). eenough _ as H'.
+      { specialize (IHnum_trav H'). fwd. eexists. split.
+        { eapply TrcFront.
+          { apply ReceiveFact. eassumption. }
+          subst g1. eassumption. }
+        subst g1. simpl in *. destr (node_eqb n0 n0); [|congruence].
+        simpl in *. destr (rel_eqb R R); [|congruence]. lia. }
+      subst g1. simpl. assumption.
+  Qed.
 
   Lemma node_can_receive_expected_facts g R rules n num :
     sane_graph g ->
