@@ -1129,22 +1129,18 @@ Section DistributedDatalog.
 
   (*requires some hypothesis about the source program: for each rule, for each assignment of facts to hypotheses, we get at most one fact as a conclusion*)
   (*this lemma is very stupid.  should be able to not have th e hypothesis, only conclude the second conjunct about g', and just say that g' has all msgs_received and msgs_sent being the same*)
-  Lemma node_can_find_all_conclusions rules Rs g n R :
-    Forall
-      (fun R =>
-         expect_num_R_facts R (known_facts (g.(node_states) n))
-           (msgs_received (node_states g n) R))
-      Rs ->
+
+  Definition same_msgs_received g g' :=
+    forall n,
+      (g.(node_states) n).(msgs_received) = (g'.(node_states) n).(msgs_received).  
+  
+  Lemma node_can_find_all_conclusions rules g n R :
     exists g',
       (comp_step rules)^* g g' /\
-        Forall
-          (fun R =>
-             expect_num_R_facts R (known_facts (node_states g' n))
-               (msgs_received (node_states g' n) R))
-          Rs /\
         (forall args,
             can_learn_normal_fact_at_node (rules n) (node_states g' n) R args ->
-            In (normal_dfact R args) (known_facts (node_states g' n))).
+            In (normal_dfact R args) (known_facts (node_states g' n))) /\
+        same_msgs_received g g'.
   Proof. Admitted.
 
   Lemma good_layout_complete' p r rules hyps g R f :
@@ -1339,7 +1335,7 @@ Section DistributedDatalog.
       destruct Hg2 as (g2&Hg2&Hhyps2).
 
       pose proof node_can_find_all_conclusions as Hg3.
-      epose_dep Hg3. specialize (Hg3 Hhyps2). clear Hhyps2.
+      specialize (Hg3 rules g2 n target_rel).
       destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
       
       eexists.
@@ -1356,7 +1352,12 @@ Section DistributedDatalog.
         eexists. split.
         { apply Hgood. }
         simpl. split; [reflexivity|]. split.
-        { apply Forall_forall. eassumption. }
+        { apply Forall_forall.
+          eapply Forall_impl; [|eassumption].
+          simpl. intros R' HR'.
+          cbv [same_msgs_received] in Hhyps3b. rewrite <- Hhyps3b.
+          eapply expect_num_R_facts_incl; [eassumption|].
+          eapply steps_preserves_known_facts. eassumption. }
         split.
         { eassumption. }
         reflexivity. }
@@ -1375,7 +1376,12 @@ Section DistributedDatalog.
         eexists. split.
         { apply Hgood. }
         simpl. split; [reflexivity|]. split.
-        { apply Forall_forall. eassumption. }
+        { apply Forall_forall.
+          eapply Forall_impl; [|eassumption].
+          simpl. intros R' HR'.
+          cbv [same_msgs_received] in Hhyps3b. rewrite <- Hhyps3b.
+          eapply expect_num_R_facts_incl; [eassumption|].
+          eapply steps_preserves_known_facts. eassumption. }
         split.
         { eassumption. }
         reflexivity.
