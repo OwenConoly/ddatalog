@@ -518,6 +518,66 @@ Section DistributedDatalog.
       eauto.
   Qed.
 
+  Lemma expect_num_R_facts_msgs_received_stable_step rules g R n g' :
+    sane_graph g ->
+    good_inputs (input_facts g) ->
+    expect_num_R_facts R
+      (node_states g n).(known_facts)
+                          ((g.(node_states) n).(msgs_received) R) ->
+    comp_step rules g g' ->
+    (g'.(node_states) n).(msgs_received) R = (g.(node_states) n).(msgs_received) R.
+  Proof.
+    intros Hs Hinp He Hstep. invert Hstep; simpl.
+    - destr (node_eqb n0 n); [|reflexivity].
+      cbv [receive_fact_at_node]. destruct f; [|reflexivity].
+      simpl. destr (rel_eqb nf_rel R); [|reflexivity].
+      exfalso.
+      eapply expect_num_R_facts_no_travellers; eauto.
+      rewrite H. apply in_app_iff. simpl. eauto.
+    - destr (node_eqb n0 n); [|reflexivity].
+      cbv [learn_fact_at_node]. destruct f; reflexivity.
+  Qed.
+
+  Lemma steps_preserves_sanity rules g g' :
+    sane_graph g ->
+    (comp_step rules)^* g g' ->
+    sane_graph g'.
+  Proof.
+    induction 2; eauto using step_preserves_sanity.
+  Qed.
+  
+  Lemma step_preserves_known_facts rules g g' n :
+    comp_step rules g g' ->
+    incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
+  Proof.
+    invert 1; simpl.
+    - destr (node_eqb n0 n); auto with incl.
+      intros ? ?. apply receive_fact_at_node_gets_more_facts. assumption.
+    - destr (node_eqb n0 n); auto with incl.
+      intros ? ?. apply learn_fact_at_node_gets_more_facts. assumption.
+  Qed.
+  
+  Lemma expect_num_R_facts_msgs_received_stable_steps rules g R n g' :
+    sane_graph g ->
+    good_inputs (input_facts g) ->
+    expect_num_R_facts R
+      (node_states g n).(known_facts)
+                          ((g.(node_states) n).(msgs_received) R) ->
+    (comp_step rules)^* g g' ->
+    (g'.(node_states) n).(msgs_received) R = (g.(node_states) n).(msgs_received) R.
+  Proof.
+    induction 4.
+    - reflexivity.
+    - rewrite IHtrc.
+      + eapply expect_num_R_facts_msgs_received_stable_step; eassumption.
+      + eauto using steps_preserves_sanity.
+      + erewrite comp_steps_pres_inputs by (eapply TrcFront; eauto). assumption.
+      + erewrite expect_num_R_facts_msgs_received_stable_step by eassumption.
+        eapply expect_num_R_facts_incl.
+        -- eassumption.
+        -- eapply step_preserves_known_facts. eassumption.
+  Qed.
+    
   Lemma can_learn_normal_fact_at_node_relevant_normal_facts_incl rules ns ns' R args :
     can_learn_normal_fact_at_node rules ns R args ->
     (forall R' args',
@@ -702,14 +762,6 @@ Section DistributedDatalog.
            simpl. intros R' args' [H'|H']; [congruence|]. assumption.
   Qed.
 
-  Lemma steps_preserves_sanity rules g g' :
-    sane_graph g ->
-    (comp_step rules)^* g g' ->
-    sane_graph g'.
-  Proof.
-    induction 2; eauto using step_preserves_sanity.
-  Qed.
-
   Definition noncyclic_aggregation (p : list rule) :=
     well_founded (fun R1 R2 => exists Rs f, In R2 Rs /\ In (meta_rule R1 f Rs) p).
 
@@ -775,17 +827,6 @@ Section DistributedDatalog.
       assumption.
   Qed.
 
-  Lemma step_preserves_known_facts rules g g' n :
-    comp_step rules g g' ->
-    incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
-  Proof.
-    invert 1; simpl.
-    - destr (node_eqb n0 n); auto with incl.
-      intros ? ?. apply receive_fact_at_node_gets_more_facts. assumption.
-    - destr (node_eqb n0 n); auto with incl.
-      intros ? ?. apply learn_fact_at_node_gets_more_facts. assumption.
-  Qed.
-  
   Lemma steps_preserves_known_facts rules g g' n :
     (comp_step rules)^* g g' ->
     incl (g.(node_states) n).(known_facts) (g'.(node_states) n).(known_facts).
@@ -1008,6 +1049,7 @@ Section DistributedDatalog.
     eauto using Relations.trc_trans.
   Qed.
 
+  (*what a stupid name*)
   Lemma node_can_expect_much g Rs Ss rules n :
     sane_graph g ->
     good_inputs g.(input_facts) ->
@@ -1032,9 +1074,14 @@ Section DistributedDatalog.
       { eapply Relations.trc_trans; eassumption. }
       constructor; eauto. eapply Forall_impl; [|eassumption].
       simpl. intros R' H'. eapply expect_num_R_facts_incl.
-      { admit. }
+      { erewrite expect_num_R_facts_msgs_received_stable_steps.
+        - eassumption.
+        - eauto using steps_preserves_sanity.
+        - erewrite comp_steps_pres_inputs by eauto. assumption.
+        - assumption.
+        - eassumption. }
       eapply steps_preserves_known_facts. eassumption.
-  Admitted.
+  Qed.
 
   Definition rel_of (f : fact) :=
     match f with
