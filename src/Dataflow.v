@@ -968,15 +968,22 @@ Section DistributedDatalog.
       eapply node_can_receive_travellers in Hcntp0. fwd.
       eexists. split; [eassumption|]. lia.
   Qed.
-  
-  Lemma steps_preserves_meta_facts_correct rules g g' :
-    (comp_step rules)^* g g' ->
+
+  Lemma steps_preserves_meta_facts_correct p rules g g' :
+    good_layout p rules ->
+    good_prog p ->
+    sane_graph g ->
+    good_inputs (input_facts g) ->
     meta_facts_correct rules g ->
+    (comp_step rules)^* g g' ->
     meta_facts_correct rules g'.
   Proof.
-    induction 1; eauto using step_preserves_mf_correct.
-    (*TODO add some hypotheses so that this proof works*)
-  Admitted.
+    intros Hl Hp Hs Hinp Hmf Hstep. induction Hstep; auto.
+    apply IHHstep.
+    - eauto using steps_preserves_sanity.
+    - erewrite comp_steps_pres_inputs by (eapply TrcFront; eauto). assumption.
+    - eapply step_preserves_mf_correct; eauto.
+  Qed.
 
   Lemma node_can_expect g R num rules n :
     sane_graph g ->
@@ -1096,6 +1103,7 @@ Section DistributedDatalog.
   Lemma good_layout_complete' p r rules hyps g R f :
     good_inputs g.(input_facts) ->
     good_meta_rules p ->
+    good_prog p ->
     good_layout p rules ->
     sane_graph g ->
     meta_facts_correct rules g ->
@@ -1108,7 +1116,9 @@ Section DistributedDatalog.
        (comp_step rules)^* g g' /\
          knows_datalog_fact g' f.
   Proof.
-    intros Hinp Hmr Hgood Hsane Hmf Hrels Hhyps Hr Himpl Hf. invert Himpl.
+    intros Hinp Hmr Hp Hgood Hsane Hmf Hrels Hhyps Hr Himpl Hf.
+    pose proof Hgood as Hgood'.
+    invert Himpl.
     - cbv [good_layout] in Hgood. destruct Hgood as (Hgood&_).
       apply Hgood in Hr. clear Hgood.
       destruct Hr as (n&Hr).
@@ -1124,7 +1134,9 @@ Section DistributedDatalog.
       { pose proof (Classical_Prop.classic (exists num, In (meta_dfact R0 (Some n) num) (known_facts (node_states g1 n)))) as Hor.
         destruct Hor as [Hor|Hor].
         { fwd. exists g1. split; [eassumption|]. simpl. cbv [knows_fact].
-          eapply steps_preserves_meta_facts_correct in Hmf; [|exact Hstep1].
+          eapply steps_preserves_meta_facts_correct in Hmf; cycle -1.
+          { exact Hstep1. }
+          all: try eassumption.
           cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
           specialize Hmf with (1 := Hor). destruct Hmf as (_&Hmf). eauto. }
           eexists. split.
@@ -1182,6 +1194,7 @@ Section DistributedDatalog.
         destruct Hor as [Hor|Hor].
         { fwd. exists g3. split; [eauto using Relations.trc_trans|]. simpl. cbv [knows_fact].
           eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf.
+          all: try eassumption.
           2: { eauto using Relations.trc_trans. }
           cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
           move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
