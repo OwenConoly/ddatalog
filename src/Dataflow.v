@@ -821,52 +821,80 @@ Section DistributedDatalog.
     - simpl. f_equal. auto.
   Qed.
 
-  Lemma node_can_receive_meta_facts g R rules S n :
-    sane_graph g ->
-    good_inputs g.(input_facts) ->
+  Definition knows_there_are_num_R_facts g R num :=
+    if is_input R then
+      knows_fact g (meta_dfact R None num) /\
+        Existsn (fun f0 : dfact => exists args : list T, f0 = normal_dfact R args) num
+          (input_facts g)
+    else
+      exists nums,
+        Forall2 (fun n num => knows_fact g (meta_dfact R (Some n) num)) all_nodes nums /\
+          num = fold_left Nat.add nums 0.
+
+  Lemma knows_datalog_fact_knows_num_R_facts g R S :
     knows_datalog_fact g (meta_fact R S) ->
-    exists g' num,
-      (comp_step rules)^* g g' /\
-        expect_num_R_facts R (g'.(node_states) n).(known_facts) num.
+    exists num,
+      knows_there_are_num_R_facts g R num.
   Proof.
-    intros Hsane Hinp H. cbv [knows_datalog_fact] in H.
-    cbv [expect_num_R_facts].
+    intros H. cbv [knows_datalog_fact] in H. cbv [knows_there_are_num_R_facts].
     destruct (is_input R).
-    - fwd. eapply node_can_receive_known_fact in Hp0; eauto. fwd. eauto.
-    - pose proof node_can_receive_known_facts as H'.
-      assert (exists nums, Forall2 (fun n0 num => knows_fact g (meta_dfact R (Some n0) num)) all_nodes nums) as H''.
-      { clear -H Hall_nodes.
-        enough (forall len, exists nums,
-                   Forall2 (fun (n0 : Node) (num : nat) => knows_fact g (meta_dfact R (Some n0) num))
-                     (firstn len all_nodes) nums) as H'.
-        { specialize (H' (length all_nodes)). rewrite firstn_all in H'. assumption. }
-        intros len. induction len.
-        { simpl. eauto. }
-        fwd. replace (Datatypes.S len) with (len + 1) by lia.
-        rewrite firstn_plus.
+    - fwd. eauto.
+    - clear -H Hall_nodes.
+      enough (forall len, exists nums,
+                 Forall2 (fun (n0 : Node) (num : nat) => knows_fact g (meta_dfact R (Some n0) num))
+                   (firstn len all_nodes) nums) as H'.
+      { specialize (H' (length all_nodes)). rewrite firstn_all in H'. fwd. eauto. }
+      intros len. induction len.
+      { simpl. eauto. }
+      fwd. replace (Datatypes.S len) with (len + 1) by lia.
+      rewrite firstn_plus.
       destruct (skipn len all_nodes) as [|n' ?].
       { simpl. rewrite app_nil_r. eauto. }
       simpl. specialize (H n'). fwd. eexists (_ ++ [_]).
-      apply Forall2_app; eauto. }
+      apply Forall2_app; eauto.
+  Qed.
+    
+  Lemma node_can_receive_meta_facts g R num rules n :
+    sane_graph g ->
+    good_inputs g.(input_facts) ->
+    knows_there_are_num_R_facts g R num ->
+    exists g',
+      (comp_step rules)^* g g' /\
+        expect_num_R_facts R (g'.(node_states) n).(known_facts) num.
+  Proof.
+    intros Hsane Hinp H. cbv [knows_there_are_num_R_facts] in H.
+    cbv [expect_num_R_facts].
+    destruct (is_input R).
+    - fwd. eapply node_can_receive_known_fact in Hp0; eauto.
+    - pose proof node_can_receive_known_facts as H'.
       fwd. edestruct H'.
       + eassumption.
       + eapply Forall_zip. eapply Forall2_impl; [|eassumption]. simpl.
         instantiate (1 := fun _ _ => _). simpl. intros. eassumption.
-      + fwd. eexists. eexists. split; [eassumption|].
+      + fwd. eexists. split; [eassumption|].
         eexists. split; [|reflexivity]. eapply Forall2_impl.
         2: { eapply Forall2_zip; [|eassumption]. eapply Forall2_length. eassumption. }
         simpl. eauto.
   Qed.
 
-  Lemma node_can_receive_expected_facts g R S rules n num :
+  Lemma node_can_receive_travellers rules g num_trav n R :
+    Existsn (fun '(n', f) => n = n' /\ (exists args : list T, f = normal_dfact R args))
+      num_trav g.(travellers) ->
+    exists g' : graph_state,
+      trc (comp_step rules) g g' /\
+        msgs_received (node_states g' n) R =
+          msgs_received (node_states g n) R + num_trav.
+  Proof. Admitted.
+    
+  Lemma node_can_receive_expected_facts g R rules n num :
     sane_graph g ->
-    knows_datalog_fact g (meta_fact R S) ->
+    knows_there_are_num_R_facts g R num ->
     expect_num_R_facts R (g.(node_states) n).(known_facts) num ->
     exists g',
       (comp_step rules)^* g g' /\
         (g'.(node_states) n).(msgs_received) R = num.
   Proof.
-    intros Hs Hk H. cbv [knows_datalog_fact expect_num_R_facts] in *.
+    intros Hs Hk H. cbv [knows_there_are_num_R_facts expect_num_R_facts] in *.
     destruct (is_input R) eqn:ER.
     - fwd. cbv [sane_graph] in Hs. destruct Hs as (_&_&_&_&_&Hcnt&Hinp_sane).
       specialize (Hcnt n R). fwd. eapply Existsn_unique in Hkp1; [|exact Hcntp1].
@@ -874,11 +902,22 @@ Section DistributedDatalog.
       specialize (Hinp_sane R). rewrite ER in Hinp_sane.
       erewrite map_ext with (g := fun _ => 0) in Hcntp2 by auto.      
       rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
-      replace (0 * length all_nodes + 0 + num0) with num0 in Hcntp2 by lia.
+      replace (0 * length all_nodes + 0 + num) with num in Hcntp2 by lia.
+      subst. apply node_can_receive_travellers. assumption.
+    - fwd. cbv [sane_graph] in Hs. destruct Hs as (_&HmfSome&_&Hmf_sane&_&Hcnt&_).
+      rewrite Hkp1.
+      specialize (Hcnt n R). fwd. assert (num_inp = 0).
+      { admit. }
+      subst. clear Hcntp1. clear Hkp1. clear Hp0 expected_msgss.
+      assert (map (fun n' : Node => msgs_sent (node_states g n') R) all_nodes = nums).
+      { apply Forall2_eq_eq. rewrite <- Forall2_map_l.
+        eapply Forall2_impl; [|eassumption].
+        simpl. intros n' num Hn'. apply Hmf_sane. apply HmfSome. apply Hn'. }
       subst.
-      (*It appears we have to know that num = num0.  i think this is just because we lost information from the exists in the previous lemma.  to avoid doing this, may just have to squich together this lemma with previous*)
+      eapply node_can_receive_travellers in Hcntp0. fwd.
+      eexists. split; [eassumption|]. lia.
   Admitted.
-
+  
   Lemma steps_preserves_meta_facts_correct rules g g' :
     (comp_step rules)^* g g' ->
     meta_facts_correct rules g ->
