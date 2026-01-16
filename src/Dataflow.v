@@ -403,6 +403,36 @@ Section DistributedDatalog.
     g'.(input_facts) = g.(input_facts).
   Proof. induction 1; eauto using eq_trans, comp_step_pres_inputs. Qed.
 
+  Ltac solve_in_travellers :=
+    match goal with
+    | Htrav : forall (n : Node) (f : dfact), In (n, f) (travellers _) -> knows_fact _ f, H: travellers _ = _ |- _
+  =>
+    repeat match goal with
+      | H: In _ (_ ++ _) |- _ => apply in_app_iff in H; destruct H
+      end;
+    solve [eapply Htrav; rewrite H; apply in_app_iff; simpl; eauto]
+  end.
+  Ltac t := repeat match goal with
+              | _ => progress (intros; simpl in *; subst )
+              | H: meta_dfact _ _ _ = normal_dfact _ _ |- _ => discriminate H
+              | H: normal_dfact _ _ = meta_dfact _ _ _ |- _ => discriminate H
+              | _ => solve[eauto]
+              | H: knows_fact _ _ |- _ => destruct H
+              | _ => progress fwd
+              | H: context[node_eqb ?x ?y] |- _ => destr (node_eqb x y); try congruence
+              | |- context[node_eqb ?x ?y] => destr (node_eqb x y); try congruence
+              | H: context[rel_eqb ?x ?y] |- _ => destr (rel_eqb x y); try congruence
+              | |- context[rel_eqb ?x ?y] => destr (rel_eqb x y); try congruence
+              | H: context[receive_fact_at_node _ ?f] |- _ => destruct f
+              | H: context[learn_fact_at_node _ ?f] |- _ => destruct f
+              | H: _ \/ _ |- _ => destruct H
+              (* | H: exists _, _ |- _ => destruct H *)
+              (* | H: _ /\ _ |- _ => destruct H *)
+              | _ => solve_in_travellers
+              | _ => congruence
+              | _ => solve[eauto 6]           
+              end.
+  
   Hint Unfold knows_fact : core.
   Lemma step_preserves_sanity rules g g' :
     sane_graph g ->
@@ -410,9 +440,49 @@ Section DistributedDatalog.
     sane_graph g'.
   Proof.
     intros Hsane Hstep.
-    destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hcount).
+    destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hmfcorrect&Heverywhere&Hcount&Hinp_sane).
     pose proof Hstep as Hstep'.
     invert Hstep; simpl in *.
+    - cbv [sane_graph]. simpl. ssplit.
+      + t.
+        { apply Hmfinp. solve_in_travellers. }
+      + t.
+        { apply Hmfnode. solve_in_travellers. }
+      + t.
+        { eapply step_preserves_facts; [|eassumption]. solve_in_travellers. }
+        { eapply step_preserves_facts; [|eassumption]. solve_in_travellers. }
+      + t.
+        { apply Hmfcorrect. apply Hmfnode. solve_in_travellers. }
+      + intros f0 Hf0 n0.
+        move Heverywhere at bottom.
+        specialize (Heverywhere f0).
+        specialize' Heverywhere.
+        { t. }
+        specialize (Heverywhere n0). destruct Heverywhere as [He|He].
+        -- rewrite H in He. apply in_app_iff in He. simpl in He.
+           rewrite in_app_iff.
+           destruct He as [He|[He|He]]; auto.
+           invert He.
+           t.
+        -- t.
+      + admit.
+      + intros R. specialize (Hinp_sane R). destruct (is_input R); t.
+    - cbv [sane_graph]. simpl. ssplit.
+      + t.
+      + t.
+      + t.
+        { rename H0 into Hnf. apply in_app_iff in Hnf. destruct Hnf as [Hnf|Hnf].
+          - apply in_map_iff in Hnf. fwd. right. exists n. t.
+          - t. }
+        { rename H0 into Hnf. apply in_app_iff in Hnf. destruct Hnf as [Hnf|Hnf].
+          - apply in_map_iff in Hnf. fwd. right. exists n. t.
+          - t. }
+      + t.
+        -- exfalso. Fail solve[eauto]. eapply Hp0. eapply H.
+        -- cbv [can_learn_meta_fact_at_node] in Hp1. fwd. reflexivity.
+      + admit.
+      + admit.
+      + admit.
   Admitted.
 
   Definition meta_facts_correct_at_node rules n ns :=
@@ -1133,15 +1203,69 @@ Section DistributedDatalog.
   Definition same_msgs_received g g' :=
     forall n,
       (g.(node_states) n).(msgs_received) = (g'.(node_states) n).(msgs_received).  
+
+  (*These things should come from datalog/src/Interpreter.v,
+    which is currently very far from compiling.*)
+  Axiom good_rule : rule -> Prop.
+  Axiom step_everybody : list rule -> list fact -> list fact.
+  Axiom step_everybody_complete :
+    forall p hyps' facts f,
+      Forall good_rule p ->
+      incl hyps' facts ->
+      Exists (fun r => rule_impl r f hyps') p ->
+      In f (step_everybody p facts).
   
-  Lemma node_can_find_all_conclusions rules g n R :
+  (*this should follow from good_prog p + well-foundedness of meta_rule edges*)
+  Definition no_R_cycles R (r : rule) :=
+    match r with
+    | normal_rule concls hyps =>
+        In R (map fact_R concls) ->
+        In R (map fact_R hyps) ->
+        False
+    | agg_rule _ _ _ => True (*TODO*)
+    | meta_rule _ _ _ => True
+    end.  
+
+  Definition add_facts ns fs :=
+    {| known_facts := fs ++ ns.(known_facts);
+      msgs_received := ns.(msgs_received);
+      msgs_sent := ns.(msgs_sent); |}.
+
+  Definition add_facts_at_node g n fs :=
+    {| node_states := fun n' => if node_eqb n n' then
+                               add_facts (g.(node_states) n) fs
+                             else
+                               g.(node_states) n;
+      travellers := g.(travellers);
+      input_facts := g.(input_facts); |}.
+
+  Definition normal_dfact_of_fact (f : fact) : option dfact :=
+    match f with
+    | normal_fact R args => Some (normal_dfact R args)
+    | 
+  
+  Lemma node_can_find_all_conclusions p rules g n R :
+    Forall good_rule p ->
+    Forall (no_R_cycles R) p ->
+    good_layout p rules ->
     exists g',
       (comp_step rules)^* g g' /\
         (forall args,
             can_learn_normal_fact_at_node (rules n) (node_states g' n) R args ->
             In (normal_dfact R args) (known_facts (node_states g' n))) /\
         same_msgs_received g g'.
-  Proof. Admitted.
+  Proof.
+    intros Hp1 Hp2 Hl.
+    exists (add_facts_at_node g n (flat_map (fun f =>
+                                          match f with
+                                          | normal_fact R' args =>
+                                              if rel_eqb R R' then
+                                                [normal_dfact R' args]
+                                              else
+                                                []
+                                          | _ => []
+                                          end))).
+  Admitted.
 
   Lemma good_layout_complete' p r rules hyps g R f :
     good_inputs g.(input_facts) ->
@@ -1335,7 +1459,10 @@ Section DistributedDatalog.
       destruct Hg2 as (g2&Hg2&Hhyps2).
 
       pose proof node_can_find_all_conclusions as Hg3.
-      specialize (Hg3 rules g2 n target_rel).
+      
+      specialize (Hg3 p rules g2 n target_rel).
+      specialize' Hg3. { admit. }
+      specialize' Hg3. { admit. }
       destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
       
       eexists.
