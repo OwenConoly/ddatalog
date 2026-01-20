@@ -15,10 +15,7 @@ Instance JEncode_Bfn : JEncode Bfn :=
     | fn_BLt => JSON__String "<b"
     | fn_BEq => JSON__String "=b"
     | fn_BLe => JSON__String "<=b"
-    | fn_BLit b =>  match b with
-                  | true => JSON__True
-                  | false => JSON__False
-                  end
+    | fn_BLit b =>  JSON__String (if b then "trueb" else "falseb")
     | fn_BNot => JSON__String "~b"
     end.
 
@@ -53,9 +50,12 @@ Instance JEncode_Rfn : JEncode Rfn :=
 Instance JEncode_ATL_Rel : JEncode ATLToDatalog.rel :=
   fun r =>
     match r with
-    | str_rel s => JSON__String s
-    | nat_rel n => JSON__Number (Z.of_nat n)
-    | true_rel => JSON__True
+    | str_rel s =>
+        JSON__Array [JSON__String "str_rel"; JSON__String s]
+    | nat_rel n =>
+        JSON__Array [JSON__String "nat_rel"; JSON__Number (Z.of_nat n)]
+    | true_rel =>
+        JSON__Array [JSON__String "true_rel"; JSON__True]
     end.
 
 Instance JEncode_ATL_Fn : JEncode ATLToDatalog.fn :=
