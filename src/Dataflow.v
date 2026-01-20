@@ -71,7 +71,7 @@ Section DistributedDatalog.
   Context (p : list rule) (rules : Node -> list drule).
   Context (rules_good : good_rules rules) (prog_good : good_prog p) (layout_good : good_layout p rules).
   
-  (*i assume graph is strongly connected, because i suspect this will be tricky enough as is*)
+  (*i assume graph is complete, because i suspect this will be tricky enough as is*)
   Record node_state := {
       known_facts: list dfact;
       (*how many messages have i received about this relation*)
@@ -88,67 +88,7 @@ Section DistributedDatalog.
       input_facts : list dfact;
     }.
 
-  (*i ignore all of this for now; i assume that the graph is strongly connected, and Node is a finite set whose elements are exactly the nodes of the traph*)
-  (* Record Graph := { *)
-  (*   nodes : Node -> Prop; *)
-  (*   edge : Node -> Node -> Prop *)
-  (* }. *)
-
-  (* Definition good_graph (g : Graph) :=  *)
-  (*  forall n1 n2, edge g n1 n2 -> nodes g n1 /\ nodes g n2. *)
-
-  (* Inductive path (g : Graph) : Node -> Node -> Prop := *)
-  (*   | path_nil n : *)
-  (*       g.(nodes) n -> *)
-  (*       path g n n  *)
-  (*   | path_cons n1 n2 n3 : *)
-  (*       g.(edge) n1 n2 -> *)
-  (*       path g n2 n3 -> *)
-  (*       path g n1 n3. *)
-  
-  (* Definition strongly_connected (g : Graph) : Prop := *)
-  (*   forall n1 n2, g.(nodes) n1 -> g.(nodes) n2 -> path g n1 n2. *)
-
-  (* Definition ForwardingTable := rel * list T -> list Node. *)
-  (* Definition ForwardingFn := Node -> ForwardingTable. *)
-  (* Definition InputFn := Node -> rel * list T -> Prop. *)
-  (* Definition OutputFn := Node -> rel * list T -> Prop. *)
   Definition Layout := Node -> list drule.
-
-  Record DataflowNetwork := {
-    (* graph : Graph; *)
-    (* forward : ForwardingFn; *)
-    (* input :  InputFn; *)
-    (* output : OutputFn; *)
-    layout : Layout
-  }.
-
-(* Inductive network_prop :=  *)
-(*   | FactOnNode (n : Node) (f : rel * list T) *)
-(*   | Output (n : Node) (f : rel * list T). *)
-
-(* Fixpoint get_facts_on_node (nps : list (network_prop)) : list (Node * (rel * list T)) := *)
-(*   match nps with *)
-(*   | [] => [] *)
-(*   | FactOnNode n f :: t => (n, f) :: get_facts_on_node t *)
-(*   | Output n f :: t => get_facts_on_node t *)
-(*   end. *)
-
-(* Inductive network_step (net : DataflowNetwork) : network_prop -> list (network_prop) -> Prop := *)
-(*   | Input n f :  *)
-(*       net.(input) n f -> *)
-(*       network_step net (FactOnNode n f) [] *)
-(*   | RuleApp n f r hyps : *)
-(*       In r (net.(layout) n) -> *)
-(*       Forall (fun n' => n' = n) (map fst (get_facts_on_node hyps)) -> *)
-(*       Datalog.rule_impl r f (map snd (get_facts_on_node hyps)) -> *)
-(*       network_step net (FactOnNode n f) (hyps) *)
-(*   | Forward n n' f : *)
-(*       In n' (net.(forward) n f) -> *)
-(*       network_step net (FactOnNode n' f) [FactOnNode n f] *)
-(*   | OutputStep n f : *)
-(*       net.(output) n f -> *)
-(*       network_step net (Output n f) [FactOnNode n f]. *)
 
   Definition expect_num_R_facts R known_facts num :=
     if is_input R then
@@ -314,20 +254,6 @@ Section DistributedDatalog.
             num' <= num /\
               Existsn (fun f => exists args, f = normal_dfact R args) num' inputs).
 
-  Definition sound_graph (*rules*) (p : list rule) g :=
-    good_inputs g.(input_facts) ->
-    (forall R args,
-        knows_fact g (normal_dfact R args) ->
-        prog_impl_implication p (facts_of g.(input_facts)) (normal_fact R args)) (*/\*)
-      (* (forall R n num, *)
-      (*     In (meta_dfact R (Some n) num) (g.(node_states) n).(known_facts) -> *)
-      (*     (g.(node_states) n).(msgs_sent) R = num *)
-      (*     (* forall g' args, *) *)
-      (*     (*   (graph_step rules)^* g g' -> *) *)
-      (*     (*   good_inputs g'.(input_facts) -> *) *)
-      (*     (*   can_learn_normal_fact_at_node (rules n) (g'.(node_states) n) R args -> *) *)
-      (*     (*   In (normal_dfact R args) (g.(node_states) n).(known_facts) *)). *).
-
   Definition sane_graph g :=
     (forall R num,
         knows_fact g (meta_dfact R None num) ->
@@ -442,6 +368,8 @@ Section DistributedDatalog.
               | H: normal_dfact _ _ = meta_dfact _ _ _ |- _ => discriminate H
               | _ => solve[eauto]
               | H: knows_fact _ _ |- _ => destruct H
+              (* | H: exists _, _ |- _ => destruct H *)
+              (* | H: _ /\ _ |- _ => destruct H *)
               | _ => progress fwd
               | H: context[node_eqb ?x ?y] |- _ => destr (node_eqb x y); try congruence
               | |- context[node_eqb ?x ?y] => destr (node_eqb x y); try congruence
@@ -450,8 +378,6 @@ Section DistributedDatalog.
               | H: context[receive_fact_at_node _ ?f] |- _ => destruct f
               | H: context[learn_fact_at_node _ ?f] |- _ => destruct f
               | H: _ \/ _ |- _ => destruct H
-              (* | H: exists _, _ |- _ => destruct H *)
-              (* | H: _ /\ _ |- _ => destruct H *)
               | _ => solve_in_travellers
               | _ => congruence
               | _ => solve[eauto 6]           
