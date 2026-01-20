@@ -412,6 +412,7 @@ Section DistributedDatalog.
       end;
     solve [eapply Htrav; rewrite H; apply in_app_iff; simpl; eauto]
   end.
+  
   Ltac t := repeat match goal with
               | _ => progress (intros; simpl in *; subst )
               | H: meta_dfact _ _ _ = normal_dfact _ _ |- _ => discriminate H
@@ -432,6 +433,75 @@ Section DistributedDatalog.
               | _ => congruence
               | _ => solve[eauto 6]           
               end.
+
+  Hint Constructors Existsn : core.
+  Lemma Existsn_S (X : Type) P n (l : list X) :
+    Existsn P (S n) l ->
+    exists l1 x l2,
+      l = l1 ++ x :: l2 /\
+        P x /\
+        Existsn P n (l1 ++ l2).
+  Proof.
+    induction l; invert 1.
+    - specialize (IHl ltac:(assumption)). fwd. do 3 eexists. split.
+      { apply app_comm_cons. }
+      simpl. auto.
+    - exists nil. simpl. eauto.
+  Qed.
+
+  Lemma Existsn_app (X : Type) P n1 n2 (l1 l2 : list X) :
+    Existsn P n1 l1 ->
+    Existsn P n2 l2 ->
+    Existsn P (n1 + n2) (l1 ++ l2).
+  Proof. Abort.
+  
+  Lemma Existsn_split (X : Type) P n (l1 l2 : list X) :
+    Existsn P n (l1 ++ l2) ->
+    exists n1 n2,
+      n = n1 + n2 /\
+        Existsn P n1 l1 /\
+        Existsn P n2 l2.
+  Proof.
+    revert n. induction l1; intros n H.
+    - simpl in H. exists 0, n. auto.
+    - invert H.
+      + specialize (IHl1 _ ltac:(eassumption)). fwd. eauto 6.
+      + specialize (IHl1 _ ltac:(eassumption)). fwd.
+        do 2 eexists. split; [|eauto]. lia.
+  Qed.
+
+  From Stdlib Require Import Permutation.
+  Lemma Existsn_perm (X : Type) P n (l1 l2 : list X) :
+    Existsn P n l1 ->
+    Permutation l1 l2 ->
+    Existsn P n l2.
+  Proof.
+    intros H Hperm. revert n H. induction Hperm; intros n H.
+    - auto.
+    - invert H; eauto.
+    - do 2 match goal with
+        | H: Existsn _ _ (_ :: _) |- _ => invert H
+        end; auto.
+    - eauto.
+  Qed.
+
+  Lemma all_nodes_split n :
+    exists l1 l2,
+      all_nodes = l1 ++ n :: l2 /\
+        ~In n l1 /\ ~In n l2.
+  Proof.
+    destruct Hall_nodes as [H1 H2]. specialize (H2 n).
+    apply in_split in H2. fwd. do 2 eexists. split; [reflexivity|].
+    apply NoDup_remove_2 in H1. rewrite in_app_iff in H1. auto.
+  Qed.
+
+  Lemma fold_left_add_from_0 l n :
+    fold_left Nat.add l n = fold_left Nat.add l 0 + n.
+  Proof.
+    revert n.
+    induction l as [|a ?]; simpl; auto.
+    intros. rewrite (IHl a), (IHl (_ + a)). lia.
+  Qed.
   
   Hint Unfold knows_fact : core.
   Lemma step_preserves_sanity rules g g' :
@@ -465,7 +535,33 @@ Section DistributedDatalog.
            invert He.
            t.
         -- t.
-      + admit.
+      + intros n' R. specialize (Hcount n' R). fwd. move Hcountp0 at bottom.
+        rewrite H in Hcountp0. eapply Existsn_perm in Hcountp0.
+        2: { apply Permutation_sym. apply Permutation_middle. }
+        pose proof (all_nodes_split n) as H'. fwd. rewrite H'p0 in *. clear H'p0.
+        rewrite map_app in *. simpl in *. destr (node_eqb n n); [|congruence].
+        rewrite fold_left_app in *. simpl in *.
+        eassert (map _ l1 = map _ l1) as ->.
+        { apply map_ext_in. intros n0 Hn0. destr (node_eqb n n0); [exfalso; auto|].
+          reflexivity. }
+        eassert (map _ l2 = map _ l2) as ->.
+        { apply map_ext_in. intros n0 Hn0. destr (node_eqb n n0); [exfalso; auto|].
+          reflexivity. }
+        rewrite (fold_left_add_from_0 _ (_ + _)).
+        rewrite (fold_left_add_from_0 _ (_ + _)) in Hcountp2.
+        move Hcountp2 at bottom.
+        invert Hcountp0.
+        -- do 2 eexists. split; [eassumption|]. split; [eassumption|].
+           destr (node_eqb n n').
+           ++ cbv [receive_fact_at_node]. destruct f; simpl.
+              --- destr (rel_eqb nf_rel R); [exfalso; eauto|]. assumption.
+              --- assumption.
+           ++ cbv [receive_fact_at_node]. destruct f; assumption.
+        -- do 2 eexists. split; [eassumption|]. split; [eassumption|]. fwd.
+           destr (node_eqb n n); [|congruence].
+           cbv [receive_fact_at_node]. simpl.
+           destr (rel_eqb R R); [|congruence].
+           lia.
       + intros R. specialize (Hinp_sane R). destruct (is_input R); t.
     - cbv [sane_graph]. simpl. ssplit.
       + t.
@@ -524,7 +620,6 @@ Section DistributedDatalog.
     Forall (fun x => ~P x) l.
   Proof. induction l; invert 1; auto. Qed.
 
-  Hint Constructors Existsn : core.
   Lemma Forall_not_Existsn_0 U P (l : list U) :
     Forall (fun x => ~P x) l ->
     Existsn P 0 l.
@@ -1007,20 +1102,6 @@ Section DistributedDatalog.
         simpl. eauto.
   Qed.
 
-  Lemma Existsn_S (X : Type) P n (l : list X) :
-    Existsn P (S n) l ->
-    exists l1 x l2,
-      l = l1 ++ x :: l2 /\
-        P x /\
-        Existsn P n (l1 ++ l2).
-  Proof.
-    induction l; invert 1.
-    - specialize (IHl ltac:(assumption)). fwd. do 3 eexists. split.
-      { apply app_comm_cons. }
-      simpl. auto.
-    - exists nil. simpl. eauto.
-  Qed.
-      
   Lemma node_can_receive_travellers rules g num_trav n R :
     Existsn (fun '(n', f) => n = n' /\ (exists args : list T, f = normal_dfact R args))
       num_trav g.(travellers) ->
