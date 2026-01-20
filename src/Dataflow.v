@@ -15,7 +15,7 @@ Section DistributedDatalog.
   Context {Node Info : Type}.
   Context (a_node : Node).
   Context (all_nodes : list Node).
-  Context (Hall_nodes : NoDup all_nodes /\ (forall n, In n all_nodes)).
+  Context (Hall_nodes : is_list_set (fun _ => True) all_nodes).
   Context {node_eqb : Node -> Node -> bool}.
   Context {node_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
   Context (is_input : rel -> bool).
@@ -453,7 +453,10 @@ Section DistributedDatalog.
     Existsn P n1 l1 ->
     Existsn P n2 l2 ->
     Existsn P (n1 + n2) (l1 ++ l2).
-  Proof. Abort.
+  Proof.
+    intros H1. revert n2 l2.
+    induction H1; intros; simpl; eauto.
+  Qed.
   
   Lemma Existsn_split (X : Type) P n (l1 l2 : list X) :
     Existsn P n (l1 ++ l2) ->
@@ -485,14 +488,58 @@ Section DistributedDatalog.
     - eauto.
   Qed.
 
+  Lemma Existsn_0_Forall_not U P (l : list U) :
+    Existsn P 0 l ->
+    Forall (fun x => ~P x) l.
+  Proof. induction l; invert 1; auto. Qed.
+
+  Lemma Forall_not_Existsn_0 U P (l : list U) :
+    Forall (fun x => ~P x) l ->
+    Existsn P 0 l.
+  Proof. induction 1; auto. Qed.
+  
+  Lemma list_set_Existsn_1 U (S : U -> _) l x :
+    is_list_set S l ->
+    S x ->
+    Existsn (eq x) 1 l.
+  Proof.
+    intros Hls Hx. destruct Hls as [H1 H2].
+    apply H1 in Hx. apply in_split in Hx. fwd.
+    apply NoDup_remove_2 in H2. rewrite in_app_iff in H2.
+    replace 1 with (0 + 1) by lia. apply Existsn_app.
+    - apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
+    - apply Existsn_yes; auto.
+      apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
+  Qed.
+
+  Lemma Existsn_map U1 U2 P n l (f : U1 -> U2) :
+    Existsn P n (map f l) <-> Existsn (fun x => P (f x)) n l.
+  Proof.
+    revert n. induction l; intros n; simpl; split; invert 1; auto.
+    - apply Existsn_no; auto. apply IHl. auto.
+    - apply Existsn_yes; auto. apply IHl. auto.
+    - apply Existsn_no; auto. apply IHl. auto.
+    - apply Existsn_yes; auto. apply IHl. auto.
+  Qed.
+      
+  Lemma Existsn_iff U (P1 P2 : U -> _) n l :
+    Existsn P1 n l ->
+    (forall x, P1 x <-> P2 x) ->
+    Existsn P2 n l.
+  Proof.
+    intros H1 H2. induction H1; auto.
+    - apply Existsn_no; auto. rewrite <- H2. auto.
+    - apply Existsn_yes; auto. rewrite <- H2. auto.
+  Qed.
+      
   Lemma all_nodes_split n :
     exists l1 l2,
       all_nodes = l1 ++ n :: l2 /\
         ~In n l1 /\ ~In n l2.
   Proof.
-    destruct Hall_nodes as [H1 H2]. specialize (H2 n).
-    apply in_split in H2. fwd. do 2 eexists. split; [reflexivity|].
-    apply NoDup_remove_2 in H1. rewrite in_app_iff in H1. auto.
+    destruct Hall_nodes as [H1 H2]. specialize (H1 n). pose proof (H1' := I).
+    apply H1 in H1'. apply in_split in H1'. fwd. do 2 eexists. split; [reflexivity|].
+    apply NoDup_remove_2 in H2. rewrite in_app_iff in H2. auto.
   Qed.
 
   Lemma fold_left_add_from_0 l n :
@@ -502,14 +549,26 @@ Section DistributedDatalog.
     induction l as [|a ?]; simpl; auto.
     intros. rewrite (IHl a), (IHl (_ + a)). lia.
   Qed.
+
+  Print Layout. Print drule. Print Datalog.clause.
+  Definition drule_good r :=
+    match r with
+    | normal_drule cs _ => Forall (fun R => is_input R = false) (map fact_R cs)
+    | agg_drule _ target_rel _ => is_input target_rel = false
+    | meta_drule _ _ => True
+    end.
+
+  Definition rules_good (rules : Layout) :=
+    forall n, Forall drule_good (rules n).
   
   Hint Unfold knows_fact : core.
   Lemma step_preserves_sanity rules g g' :
+    rules_good rules ->
     sane_graph g ->
     comp_step rules g g' ->
     sane_graph g'.
   Proof.
-    intros Hsane Hstep.
+    intros Hr Hsane Hstep.
     destruct Hsane as (Hmfinp&Hmfnode&Htrav&Hmfcorrect&Heverywhere&Hcount&Hinp_sane).
     pose proof Hstep as Hstep'.
     invert Hstep; simpl in *.
@@ -574,12 +633,74 @@ Section DistributedDatalog.
           - apply in_map_iff in Hnf. fwd. right. exists n. t.
           - t. }
       + t.
-        -- exfalso. Fail solve[eauto]. eapply Hp0. eapply H.
-        -- cbv [can_learn_meta_fact_at_node] in Hp1. fwd. reflexivity.
-      + admit.
-      + admit.
-      + admit.
-  Admitted.
+        -- exfalso. intuition eauto.
+        -- cbv [can_learn_meta_fact_at_node] in *. fwd. reflexivity.
+      + intros f0 Hf0 n0.
+        assert (f0 = f \/ knows_fact g f0) as [?|?] by t.
+        { subst. left. apply in_app_iff. left. apply in_map_iff.
+          destruct Hall_nodes as [H'1 H'2]. eexists. split; eauto. apply H'1. auto. }
+        specialize (Heverywhere _ ltac:(eassumption)).
+        specialize (Heverywhere n0). destruct Heverywhere as [He|He].
+        -- rewrite in_app_iff. eauto.
+        -- t.
+      + intros n' R. specialize (Hcount n' R). fwd.
+        pose proof (all_nodes_split n) as H'. fwd. rewrite H'p0 in *. clear H'p0.
+        rewrite (map_app (fun _ => msgs_sent _ _)).
+        rewrite (map_app (fun _ => msgs_sent _ _)) in Hcountp2.
+        simpl in *.
+        destr (node_eqb n n); [|congruence].
+        rewrite fold_left_app in *. simpl in *.
+        eassert (map _ l1 = map _ l1) as ->.
+        { apply map_ext_in. intros n0 Hn0. destr (node_eqb n n0); [exfalso; auto|].
+          reflexivity. }
+        eassert (map _ l2 = map _ l2) as ->.
+        { apply map_ext_in. intros n0 Hn0. destr (node_eqb n n0); [exfalso; auto|].
+          reflexivity. }
+        rewrite (fold_left_add_from_0 _ (_ + _)).
+        rewrite (fold_left_add_from_0 _ (_ + _)) in Hcountp2.        
+        destruct f; simpl in *.
+        -- destr (rel_eqb nf_rel R).
+           ++ do 2 eexists. split.
+              { apply Existsn_app.
+                - apply Existsn_map. eapply Existsn_iff.
+                  { eapply list_set_Existsn_1 with (x := n'). 1: eassumption. constructor. }
+                  intros. split; intros; fwd; eauto.
+                - eassumption. }
+              split; [eassumption|].
+              destr (node_eqb n n'); simpl; lia.
+           ++ do 2 eexists. split.
+              { apply Existsn_app.
+                - apply Existsn_map. apply Forall_not_Existsn_0. apply Forall_app. split.
+                  + apply Forall_forall. intros ? ? ?. fwd. congruence.
+                  + constructor.
+                    -- intros ?. fwd. congruence.
+                    -- apply Forall_forall. intros ? ? ?. fwd. congruence.
+                - eassumption. }
+              split; [eassumption|].
+              destr (node_eqb n n'); simpl; assumption.
+        -- do 2 eexists. split.
+              { apply Existsn_app.
+                - apply Existsn_map. apply Forall_not_Existsn_0. apply Forall_app. split.
+                  + apply Forall_forall. intros ? ? ?. fwd. congruence.
+                  + constructor.
+                    -- intros ?. fwd. congruence.
+                    -- apply Forall_forall. intros ? ? ?. fwd. congruence.
+                - eassumption. }
+              split; [eassumption|].
+              destr (node_eqb n n'); simpl; assumption.
+      + intros R. specialize (Hinp_sane R).
+        move Hr at bottom. specialize (Hr n).
+        destruct (is_input R) eqn:ER; t.
+        exfalso.
+        cbv [can_learn_normal_fact_at_node] in Hp1. fwd. destruct r; fwd.
+        -- rewrite Forall_forall in Hr. specialize (Hr _ ltac:(eassumption)).
+           simpl in Hr. apply Lists.List.Forall_map in Hr. rewrite Forall_forall in Hr.
+           apply Exists_exists in Hp1p1p0. fwd. specialize (Hr _ ltac:(eassumption)).
+           invert Hp1p1p0p1. congruence.
+        -- rewrite Forall_forall in Hr. specialize (Hr _ ltac:(eassumption)).
+           simpl in Hr. congruence.
+        -- contradiction.
+  Qed.
 
   Definition meta_facts_correct_at_node rules n ns :=
     forall R num,
@@ -615,16 +736,6 @@ Section DistributedDatalog.
     all: exfalso; auto.
   Qed.
 
-  Lemma Existsn_0_Forall_not U P (l : list U) :
-    Existsn P 0 l ->
-    Forall (fun x => ~P x) l.
-  Proof. induction l; invert 1; auto. Qed.
-
-  Lemma Forall_not_Existsn_0 U P (l : list U) :
-    Forall (fun x => ~P x) l ->
-    Existsn P 0 l.
-  Proof. induction 1; auto. Qed.
-  
   Lemma expect_num_R_facts_no_travellers R g n args :
     sane_graph g ->
     good_inputs g.(input_facts) ->
