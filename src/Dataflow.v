@@ -263,13 +263,15 @@ Section DistributedDatalog.
               n inputs
       end.
 
+  (*this definition is kind of unsatisfying*)
   Definition good_inputs (inputs : list dfact) :=
     Forall (fun f => is_input_fact f = true) inputs /\
       (forall R num,
           In (meta_dfact R None num) inputs ->
-          exists num',
-            num' <= num /\
-              Existsn (fun f => exists args, f = normal_dfact R args) num' inputs).
+          (forall num0, In (meta_dfact R None num0) inputs -> num0 = num) /\
+            exists num',
+              num' <= num /\
+                Existsn (fun f => exists args, f = normal_dfact R args) num' inputs).
 
   Definition sane_graph g :=
     (forall R num,
@@ -305,7 +307,7 @@ Section DistributedDatalog.
   Proof.
     cbv [good_inputs]. simpl. intros [H1 H2]. invert H1. split; [assumption|].
     intros R num H. specialize (H2 R num ltac:(auto)). clear -H2.
-    fwd. invert H2p1; eauto. eexists. split; [|eauto]. lia.
+    fwd. invert H2p1p1; split; eauto. eexists. split; [|eauto]. lia.
   Qed.
   
   Lemma good_inputs_unstep g g' :
@@ -718,7 +720,7 @@ Section DistributedDatalog.
       specialize (Hinp_cnt _ _ HmfNone).
       fwd.
       epose proof Existsn_unique as Hu.
-      specialize Hu with (1 := Hinp_cntp1) (2 := Hcntp1).
+      specialize Hu with (1 := Hinp_cntp1p1) (2 := Hcntp1).
       subst.
       assert (num_trav = 0) by lia.
       subst.
@@ -856,28 +858,27 @@ Section DistributedDatalog.
     - contradiction.
   Qed.
 
-  (* Lemma can_learn_normal_fact_at_node_normal_facts_incl rules0 ns ns' R args : *)
-  (*   can_learn_normal_fact_at_node rules0 ns R args -> *)
-  (*   (forall R' args', *)
-  (*       In (normal_dfact R' args') ns.(known_facts) -> *)
-  (*       In (normal_dfact R' args') ns'.(known_facts)) -> *)
-  (*   can_learn_normal_fact_at_node rules0 ns' R args. *)
-  (* Proof. eauto using can_learn_normal_fact_at_node_relevant_normal_facts_incl. Qed. *)
-
   Lemma reasonable_meta_fact_nodes g R n num :
     sane_graph g ->
     knows_fact g (meta_dfact R n num) ->
     if is_input R then n = None
     else exists n0, n = Some n0.
-  Proof. Admitted.
+  Proof. Admitted.    
 
   Lemma mfs_unique g R n num1 num2 :
     sane_graph g ->
+    good_inputs g.(input_facts) ->
     knows_fact g (meta_dfact R n num1) ->
     knows_fact g (meta_dfact R n num2) ->
     num1 = num2.
-  Proof. Admitted.
-
+  Proof.
+    intros Hs Hinp H1 H2. destruct Hs as (HmfNone&HmfSome&_&Hmfcorrect&_).
+    destruct n.
+    - apply HmfSome in H1, H2. apply Hmfcorrect in H1, H2. subst. reflexivity.
+    - apply HmfNone in H1, H2. cbv [good_inputs] in Hinp. destruct Hinp as (_&Hinp).
+      apply Hinp in H1. fwd. apply H1p0 in H2. subst. reflexivity.
+  Qed.
+  
   (*TODO make this proof less long and terrible*)
   Lemma step_preserves_mf_correct g g' :
     sane_graph g ->
@@ -962,7 +963,7 @@ Section DistributedDatalog.
                    simpl. left. reflexivity. }
                  cbv [expect_num_R_facts] in H'p0.
                  destruct (is_input R').
-                 -- subst. epose_dep H''. specialize (H'' Hs').
+                 -- subst. epose_dep H''. specialize (H'' Hs' Hinp).
                     specialize' H''.
                     { cbv [knows_fact]. simpl. right. exists n'.
                       destr (node_eqb n' n'); [|congruence].
@@ -979,7 +980,7 @@ Section DistributedDatalog.
                     specialize' H'p0p0.
                     { destruct Hall_nodes as [HH _]. apply HH. constructor. }
                     fwd.
-                    epose_dep H''. specialize (H'' Hs').
+                    epose_dep H''. specialize (H'' Hs' Hinp).
                     specialize' H''.
                     { cbv [knows_fact]. simpl. right. exists n'.
                       destr (node_eqb n' n'); [|congruence].
@@ -1031,7 +1032,7 @@ Section DistributedDatalog.
                   specialize' Hmfp0p0.
                   { destruct Hall_nodes as [HH _]. apply HH. constructor. }
                   fwd.
-                  epose_dep H''. specialize (H'' Hs').
+                  epose_dep H''. specialize (H'' Hs' Hinp).
                   specialize' H''.
                   { cbv [knows_fact]. simpl. right. exists n0.
                     destr (node_eqb n0 n0); [|congruence].
@@ -1136,7 +1137,7 @@ Section DistributedDatalog.
                   specialize' H'p0p0.
                   { destruct Hall_nodes as [HH _]. apply HH. constructor. }
                   fwd.
-                  epose_dep H''. specialize (H'' Hs').
+                  epose_dep H''. specialize (H'' Hs' Hinp).
                   specialize' H''.
                   { cbv [knows_fact]. simpl. right. exists n0.
                     destr (node_eqb n0 n0); [|congruence].
@@ -1212,7 +1213,7 @@ Section DistributedDatalog.
                   specialize' Hfp1p1p1p0.
                   { destruct Hall_nodes as [HH _]. apply HH. constructor. }
                   fwd.
-                  epose_dep H''. specialize (H'' Hs').
+                  epose_dep H''. specialize (H'' Hs' Hinp).
                   specialize' H''.
                   { cbv [knows_fact]. simpl. right. exists n0.
                     destr (node_eqb n0 n0); [|congruence].
