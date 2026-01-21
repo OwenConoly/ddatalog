@@ -39,7 +39,7 @@ Section DistributedDatalog.
     match r with
     | normal_drule cs _ => Forall (fun R => is_input R = false) (map fact_R cs)
     | agg_drule _ target_rel _ => is_input target_rel = false
-    | meta_drule _ _ => True
+    | meta_drule R _ => is_input R = false
     end.
 
   Definition good_rules rules :=
@@ -297,7 +297,8 @@ Section DistributedDatalog.
               fold_left Nat.add (map (fun n' => (g.(node_states) n').(msgs_sent) R) all_nodes) O + num_inp) /\
       (forall R,
           if is_input R then
-            forall n, (g.(node_states) n).(msgs_sent) R = 0
+            (forall n, (g.(node_states) n).(msgs_sent) R = 0) /\
+              (forall n num, ~knows_fact g (meta_dfact R (Some n) num))
           else
             Existsn (fun f => exists args, f = normal_dfact R args) 0 g.(input_facts)).
 
@@ -577,7 +578,9 @@ Section DistributedDatalog.
            cbv [receive_fact_at_node]. simpl.
            destr (rel_eqb R R); [|congruence].
            lia.
-      + intros R. specialize (Hinp_sane R). destruct (is_input R); t.
+      + intros R. specialize (Hinp_sane R). destruct (is_input R).
+        -- split; [t|]. intros. intros ?. fwd. eapply Hinp_sanep1. t.
+        -- t.
     - cbv [sane_graph]. simpl. ssplit.
       + t.
       + t.
@@ -647,6 +650,13 @@ Section DistributedDatalog.
       + intros R. specialize (Hinp_sane R). pose proof rules_good as Hr.
         specialize (Hr n).
         destruct (is_input R) eqn:ER; t.
+        2: { split; t. intros ?. eapply Hinp_sanep1. t.
+             cbv [can_learn_meta_fact_at_node] in Hp1. fwd.
+             move rules_good at bottom. cbv [good_rules] in rules_good.
+             epose_dep  rules_good. rewrite Forall_forall in rules_good.
+             apply rules_good in Hp1p0. simpl in Hp1p0. congruence. }
+        split; t.
+        2: { intros ?. eapply Hinp_sanep1. t. }
         exfalso.
         cbv [can_learn_normal_fact_at_node] in Hp1. fwd. destruct r; fwd.
         -- rewrite Forall_forall in Hr. specialize (Hr _ ltac:(eassumption)).
@@ -712,7 +722,7 @@ Section DistributedDatalog.
       specialize (HmfNone _ _ ltac:(eauto)).
       rewrite Forall_forall in Hrel.
       specialize (Hrel _ HmfNone). simpl in Hrel.
-      specialize (Hinp_sane R). rewrite Hrel in Hinp_sane.
+      specialize (Hinp_sane R). rewrite Hrel in Hinp_sane. fwd.
       erewrite map_ext_in with (g := fun _ => 0) in Hcntp2 by auto.
       rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
       replace (0 * length all_nodes + 0 + num_inp) with num_inp in Hcntp2 by lia.
@@ -860,11 +870,20 @@ Section DistributedDatalog.
 
   Lemma reasonable_meta_fact_nodes g R n num :
     sane_graph g ->
+    good_inputs g.(input_facts) ->
     knows_fact g (meta_dfact R n num) ->
     if is_input R then n = None
     else exists n0, n = Some n0.
-  Proof. Admitted.    
-
+  Proof.
+    intros Hs Hinp Hf. destruct Hs as (HmfNone&_&_&_&_&_&Hinp_sane).
+    specialize (Hinp_sane R).
+    destruct (is_input R) eqn:E.
+    - fwd. destruct n; auto. exfalso. intuition eauto.
+    - destruct n; eauto. exfalso. apply HmfNone in Hf.
+      destruct Hinp as (Hinp&_). rewrite Forall_forall in Hinp. apply Hinp in Hf.
+      simpl in Hf. congruence.
+  Qed.
+  
   Lemma mfs_unique g R n num1 num2 :
     sane_graph g ->
     good_inputs g.(input_facts) ->
@@ -957,7 +976,7 @@ Section DistributedDatalog.
                  simpl in H'p0. specialize (H'p0 eq_refl).
                  pose proof reasonable_meta_fact_nodes as H'.
                  pose proof mfs_unique as H''.
-                 epose_dep H'. specialize (H' Hs'). specialize' H'.
+                 epose_dep H'. specialize (H' Hs' Hinp). specialize' H'.
                  { cbv [knows_fact]. simpl. right. exists n'.
                    destr (node_eqb n' n'); [|congruence].
                    simpl. left. reflexivity. }
@@ -1018,7 +1037,7 @@ Section DistributedDatalog.
               simpl in Hmfp0. specialize (Hmfp0 eq_refl).
               pose proof reasonable_meta_fact_nodes as H'.
               pose proof mfs_unique as H''.
-              epose_dep H'. specialize (H' Hs'). specialize' H'.
+              epose_dep H'. specialize (H' Hs' Hinp). specialize' H'.
               { cbv [knows_fact]. simpl. right. exists n'.
                 destr (node_eqb n' n'); [|congruence].
                 simpl. left. reflexivity. }
@@ -1072,10 +1091,10 @@ Section DistributedDatalog.
               destruct (is_input R') eqn:Ex.
               { exfalso. move Hs' at bottom. cbv [sane_graph] in Hs'. simpl in Hs'.
                 destruct Hs' as (_&_&_&_&_&_&Hinp_sane).
-                specialize (Hinp_sane R'). rewrite Ex in Hinp_sane.
-                specialize (Hinp_sane n'). destr (node_eqb n' n'); [|congruence].
-                simpl in Hinp_sane. destr (rel_eqb R' R'); [|congruence].
-                discriminate Hinp_sane. }
+                specialize (Hinp_sane R'). rewrite Ex in Hinp_sane. fwd.
+                specialize (Hinp_sanep0 n'). destr (node_eqb n' n'); [|congruence].
+                simpl in Hinp_sanep0. destr (rel_eqb R' R'); [|congruence].
+                discriminate Hinp_sanep0. }
               fwd. apply Forall2_forget_r in Hexp0p0. rewrite Forall_forall in Hexp0p0.
               specialize (Hexp0p0 n'). specialize' Hexp0p0.
               { destruct Hall_nodes as [H ?]. apply H. constructor. }
@@ -1091,10 +1110,10 @@ Section DistributedDatalog.
               destruct (is_input R') eqn:Ex.
               { exfalso. move Hs' at bottom. cbv [sane_graph] in Hs'. simpl in Hs'.
                 destruct Hs' as (_&_&_&_&_&_&Hinp_sane).
-                specialize (Hinp_sane R'). rewrite Ex in Hinp_sane.
-                specialize (Hinp_sane n'). destr (node_eqb n' n'); [|congruence].
-                simpl in Hinp_sane. destr (rel_eqb R' R'); [|congruence].
-                discriminate Hinp_sane. }
+                specialize (Hinp_sane R'). rewrite Ex in Hinp_sane. fwd.
+                specialize (Hinp_sanep0 n'). destr (node_eqb n' n'); [|congruence].
+                simpl in Hinp_sanep0. destr (rel_eqb R' R'); [|congruence].
+                discriminate Hinp_sanep0. }
               fwd. apply Forall2_forget_r in HR'p0p0. rewrite Forall_forall in HR'p0p0.
               specialize (HR'p0p0 n'). specialize' HR'p0p0.
               { destruct Hall_nodes as [H ?]. apply H. constructor. }
@@ -1123,7 +1142,7 @@ Section DistributedDatalog.
               simpl in H'p0. specialize (H'p0 eq_refl).
               pose proof reasonable_meta_fact_nodes as H'.
               pose proof mfs_unique as H''.
-              epose_dep H'. specialize (H' Hs'). specialize' H'.
+              epose_dep H'. specialize (H' Hs' Hinp). specialize' H'.
               { cbv [knows_fact]. simpl. right. exists n'.
                 destr (node_eqb n' n'); [|congruence].
                 simpl. left. reflexivity. }
@@ -1199,7 +1218,7 @@ Section DistributedDatalog.
               move Hfp1p1p1 at bottom.
               pose proof reasonable_meta_fact_nodes as H'.
               pose proof mfs_unique as H''.
-              epose_dep H'. specialize (H' Hs'). specialize' H'.
+              epose_dep H'. specialize (H' Hs' Hinp). specialize' H'.
               { cbv [knows_fact]. simpl. right. exists n'.
                 destr (node_eqb n' n'); [|congruence].
                 simpl. left. reflexivity. }
@@ -1435,7 +1454,7 @@ Section DistributedDatalog.
     - fwd. cbv [sane_graph] in Hs. destruct Hs as (_&_&_&_&_&Hcnt&Hinp_sane).
       specialize (Hcnt n R). fwd. eapply Existsn_unique in Hkp1; [|exact Hcntp1].
       subst.
-      specialize (Hinp_sane R). rewrite ER in Hinp_sane.
+      specialize (Hinp_sane R). rewrite ER in Hinp_sane. fwd.
       erewrite map_ext with (g := fun _ => 0) in Hcntp2 by auto.      
       rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
       replace (0 * length all_nodes + 0 + num) with num in Hcntp2 by lia.
