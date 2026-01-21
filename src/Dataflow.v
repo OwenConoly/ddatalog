@@ -1641,8 +1641,8 @@ Section DistributedDatalog.
   (*   |  *)
   
   Lemma node_can_find_all_conclusions g n R :
-    Forall good_rule p ->
-    Forall (no_R_cycles R) p ->
+    (* Forall good_rule p -> *)
+    (* Forall (no_R_cycles R) p -> *)
     exists g',
       comp_step^* g g' /\
         (forall args,
@@ -1650,7 +1650,7 @@ Section DistributedDatalog.
             In (normal_dfact R args) (known_facts (node_states g' n))) /\
         same_msgs_received g g'.
   Proof.
-    intros Hp Hl.
+    (* intros Hp Hl. *)
     (* exists (add_facts_at_node g n (flat_map (fun f => *)
     (*                                       match f with *)
     (*                                       | normal_fact R' args => *)
@@ -1822,8 +1822,11 @@ Section DistributedDatalog.
                        exists num : nat, knows_fact g' (meta_dfact target_rel (Some n) num))) as H'.
       { specialize (H' (length all_nodes)). rewrite firstn_all in H'. fwd.
         eexists. split; eauto.
-        destruct (is_input target_rel).
-        { admit. }
+        destruct (is_input target_rel) eqn:E.
+        { cbv [good_rules] in rules_good.
+          specialize (Hgood a_node). specialize (rules_good a_node).
+          rewrite Forall_forall in rules_good. apply rules_good in Hgood.
+          simpl in Hgood. congruence. }
         intros n. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
       intros len. induction len.
       { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
@@ -1855,8 +1858,6 @@ Section DistributedDatalog.
       pose proof node_can_find_all_conclusions as Hg3.
       
       specialize (Hg3 g2 n target_rel).
-      specialize' Hg3. { admit. }
-      specialize' Hg3. { admit. }
       destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
       
       eexists.
@@ -1910,7 +1911,7 @@ Section DistributedDatalog.
       destruct Hn' as [?|?]; [subst|contradiction].
       eexists. cbv [knows_fact]. simpl. right.
       exists n'. destr (node_eqb n' n'); [|congruence]. simpl. left. reflexivity.
-  Admitted.
+  Qed.
     
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
