@@ -2055,6 +2055,62 @@ Section DistributedDatalog.
       specialize (H' ltac:(assumption) ltac:(assumption) ltac:(assumption) eq_refl).
       destruct H' as (g2&Hstep2&Hg2). eauto using trc_trans.
   Qed.
+
+  Lemma receive_fact_at_node_impl ns f f0 :
+    In f0 (receive_fact_at_node ns f).(known_facts) ->
+    In f0 ns.(known_facts) \/ f0 = f.
+  Proof.
+    intros H. destruct f; simpl in *.
+    - destruct H; auto.
+    - destruct H; auto.
+  Qed.    
+
+  Lemma nothing_new_received g n f0 fs1 fs2 f :
+    sane_graph g ->
+    knows_fact
+      {|
+        node_states :=
+          fun n' : Node =>
+            if node_eqb n n'
+            then receive_fact_at_node (node_states g n) f0
+            else node_states g n';
+        travellers := fs1 ++ fs2;
+        input_facts := input_facts g
+      |} f ->
+    travellers g = fs1 ++ (n, f0) :: fs2 ->
+    knows_fact g f.
+  Proof.
+    intros Hsane Hf Hf0.
+    destruct Hf as [Hf|Hf]; simpl in Hf.
+    -- eauto.
+    -- fwd. destr (node_eqb n n0); cycle 1.
+       { eauto. }
+       apply receive_fact_at_node_impl in Hf. destruct Hf as [Hf|Hf].
+       { eauto. }
+       subst. destruct Hsane as (_&_&Htrav&_).
+       eapply Htrav. rewrite Hf0. apply in_app_iff. simpl. eauto.
+  Qed.
+  
+  Lemma good_layout_sound'' g g' R f :
+    good_inputs g.(input_facts) ->
+    sane_graph g ->
+    meta_facts_correct rules g ->
+    (forall R', rel_edge R' R -> graph_complete_for g R') ->
+    comp_step g g' ->
+    rel_of f = R ->
+    knows_datalog_fact g' f ->
+    knows_datalog_fact g f \/
+      exists r hyps,
+        In r p /\ rule_impl r f hyps /\ Forall (knows_datalog_fact g) hyps.
+  Proof.
+    intros Hinp Hsane Hmf Hrels Hstep HR Hf. subst. invert Hstep.
+    - left. destruct f; simpl in *.
+      + eauto using nothing_new_received.
+      + destruct (is_input mf_rel).
+        -- fwd. eauto using nothing_new_received.
+        -- intros n'. specialize (Hf n'). fwd. eauto using nothing_new_received.
+    - Abort.
+  
     
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
