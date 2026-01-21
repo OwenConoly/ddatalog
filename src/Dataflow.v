@@ -49,11 +49,14 @@ Section DistributedDatalog.
   Definition good_prog (p : list rule) :=
     forall R f Rs,
       In (meta_rule R f Rs) p ->
-      forall concls hyps R',
+      (forall concls hyps R',
         In (normal_rule concls hyps) p ->
         In R (map fact_R concls) ->
         In R' (map fact_R hyps) ->
-        In R' Rs.
+        In R' Rs) /\
+        (forall a source_rel,
+            In (agg_rule a R source_rel) p ->
+            In source_rel Rs).
 
   Definition good_layout (p : list rule) (rules : Node -> list drule) :=
     (forall rule_concls rule_hyps,
@@ -874,7 +877,8 @@ Section DistributedDatalog.
     knows_fact g (meta_dfact R n num2) ->
     num1 = num2.
   Proof. Admitted.
-  
+
+  (*TODO make this proof less long and terrible*)
   Lemma step_preserves_mf_correct g g' :
     sane_graph g ->
     good_inputs g.(input_facts) ->
@@ -1152,7 +1156,7 @@ Section DistributedDatalog.
               { apply Hn. eexists. eassumption. }
               apply Hm in Hfp1p0'. fwd.
               pose proof prog_good as Hp. cbv [good_prog] in Hp.
-              specialize (Hp _ _ _ Hfp1p0').
+              specialize (Hp _ _ _ Hfp1p0'). destruct Hp as (Hp&_).
               specialize Hp with (1 := Hr') (2 := HR).
               rewrite Hn in Hr'. fwd.
               apply Forall_forall.
@@ -1161,12 +1165,63 @@ Section DistributedDatalog.
               apply Hfp1p1p1 in HR'.
               eapply expect_num_R_facts_incl; [eassumption|].
               auto with incl.
-           ++ admit.
+           ++ intros. subst. pose proof Hfp1p0 as Hfp1p0'.
+              cbv [good_layout] in layout_good. destruct layout_good as (_&Ha&_&Hm).
+              eassert (In _ _) as Hr'.
+              { apply Ha. eexists. eassumption. }
+              apply Hm in Hfp1p0'. fwd.
+              pose proof prog_good as Hp. cbv [good_prog] in Hp.
+              specialize (Hp _ _ _ Hfp1p0'). destruct Hp as (_&Hp).
+              specialize (Hp _ _ ltac:(eassumption)).
+              rewrite Ha in Hr'. fwd.
+              specialize (Hfp1p1p1 _ Hp).
+              eapply expect_num_R_facts_incl; [eassumption|].
+              auto with incl.
            ++ constructor.
         -- intros args Hargs. right. apply Hfp1p1p2.
            eapply can_learn_normal_fact_at_node_relevant_normal_facts_incl; [eassumption| |].
            ++ simpl. intros R' args' [H'|H'] ?; [congruence|]. assumption.
-           ++ simpl. admit.
+           ++ simpl. simpl. intros R' HR'. split; auto. split.
+              { intros. split; auto. intros [?|?]; [congruence|auto]. }
+              intros ? ? [H'|?]; auto. invert H'.
+              apply Exists_exists in HR'. fwd.
+              pose proof Hfp1p0 as Hfp1p0'.
+              cbv [good_layout] in layout_good. destruct layout_good as (_&Ha&_&Hm).
+              eassert (In _ _) as Hr'.
+              { apply Ha. eexists. eassumption. }
+              apply Hm in Hfp1p0'. fwd.
+              pose proof prog_good as Hp. cbv [good_prog] in Hp.
+              specialize (Hp _ _ _ Hfp1p0'). destruct Hp as (_&Hp).
+              specialize (Hp _ _ ltac:(eassumption)).
+              rewrite Ha in Hr'. fwd.
+              specialize (Hfp1p1p1 _ Hp).
+              move Hfp1p1p1 at bottom.
+              pose proof reasonable_meta_fact_nodes as H'.
+              pose proof mfs_unique as H''.
+              epose_dep H'. specialize (H' Hs'). specialize' H'.
+              { cbv [knows_fact]. simpl. right. exists n'.
+                destr (node_eqb n' n'); [|congruence].
+                simpl. left. reflexivity. }
+              cbv [expect_num_R_facts] in Hfp1p1p1.
+              (*why do we know that R' is not an input?*)
+              destruct (is_input R'); [congruence|].
+              --- fwd.
+                  apply Forall2_forget_r in Hfp1p1p1p0.
+                  rewrite Forall_forall in Hfp1p1p1p0.
+                  specialize (Hfp1p1p1p0 n0).
+                  specialize' Hfp1p1p1p0.
+                  { destruct Hall_nodes as [HH _]. apply HH. constructor. }
+                  fwd.
+                  epose_dep H''. specialize (H'' Hs').
+                  specialize' H''.
+                  { cbv [knows_fact]. simpl. right. exists n0.
+                    destr (node_eqb n0 n0); [|congruence].
+                    simpl. left. reflexivity. }
+                  specialize' H''.
+                  { right. simpl. exists n0.
+                    destr (node_eqb n0 n0); [|congruence].
+                    simpl. right. eassumption. }
+                  subst. assumption.
   Qed.
 
   Definition noncyclic_aggregation (p : list rule) :=
