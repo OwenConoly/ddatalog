@@ -83,7 +83,7 @@ Section DistributedDatalog.
             prog_impl_implication p Q (normal_fact R x) <-> S x).
 
   Context (p : list rule) (rules : Node -> list drule).
-  Context (rules_good : good_rules rules) (prog_good : good_prog p) (layout_good : good_layout p rules) (Hgmr : good_meta_rules p).
+  Context (rules_good : good_rules rules) (prog_good : good_prog p) (Hlayout : good_layout p rules) (Hgmr : good_meta_rules p).
   
   (*i assume graph is complete, because i suspect this will be tricky enough as is*)
   Record node_state := {
@@ -1182,7 +1182,7 @@ Section DistributedDatalog.
         split.
         -- apply Forall_forall. intros r Hr. destruct r.
            ++ intros HR. pose proof Hfp1p0 as Hfp1p0'.
-              cbv [good_layout] in layout_good. destruct layout_good as (Hn&_&_&Hm).
+              cbv [good_layout] in Hlayout. destruct Hlayout as (Hn&_&_&Hm).
               eassert (In _ _) as Hr'.
               { apply Hn. eexists. eassumption. }
               apply Hm in Hfp1p0'. fwd.
@@ -1197,7 +1197,7 @@ Section DistributedDatalog.
               eapply expect_num_R_facts_incl; [eassumption|].
               auto with incl.
            ++ intros. subst. pose proof Hfp1p0 as Hfp1p0'.
-              cbv [good_layout] in layout_good. destruct layout_good as (_&Ha&_&Hm).
+              cbv [good_layout] in Hlayout. destruct Hlayout as (_&Ha&_&Hm).
               eassert (In _ _) as Hr'.
               { apply Ha. eexists. eassumption. }
               apply Hm in Hfp1p0'. fwd.
@@ -1217,7 +1217,7 @@ Section DistributedDatalog.
               intros ? ? [H'|?]; auto. invert H'.
               apply Exists_exists in HR'. fwd.
               pose proof Hfp1p0 as Hfp1p0'.
-              cbv [good_layout] in layout_good. destruct layout_good as (_&Ha&_&Hm).
+              cbv [good_layout] in Hlayout. destruct Hlayout as (_&Ha&_&Hm).
               eassert (In _ _) as Hr'.
               { apply Ha. eexists. eassumption. }
               apply Hm in Hfp1p0'. fwd.
@@ -1676,7 +1676,7 @@ Section DistributedDatalog.
          knows_datalog_fact g' f.
   Proof.
     intros Hinp Hsane Hmf Hrels Hhyps Hr Himpl Hf.
-    pose proof layout_good as Hgood.
+    pose proof Hlayout as Hgood.
     pose proof Hgood as Hgood'.
     invert Himpl.
     - cbv [good_layout] in Hgood. destruct Hgood as (Hgood&_).
@@ -2065,6 +2065,15 @@ Section DistributedDatalog.
     - destruct H; auto.
   Qed.    
 
+  Lemma learn_fact_at_node_impl ns f f0 :
+    In f0 (learn_fact_at_node ns f).(known_facts) ->
+    In f0 ns.(known_facts) \/ f0 = f.
+  Proof.
+    intros H. destruct f; simpl in *.
+    - destruct H; auto.
+    - destruct H; auto.
+  Qed.    
+
   Lemma nothing_new_received g n f0 fs1 fs2 f :
     sane_graph g ->
     knows_fact
@@ -2090,7 +2099,26 @@ Section DistributedDatalog.
        subst. destruct Hsane as (_&_&Htrav&_).
        eapply Htrav. rewrite Hf0. apply in_app_iff. simpl. eauto.
   Qed.
-  
+
+  Lemma only_one_fact_learned g n f f0 :
+    knows_fact
+      {|
+        node_states :=
+          fun n' : Node =>
+          if node_eqb n n'
+          then learn_fact_at_node (node_states g n) f0
+          else node_states g n';
+        travellers := map (fun n : Node => (n, f0)) all_nodes ++ travellers g;
+        input_facts := input_facts g
+      |} f ->
+    knows_fact g f \/ f = f0.
+  Proof.
+    intros Hf. destruct Hf as [Hf|Hf]; simpl in Hf.
+    - eauto.
+    - fwd. destr (node_eqb n n0); eauto.
+      apply learn_fact_at_node_impl in Hf. destruct Hf; eauto.
+  Qed.
+    
   Lemma good_layout_sound'' g g' R f :
     good_inputs g.(input_facts) ->
     sane_graph g ->
@@ -2109,8 +2137,27 @@ Section DistributedDatalog.
       + destruct (is_input mf_rel).
         -- fwd. eauto using nothing_new_received.
         -- intros n'. specialize (Hf n'). fwd. eauto using nothing_new_received.
-    - Abort.
-  
+    - destruct f; simpl in *.
+      + apply only_one_fact_learned in Hf. destruct Hf; eauto. subst.
+        simpl in H. destruct H as (_&H). right.
+        (*maybe should proe some lemma about can_learn_normal_fact_at_node..*)
+        cbv [can_learn_normal_fact_at_node] in H. fwd. destruct r; fwd.
+        -- apply Exists_exists in Hp1p0. destruct Hp1p0 as (r&Hr1&Hr2).
+           do 2 eexists. split.
+           { destruct Hlayout as (H'&_). apply H'. eauto. }
+           split.
+           { econstructor.
+             - apply Exists_exists. eauto.
+             - eassumption. }
+           apply Forall_map. apply Forall_forall. intros [R' args'] H'.
+           simpl. eauto.
+        -- admit.
+        -- contradiction.
+      + destruct (is_input mf_rel).
+        -- fwd. apply only_one_fact_learned in Hfp0. destruct Hfp0; eauto. subst.
+           simpl in H. fwd. congruence.
+        -- admit.
+  Admitted.  
     
   Lemma combine_fst_snd {A B} (l : list (A * B)) :
     l = combine (map fst l) (map snd l).
