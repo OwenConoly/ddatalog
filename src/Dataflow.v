@@ -2175,7 +2175,14 @@ Section DistributedDatalog.
     specialize (Heverywhere _ ltac:(eassumption)).
     edestruct Heverywhere; [|eassumption].
     exfalso. eauto.
-  Qed.
+  Qed. Search knows_datalog_fact meta_fact.
+
+  Lemma knows_meta_fact_step_learns_nothing g g' R S args :
+    knows_datalog_fact g (meta_fact R S) ->
+    comp_step g g' ->
+    knows_fact g' (normal_dfact R args) ->
+    knows_fact g (normal_dfact R args).
+  Proof. Abort.    
 
   Lemma no_learning_inputs g n R args :
     can_learn_normal_fact_at_node (rules n) (node_states g n) R args ->
@@ -2193,25 +2200,36 @@ Section DistributedDatalog.
     - assumption.
     - contradiction.
   Qed.
-        
+
+  Lemma meta_fact_ext (r : rule) R S S' hyps :
+    (forall x, S x <-> S' x) ->
+    rule_impl r (meta_fact R S) hyps ->
+    rule_impl r (meta_fact R S') hyps.
+  Proof.
+    intros H1 H2. invert H2.
+    constructor; auto. intros. rewrite <- H1. auto.
+  Qed.    
+
   Lemma good_layout_sound'' g g' R f :
     good_inputs g.(input_facts) ->
     sane_graph g ->
     meta_facts_correct rules g ->
     meta_facts_semantically_correct g ->
+    (forall f',
+        knows_datalog_fact g f' /\ consistent g f' ->
+        prog_impl_implication p (fact_in_inputs g.(input_facts)) f') ->
     (forall R', rel_edge R' R -> graph_complete_for g R') ->
+    graph_complete_for g R ->
     comp_step g g' ->
     rel_of f = R ->
     knows_datalog_fact g' f ->
     consistent g' f ->
-    knows_datalog_fact g f /\ consistent g f \/
-      exists r hyps,
-        In r p /\ rule_impl r f hyps /\ Forall (knows_datalog_fact g) hyps /\ Forall (consistent g) hyps.
+    prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
   Proof.
-    intros Hinp Hsane Hmf Hmfs Hrels Hstep HR Hf1 Hf2. subst.
+    intros Hinp Hsane Hmf Hmfs Hsound Hrels1 Hrels2 Hstep HR Hf1 Hf2. subst.
     pose proof Hstep as Hstep'.
     invert Hstep.
-    - left. destruct f; simpl in *.
+    - apply Hsound. destruct f; simpl in *.
       + eauto using nothing_new_received.
       + destruct (is_input mf_rel).
         -- fwd. split; [eauto using nothing_new_received|].
@@ -2221,40 +2239,37 @@ Section DistributedDatalog.
            ++ intros. rewrite <- Hf2. split; eauto using nothing_new_received.
     - destruct f; simpl in *.
       + apply only_one_fact_learned in Hf1. destruct Hf1; eauto. subst.
-        simpl in H. destruct H as (_&H). right.
+        simpl in H. destruct H as (_&H).
         (*maybe should proe some lemma about can_learn_normal_fact_at_node..*)
         cbv [can_learn_normal_fact_at_node] in H. fwd. destruct r; fwd.
         -- apply Exists_exists in Hp1p0. destruct Hp1p0 as (r&Hr1&Hr2).
-           do 2 eexists. split.
-           { destruct Hlayout as (H'&_). apply H'. eauto. }
-           split.
-           { econstructor.
-             - apply Exists_exists. eauto.
-             - eassumption. }
-           split.
+           eapply prog_impl_step.
+           ++ apply Exists_exists. eexists. split.
+              { destruct Hlayout as (H'&_). apply H'. eauto. }
+              econstructor.
+              --- apply Exists_exists. eauto.
+              --- eassumption.
            ++ apply Forall_map. apply Forall_forall. intros [R' args'] H'.
-              simpl. eauto.
-           ++ apply Forall_map. apply Forall_forall. intros [R' args'] H'.
-              simpl. eauto.
-        -- do 2 eexists. split.
-           { destruct Hlayout as (_&H'&_). apply H'. eauto. }
-           split.
-           { econstructor. instantiate (1 := fun _ => _). simpl. eassumption. }
-           split.
+              apply Hsound. simpl. eauto 6.
+        -- eapply prog_impl_step.
+           ++ apply Exists_exists. eexists. split.
+              { destruct Hlayout as (_&H'&_). apply H'. eauto. }
+              econstructor. instantiate (1 := fun _ => _). simpl. eassumption.
            ++ constructor.
-              --- eapply something_about_expect_num_R_facts; eassumption.
-              --- destruct Hp1p1p0 as (H'&_). apply Forall_map. apply Forall_forall.
-                  intros f Hf. apply H' in Hf. simpl. eauto.
-           ++ constructor.
-              --- simpl. intros. split; eauto. intros Hargs.
-                  apply expect_num_R_facts_knows_everything; assumption.
-              --- apply Forall_map. simpl. apply Forall_forall. auto.
+              --- apply Hsound. split.
+                  +++ eapply something_about_expect_num_R_facts; eassumption.
+                  +++ simpl. intros. split; eauto. intros Hargs.
+                      apply expect_num_R_facts_knows_everything; assumption.
+              --- apply Forall_map. apply Forall_forall. intros x Hx.
+                  destruct Hp1p1p0 as (H'&_). apply H' in Hx.
+                  apply Hsound. simpl. eauto.
         -- contradiction.
       + destruct (is_input mf_rel) eqn:E.
-        -- fwd. apply only_one_fact_learned in Hf1p0. destruct Hf1p0.
-           { left. split; eauto. intros. rewrite <- Hf2. split; eauto.
+        -- apply Hsound. simpl. rewrite E.
+           fwd. apply only_one_fact_learned in Hf1p0. destruct Hf1p0.
+           { simpl. split; eauto. intros. rewrite <- Hf2. split; eauto.
              intros [Hargs|Hargs]; eauto. simpl in Hargs. fwd.
-             destr (node_eqb n n0); eauto. Search learn_fact_at_node.
+             destr (node_eqb n n0); eauto.
              apply learn_fact_at_node_impl in Hargs.
              destruct Hargs as [Hargs|Hargs]; eauto.
              subst. simpl in H. destruct H as [_ H].
@@ -2267,7 +2282,7 @@ Section DistributedDatalog.
              - left. instantiate (1 := fun _ => exists num, _). exists num. exact Hf1.
              - right. instantiate (1 := fun _ => exists num, _). exists num. exact Hf1. }
            clear Hf1. destruct H' as [H'|H'].
-           ++ left. split.
+           ++ apply Hsound. simpl. rewrite E. split.
               --- intros n'. rewrite Forall_forall in H'. apply H'.
                   destruct Hall_nodes as (Han&_). apply Han. constructor.
               --- intros. rewrite <- Hf2. split; eauto.
@@ -2280,15 +2295,36 @@ Section DistributedDatalog.
                   { destruct Hall_nodes as [Hn0 _]. apply Hn0. constructor. }
                   fwd. exfalso. eapply Hp0. destruct Hsane as (_&HmfSome&_).
                   apply HmfSome. eassumption.
-           ++ right. apply Exists_exists in H'. fwd.
+           ++ apply Exists_exists in H'. fwd.
               clear H'p0. simpl in H. fwd.
               cbv [can_learn_meta_fact_at_node] in Hp1. fwd.
               destruct Hlayout as (_&_&_&Hl). specialize (Hl _ _ _ ltac:(eassumption)).
-              fwd. do 2 eexists. split; [eassumption|]. split.
-              { eapply meta_rule_impl with (source_sets := map (fun R args => knows_fact g (normal_dfact R args)) source_rels).
-                { rewrite length_map. reflexivity. }
+              fwd.
+              eapply prog_impl_step.
+              --- apply Exists_exists. eexists. split; [eassumption|].
+                  eenough _ as H'. 1: eapply meta_fact_ext; [|exact H'].
+                  2: { eapply meta_rule_impl with (source_sets := map (fun R args => knows_fact g (normal_dfact R args)) source_rels).
+                     { rewrite length_map. reflexivity. }
+                     intros. reflexivity. }
                 cbv [meta_facts_semantically_correct] in Hmfs.
                 move Hgmr at bottom. cbv [good_meta_rules] in Hgmr.
+                intros args. rewrite <- Hgmr with (S := target_set _).
+                3: { eapply prog_impl_step.
+                     { apply Exists_exists. eexists.
+                       split; [eassumption|]. eassumption. }
+                     apply Forall_zip. apply Forall2_map_r. apply Forall2_same.
+                     apply Forall_forall. intros R' HR'.
+                     apply Hsound. split.
+                     { eapply something_about_expect_num_R_facts; eauto. }
+                     simpl. reflexivity. }
+                2: { simpl. intros R' S' H'' x0. fwd.
+                     intros. symmetry. apply H''p2. }
+                rewrite <- Hf2. split; intros Hargs.
+                  +++ apply Hrels2 in Hargs; [|reflexivity]. fwd.
+                      
+                rewrite <- Hmfs.
+                       simpl.
+                     eapply meta_rule_impl. constructor. move Hmfs at bottom. apply Hmfs.
                 intros args. admit. }
               split.
               --- apply Forall_zip. eapply Forall2_impl_strong.
