@@ -2142,10 +2142,21 @@ Section DistributedDatalog.
         fwd. eauto.
   Qed.
 
+  Definition meta_facts_semantically_correct g :=
+    forall R S,
+      knows_datalog_fact g (meta_fact R S) ->
+      forall inputs',
+        good_inputs inputs' ->
+        (forall f, fact_in_inputs g.(input_facts) f -> fact_in_inputs inputs' f) ->
+        (forall args,
+            prog_impl_implication p (fact_in_inputs inputs') (normal_fact R args) <->
+              knows_fact g (normal_dfact R args)).
+
   Lemma good_layout_sound'' g g' R f :
     good_inputs g.(input_facts) ->
     sane_graph g ->
     meta_facts_correct rules g ->
+    meta_facts_semantically_correct g ->
     (forall R', rel_edge R' R -> graph_complete_for g R') ->
     comp_step g g' ->
     rel_of f = R ->
@@ -2154,7 +2165,7 @@ Section DistributedDatalog.
       exists r hyps,
         In r p /\ rule_impl r f hyps /\ Forall (knows_datalog_fact g) hyps.
   Proof.
-    intros Hinp Hsane Hmf Hrels Hstep HR Hf. subst. invert Hstep.
+    intros Hinp Hsane Hmf Hmfs Hrels Hstep HR Hf. subst. invert Hstep.
     - left. destruct f; simpl in *.
       + eauto using nothing_new_received.
       + destruct (is_input mf_rel).
@@ -2202,6 +2213,7 @@ Section DistributedDatalog.
               fwd. do 2 eexists. split; [eassumption|]. split.
               { eapply meta_rule_impl with (source_sets := map (fun R args => knows_fact g (normal_dfact R args)) source_rels).
                 { rewrite length_map. reflexivity. }
+                cbv [meta_facts_semantically_correct] in Hmfs.
                 admit. }
               apply Forall_zip. eapply Forall2_impl_strong.
               2: { apply Forall2_true. rewrite length_map. reflexivity. }
