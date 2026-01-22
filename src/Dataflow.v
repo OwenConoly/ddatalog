@@ -2177,13 +2177,6 @@ Section DistributedDatalog.
     exfalso. eauto.
   Qed. Search knows_datalog_fact meta_fact.
 
-  Lemma knows_meta_fact_step_learns_nothing g g' R S args :
-    knows_datalog_fact g (meta_fact R S) ->
-    comp_step g g' ->
-    knows_fact g' (normal_dfact R args) ->
-    knows_fact g (normal_dfact R args).
-  Proof. Abort.    
-
   Lemma no_learning_inputs g n R args :
     can_learn_normal_fact_at_node (rules n) (node_states g n) R args ->
     is_input R = false.
@@ -2199,6 +2192,39 @@ Section DistributedDatalog.
       apply rules_good. assumption.
     - assumption.
     - contradiction.
+  Qed.
+
+  Lemma knows_meta_fact_step_learns_nothing g g' R S args :
+    sane_graph g ->
+    knows_datalog_fact g (meta_fact R S) ->
+    comp_step g g' ->
+    knows_fact g' (normal_dfact R args) ->
+    knows_fact g (normal_dfact R args).
+  Proof.
+    intros Hsane H Hstep Hargs. simpl in H.
+    pose proof Hstep as Hstep'. invert Hstep.
+    - eauto using nothing_new_received.
+    - apply only_one_fact_learned in Hargs.
+      destruct Hargs as [Hargs|Hargs]; auto.
+      subst. simpl in H0. fwd. apply no_learning_inputs in H0p1.
+      rewrite H0p1 in *. specialize (H n). fwd.
+      exfalso. eapply H0p0. destruct Hsane as (_&HmfSome&_).
+      apply HmfSome. eassumption.
+  Qed.
+
+  Lemma knows_meta_fact_steps_learns_nothing g g' R S args :
+    sane_graph g ->
+    knows_datalog_fact g (meta_fact R S) ->
+    comp_step^* g g' ->
+    knows_fact g' (normal_dfact R args) ->
+    knows_fact g (normal_dfact R args).
+  Proof.
+    induction 3; auto.
+    intros. eapply knows_meta_fact_step_learns_nothing; eauto.
+    apply IHtrc.
+    - eauto using steps_preserves_sanity.
+    - eauto using comp_steps_preserves_datalog_facts.
+    - assumption.
   Qed.
 
   Lemma meta_fact_ext (r : rule) R S S' hyps :
@@ -2281,7 +2307,7 @@ Section DistributedDatalog.
              fwd. apply only_one_fact_learned in Hf1. destruct Hf1 as [Hf1|Hf1].
              - left. instantiate (1 := fun _ => exists num, _). exists num. exact Hf1.
              - right. instantiate (1 := fun _ => exists num, _). exists num. exact Hf1. }
-           clear Hf1. destruct H' as [H'|H'].
+           destruct H' as [H'|H'].
            ++ apply Hsound. simpl. rewrite E. split.
               --- intros n'. rewrite Forall_forall in H'. apply H'.
                   destruct Hall_nodes as (Han&_). apply Han. constructor.
@@ -2321,6 +2347,11 @@ Section DistributedDatalog.
                      intros. symmetry. apply H''p2. }
                 rewrite <- Hf2. split; intros Hargs.
                   +++ apply Hrels2 in Hargs; [|reflexivity]. fwd.
+                      eenough (knows_fact g _).
+                      { eapply step_preserves_facts; eassumption. }
+                      eapply knows_meta_fact_steps_learns_nothing; eauto.
+                      simpl. rewrite E. 
+                      
                       
                 rewrite <- Hmfs.
                        simpl.
