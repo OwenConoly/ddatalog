@@ -2151,11 +2151,37 @@ Section DistributedDatalog.
              - eassumption. }
            apply Forall_map. apply Forall_forall. intros [R' args'] H'.
            simpl. eauto.
-        -- admit.
+        -- do 2 eexists. split.
+           { destruct Hlayout as (_&H'&_). apply H'. eauto. }
+           split.
+           { econstructor. instantiate (1 := fun _ => _). simpl. eassumption. }
+           constructor.
+           ++ destruct Hsane as (HmfNone&_&_&_&_&Hcnt&Hinp_sane).
+              move Hcnt at bottom. move Hinp_sane at bottom.
+              specialize (Hcnt n source_rel). specialize (Hinp_sane source_rel).
+              simpl. cbv [expect_num_R_facts] in Hp1p0. destruct (is_input source_rel).
+              --- eexists. split; [eauto|]. fwd. erewrite map_ext in Hcntp2.
+                  2: { intros. apply Hinp_sanep0. }
+                  rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
+                  move Hinp at bottom. destruct Hinp as (_&Hinp). epose_dep Hinp.
+                  specialize' Hinp.
+                  { apply HmfNone. eauto. }
+                  destruct Hinp as (_&Hinp). fwd.
+                  eapply Existsn_unique in Hinpp1; [|exact Hcntp1]. subst.
+                  assert (num' = (g.(node_states) n).(msgs_received) source_rel) by lia.
+                  subst. assumption.
+              --- move Hp1p0 at bottom. fwd. intros n'.
+                  apply Forall2_forget_r in Hp1p0p0. move Hall_nodes at bottom.
+                  destruct Hall_nodes as (H'&_). rewrite Forall_forall in Hp1p0p0.
+                  specialize (Hp1p0p0 n'). specialize' Hp1p0p0.
+                  { apply H'. constructor. }
+                  fwd. eauto.
+           ++ destruct Hp1p1p0 as (H'&_). apply Forall_map. apply Forall_forall.
+              intros f Hf. apply H' in Hf. simpl. eauto.
         -- contradiction.
       + destruct (is_input mf_rel).
         -- fwd. apply only_one_fact_learned in Hfp0. destruct Hfp0; eauto. subst.
            simpl in H. fwd. congruence.
         -- admit.
-  Admitted.  
+  Admitted.
 End DistributedDatalog.
