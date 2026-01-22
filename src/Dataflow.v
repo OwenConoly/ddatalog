@@ -1793,7 +1793,7 @@ Section DistributedDatalog.
         simpl. intros R' S' H' x0. fwd.
         intros. symmetry. apply H'p2.
       + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
-        specialize (Hhyps1 _ Hx). Search incl known_facts.
+        specialize (Hhyps1 _ Hx).
         eapply steps_preserves_known_facts. 2: eassumption.
         eauto using Relations.trc_trans.
     - destruct Hgood as (_&_&Hgood&_).
@@ -2152,6 +2152,48 @@ Section DistributedDatalog.
             prog_impl_implication p (fact_in_inputs inputs') (normal_fact R args) <->
               knows_fact g (normal_dfact R args)).
 
+  Definition consistent g f :=
+    match f with
+    | normal_fact _ _ => True
+    | meta_fact R S' =>
+        forall args,
+          knows_fact g (normal_dfact R args) <-> S' args
+    end.
+
+  Lemma expect_num_R_facts_knows_everything g n R args :
+    sane_graph g ->
+    good_inputs g.(input_facts) ->
+    expect_num_R_facts R (g.(node_states) n).(known_facts)
+                                               ((g.(node_states) n).(msgs_received) R) ->
+    knows_fact g (normal_dfact R args) ->
+    In (normal_dfact R args) (g.(node_states) n).(known_facts).
+  Proof.
+    intros Hsane Hinp HR Hargs.
+    pose proof expect_num_R_facts_no_travellers as H'.
+    epose_dep H'. specialize (H' ltac:(eassumption) ltac:(eassumption) ltac:(eassumption)).
+    destruct Hsane as (_&_&_&_&Heverywhere&_).
+    specialize (Heverywhere _ ltac:(eassumption)).
+    edestruct Heverywhere; [|eassumption].
+    exfalso. eauto.
+  Qed.
+
+  Lemma no_learning_inputs g n R args :
+    can_learn_normal_fact_at_node (rules n) (node_states g n) R args ->
+    is_input R = false.
+  Proof.
+    intros H. cbv [can_learn_normal_fact_at_node] in H. fwd.
+    cbv [good_rules] in rules_good. specialize (rules_good n).
+    rewrite Forall_forall in rules_good.
+    specialize (rules_good _ ltac:(eassumption)).
+    destruct r; fwd; simpl in rules_good.
+    - apply Exists_exists in Hp1p0. fwd. invert Hp1p0p1.
+      apply Lists.List.Forall_map in rules_good.
+      rewrite Forall_forall in rules_good.
+      apply rules_good. assumption.
+    - assumption.
+    - contradiction.
+  Qed.
+        
   Lemma good_layout_sound'' g g' R f :
     good_inputs g.(input_facts) ->
     sane_graph g ->
@@ -2161,18 +2203,24 @@ Section DistributedDatalog.
     comp_step g g' ->
     rel_of f = R ->
     knows_datalog_fact g' f ->
-    knows_datalog_fact g f \/
+    consistent g' f ->
+    knows_datalog_fact g f /\ consistent g f \/
       exists r hyps,
-        In r p /\ rule_impl r f hyps /\ Forall (knows_datalog_fact g) hyps.
+        In r p /\ rule_impl r f hyps /\ Forall (knows_datalog_fact g) hyps /\ Forall (consistent g) hyps.
   Proof.
-    intros Hinp Hsane Hmf Hmfs Hrels Hstep HR Hf. subst. invert Hstep.
+    intros Hinp Hsane Hmf Hmfs Hrels Hstep HR Hf1 Hf2. subst.
+    pose proof Hstep as Hstep'.
+    invert Hstep.
     - left. destruct f; simpl in *.
       + eauto using nothing_new_received.
       + destruct (is_input mf_rel).
-        -- fwd. eauto using nothing_new_received.
-        -- intros n'. specialize (Hf n'). fwd. eauto using nothing_new_received.
+        -- fwd. split; [eauto using nothing_new_received|].
+           intros. rewrite <- Hf2. split; eauto using nothing_new_received.
+        -- split.
+           ++ intros n'. specialize (Hf1 n'). fwd. eauto using nothing_new_received.
+           ++ intros. rewrite <- Hf2. split; eauto using nothing_new_received.
     - destruct f; simpl in *.
-      + apply only_one_fact_learned in Hf. destruct Hf; eauto. subst.
+      + apply only_one_fact_learned in Hf1. destruct Hf1; eauto. subst.
         simpl in H. destruct H as (_&H). right.
         (*maybe should proe some lemma about can_learn_normal_fact_at_node..*)
         cbv [can_learn_normal_fact_at_node] in H. fwd. destruct r; fwd.
@@ -2183,29 +2231,55 @@ Section DistributedDatalog.
            { econstructor.
              - apply Exists_exists. eauto.
              - eassumption. }
-           apply Forall_map. apply Forall_forall. intros [R' args'] H'.
-           simpl. eauto.
+           split.
+           ++ apply Forall_map. apply Forall_forall. intros [R' args'] H'.
+              simpl. eauto.
+           ++ apply Forall_map. apply Forall_forall. intros [R' args'] H'.
+              simpl. eauto.
         -- do 2 eexists. split.
            { destruct Hlayout as (_&H'&_). apply H'. eauto. }
            split.
            { econstructor. instantiate (1 := fun _ => _). simpl. eassumption. }
-           constructor.
-           ++ eapply something_about_expect_num_R_facts; eassumption.
-           ++ destruct Hp1p1p0 as (H'&_). apply Forall_map. apply Forall_forall.
-              intros f Hf. apply H' in Hf. simpl. eauto.
+           split.
+           ++ constructor.
+              --- eapply something_about_expect_num_R_facts; eassumption.
+              --- destruct Hp1p1p0 as (H'&_). apply Forall_map. apply Forall_forall.
+                  intros f Hf. apply H' in Hf. simpl. eauto.
+           ++ constructor.
+              --- simpl. intros. split; eauto. intros Hargs.
+                  apply expect_num_R_facts_knows_everything; assumption.
+              --- apply Forall_map. simpl. apply Forall_forall. auto.
         -- contradiction.
-      + destruct (is_input mf_rel).
-        -- fwd. apply only_one_fact_learned in Hfp0. destruct Hfp0; eauto. subst.
-           simpl in H. fwd. congruence.
+      + destruct (is_input mf_rel) eqn:E.
+        -- fwd. apply only_one_fact_learned in Hf1p0. destruct Hf1p0.
+           { left. split; eauto. intros. rewrite <- Hf2. split; eauto.
+             intros [Hargs|Hargs]; eauto. simpl in Hargs. fwd.
+             destr (node_eqb n n0); eauto. Search learn_fact_at_node.
+             apply learn_fact_at_node_impl in Hargs.
+             destruct Hargs as [Hargs|Hargs]; eauto.
+             subst. simpl in H. destruct H as [_ H].
+             apply no_learning_inputs in H. congruence. }
+           subst. simpl in H. fwd. congruence.
         -- pose proof list_em as H'.
            specialize (H' _ all_nodes). epose_dep H'. specialize' H'.
-           { apply Forall_forall. intros n' _. specialize (Hf n').
-             fwd. apply only_one_fact_learned in Hf. destruct Hf as [Hf|Hf].
-             - left. instantiate (1 := fun _ => exists num, _). exists num. exact Hf.
-             - right. instantiate (1 := fun _ => exists num, _). exists num. exact Hf. }
-           clear Hf. destruct H' as [H'|H'].
-           ++ left. intros n'. rewrite Forall_forall in H'. apply H'.
-              destruct Hall_nodes as (Han&_). apply Han. constructor.
+           { apply Forall_forall. intros n' _. specialize (Hf1 n').
+             fwd. apply only_one_fact_learned in Hf1. destruct Hf1 as [Hf1|Hf1].
+             - left. instantiate (1 := fun _ => exists num, _). exists num. exact Hf1.
+             - right. instantiate (1 := fun _ => exists num, _). exists num. exact Hf1. }
+           clear Hf1. destruct H' as [H'|H'].
+           ++ left. split.
+              --- intros n'. rewrite Forall_forall in H'. apply H'.
+                  destruct Hall_nodes as (Han&_). apply Han. constructor.
+              --- intros. rewrite <- Hf2. split; eauto.
+                  intros [Hargs|Hargs]; eauto. simpl in Hargs. fwd.
+                  destr (node_eqb n n0); eauto.
+                  apply learn_fact_at_node_impl in Hargs.
+                  destruct Hargs as [Hargs|Hargs]; eauto.
+                  subst. simpl in H. rewrite Forall_forall in H'.
+                  specialize (H' n0). specialize' H'.
+                  { destruct Hall_nodes as [Hn0 _]. apply Hn0. constructor. }
+                  fwd. exfalso. eapply Hp0. destruct Hsane as (_&HmfSome&_).
+                  apply HmfSome. eassumption.
            ++ right. apply Exists_exists in H'. fwd.
               clear H'p0. simpl in H. fwd.
               cbv [can_learn_meta_fact_at_node] in Hp1. fwd.
@@ -2214,11 +2288,16 @@ Section DistributedDatalog.
               { eapply meta_rule_impl with (source_sets := map (fun R args => knows_fact g (normal_dfact R args)) source_rels).
                 { rewrite length_map. reflexivity. }
                 cbv [meta_facts_semantically_correct] in Hmfs.
-                admit. }
-              apply Forall_zip. eapply Forall2_impl_strong.
-              2: { apply Forall2_true. rewrite length_map. reflexivity. }
-              intros R S _ HR _.
-              eapply something_about_expect_num_R_facts; try eassumption. auto.
+                move Hgmr at bottom. cbv [good_meta_rules] in Hgmr.
+                intros args. admit. }
+              split.
+              --- apply Forall_zip. eapply Forall2_impl_strong.
+                  2: { apply Forall2_true. rewrite length_map. reflexivity. }
+                  intros R S _ HR _.
+                  eapply something_about_expect_num_R_facts; try eassumption. auto.
+              --- apply Forall_zip. apply Forall2_map_r. apply Forall2_same.
+                  apply Forall_forall. intros R HR. apply Hp1p1p1 in HR.
+                  simpl. intros. split; auto.
   Admitted.
 
   syntax error
