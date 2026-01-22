@@ -259,22 +259,7 @@ Section DistributedDatalog.
     Existsn _ n l ->
     Existsn _ (S n) (x :: l).
 
-  (* Definition facts_of (inputs : list dfact) := *)
-  (*   fun f => *)
-  (*     match f with *)
-  (*     | normal_fact R args => In (normal_dfact R args) inputs *)
-  (*     | meta_fact R Rset => *)
-  (*         exists n, *)
-  (*         In (meta_dfact R None n) inputs /\ *)
-  (*           (forall args, Rset args <-> In (normal_dfact R args) inputs) /\ *)
-  (*           Existsn (fun f => match f with *)
-  (*                          | normal_dfact R' _ => R = R' *)
-  (*                          | meta_dfact _ _ _ => False *)
-  (*                          end) *)
-  (*             n inputs *)
-  (*     end. *)
-
-  (*this definition is kind of unsatisfying*)
+  (*this definition is kind of ugly*)
   Definition good_inputs (inputs : list dfact) :=
     Forall (fun f => is_input_fact f = true) inputs /\
       (forall R num,
@@ -2118,7 +2103,45 @@ Section DistributedDatalog.
     - fwd. destr (node_eqb n n0); eauto.
       apply learn_fact_at_node_impl in Hf. destruct Hf; eauto.
   Qed.
-    
+
+  Lemma list_em U (l : list U) P Q :
+    Forall (fun x => P x \/ Q x) l ->
+    Forall P l \/ Exists Q l.
+  Proof.
+    induction 1; auto.
+    do 2 match goal with | H: _ \/ _ |- _ => destruct H end; auto.
+  Qed.
+
+  Lemma something_about_expect_num_R_facts R S g n :
+    sane_graph g ->
+    good_inputs g.(input_facts) ->
+    expect_num_R_facts R (g.(node_states) n).(known_facts)
+      ((g.(node_states) n).(msgs_received) R) ->
+    knows_datalog_fact g (meta_fact R S).
+  Proof.
+    intros Hsane Hinp H.
+    destruct Hsane as (HmfNone&_&_&_&_&Hcnt&Hinp_sane).
+    move Hcnt at bottom. move Hinp_sane at bottom.
+    specialize (Hcnt n R). specialize (Hinp_sane R).
+    simpl. cbv [expect_num_R_facts] in H. destruct (is_input R).
+    --- eexists. split; [eauto|]. fwd. erewrite map_ext in Hcntp2.
+        2: { intros. apply Hinp_sanep0. }
+        rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
+        move Hinp at bottom. destruct Hinp as (_&Hinp). epose_dep Hinp.
+        specialize' Hinp.
+        { apply HmfNone. eauto. }
+        destruct Hinp as (_&Hinp). fwd.
+        eapply Existsn_unique in Hinpp1; [|exact Hcntp1]. subst.
+        assert (num' = (g.(node_states) n).(msgs_received) R) by lia.
+        subst. assumption.
+    --- move H at bottom. fwd. intros n'.
+        apply Forall2_forget_r in Hp0. move Hall_nodes at bottom.
+        destruct Hall_nodes as (H'&_). rewrite Forall_forall in Hp0.
+        specialize (Hp0 n'). specialize' Hp0.
+        { apply H'. constructor. }
+        fwd. eauto.
+  Qed.
+
   Lemma good_layout_sound'' g g' R f :
     good_inputs g.(input_facts) ->
     sane_graph g ->
@@ -2156,32 +2179,35 @@ Section DistributedDatalog.
            split.
            { econstructor. instantiate (1 := fun _ => _). simpl. eassumption. }
            constructor.
-           ++ destruct Hsane as (HmfNone&_&_&_&_&Hcnt&Hinp_sane).
-              move Hcnt at bottom. move Hinp_sane at bottom.
-              specialize (Hcnt n source_rel). specialize (Hinp_sane source_rel).
-              simpl. cbv [expect_num_R_facts] in Hp1p0. destruct (is_input source_rel).
-              --- eexists. split; [eauto|]. fwd. erewrite map_ext in Hcntp2.
-                  2: { intros. apply Hinp_sanep0. }
-                  rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
-                  move Hinp at bottom. destruct Hinp as (_&Hinp). epose_dep Hinp.
-                  specialize' Hinp.
-                  { apply HmfNone. eauto. }
-                  destruct Hinp as (_&Hinp). fwd.
-                  eapply Existsn_unique in Hinpp1; [|exact Hcntp1]. subst.
-                  assert (num' = (g.(node_states) n).(msgs_received) source_rel) by lia.
-                  subst. assumption.
-              --- move Hp1p0 at bottom. fwd. intros n'.
-                  apply Forall2_forget_r in Hp1p0p0. move Hall_nodes at bottom.
-                  destruct Hall_nodes as (H'&_). rewrite Forall_forall in Hp1p0p0.
-                  specialize (Hp1p0p0 n'). specialize' Hp1p0p0.
-                  { apply H'. constructor. }
-                  fwd. eauto.
+           ++ eapply something_about_expect_num_R_facts; eassumption.
            ++ destruct Hp1p1p0 as (H'&_). apply Forall_map. apply Forall_forall.
               intros f Hf. apply H' in Hf. simpl. eauto.
         -- contradiction.
       + destruct (is_input mf_rel).
         -- fwd. apply only_one_fact_learned in Hfp0. destruct Hfp0; eauto. subst.
            simpl in H. fwd. congruence.
-        -- admit.
+        -- pose proof list_em as H'.
+           specialize (H' _ all_nodes). epose_dep H'. specialize' H'.
+           { apply Forall_forall. intros n' _. specialize (Hf n').
+             fwd. apply only_one_fact_learned in Hf. destruct Hf as [Hf|Hf].
+             - left. instantiate (1 := fun _ => exists num, _). exists num. exact Hf.
+             - right. instantiate (1 := fun _ => exists num, _). exists num. exact Hf. }
+           clear Hf. destruct H' as [H'|H'].
+           ++ left. intros n'. rewrite Forall_forall in H'. apply H'.
+              destruct Hall_nodes as (Han&_). apply Han. constructor.
+           ++ right. apply Exists_exists in H'. fwd.
+              clear H'p0. simpl in H. fwd.
+              cbv [can_learn_meta_fact_at_node] in Hp1. fwd.
+              destruct Hlayout as (_&_&_&Hl). specialize (Hl _ _ _ ltac:(eassumption)).
+              fwd. do 2 eexists. split; [eassumption|]. split.
+              { eapply meta_rule_impl with (source_sets := map (fun R args => knows_fact g (normal_dfact R args)) source_rels).
+                { rewrite length_map. reflexivity. }
+                admit. }
+              apply Forall_zip. eapply Forall2_impl_strong.
+              2: { apply Forall2_true. rewrite length_map. reflexivity. }
+              intros R S _ HR _.
+              eapply something_about_expect_num_R_facts; try eassumption. auto.
   Admitted.
+
+  syntax error
 End DistributedDatalog.
