@@ -1654,7 +1654,7 @@ Section DistributedDatalog.
     (*                                       end))). *)
   Admitted.
 
-    Lemma receive_fact_at_node_impl ns f f0 :
+  Lemma receive_fact_at_node_impl ns f f0 :
     In f0 (receive_fact_at_node ns f).(known_facts) ->
     In f0 ns.(known_facts) \/ f0 = f.
   Proof.
@@ -2228,16 +2228,6 @@ Section DistributedDatalog.
         fwd. eauto.
   Qed.
 
-  Definition meta_facts_semantically_correct g :=
-    forall R S,
-      knows_datalog_fact g (meta_fact R S) ->
-      forall inputs',
-        good_inputs inputs' ->
-        (forall f, fact_in_inputs g.(input_facts) f -> fact_in_inputs inputs' f) ->
-        (forall args,
-            prog_impl_implication p (fact_in_inputs inputs') (normal_fact R args) <->
-              knows_fact g (normal_dfact R args)).
-
   Lemma expect_num_R_facts_knows_everything g n R args :
     sane_graph g ->
     good_inputs g.(input_facts) ->
@@ -2264,22 +2254,19 @@ Section DistributedDatalog.
     constructor; auto. intros. rewrite <- H1. auto.
   Qed.
 
-  Lemma good_layout_sound'' g g' R f :
+  Lemma good_layout_sound'' g g' f :
     good_inputs g.(input_facts) ->
     sane_graph g ->
-    meta_facts_correct rules g ->
-    meta_facts_semantically_correct g ->
     (forall f',
         knows_datalog_fact g f' /\ consistent g f' ->
         prog_impl_implication p (fact_in_inputs g.(input_facts)) f') ->
-    graph_complete_for g' R ->
+    graph_complete_for g' (rel_of f) ->
     comp_step g g' ->
-    rel_of f = R ->
     knows_datalog_fact g' f ->
     consistent g' f ->
     prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
   Proof.
-    intros Hinp Hsane Hmf Hmfs Hsound Hrels Hstep HR Hf1 Hf2. subst.
+    intros Hinp Hsane Hsound Hrel Hstep Hf1 Hf2.
     pose proof Hstep as Hstep'.
     invert Hstep.
     - apply Hsound. destruct f; simpl in *.
@@ -2359,7 +2346,6 @@ Section DistributedDatalog.
                   2: { eapply meta_rule_impl with (source_sets := map (fun R args => knows_fact g (normal_dfact R args)) source_rels).
                      { rewrite length_map. reflexivity. }
                      intros. reflexivity. }
-                  cbv [meta_facts_semantically_correct] in Hmfs.
                   move Hgmr at bottom. cbv [good_meta_rules] in Hgmr.
                   intros args. rewrite <- Hgmr with (S := target_set _).
                   3: { eapply prog_impl_step.
@@ -2373,7 +2359,7 @@ Section DistributedDatalog.
                   2: { simpl. intros R' S' H'' x0. fwd.
                        intros. symmetry. apply H''p2. }
                   rewrite <- Hf2. split; intros Hargs.
-                  +++ apply Hrels in Hargs; [|reflexivity]. fwd.
+                  +++ apply Hrel in Hargs; [|reflexivity]. fwd.
                       eapply knows_meta_fact_steps_learns_nothing; eauto.
                       { eauto using step_preserves_sanity. }
                       simpl. rewrite E. assumption.
@@ -2387,4 +2373,5 @@ Section DistributedDatalog.
                   +++ simpl. intros. reflexivity.
                       Unshelve. exact (fun _ => True). (*where did this come from*)
   Qed.
+  syntax error
 End DistributedDatalog.
