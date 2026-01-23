@@ -2234,7 +2234,7 @@ Section DistributedDatalog.
   Proof.
     intros H1 H2. invert H2.
     constructor; auto. intros. rewrite <- H1. auto.
-  Qed.    
+  Qed.
 
   Lemma good_layout_sound'' g g' R f :
     good_inputs g.(input_facts) ->
@@ -2244,15 +2244,14 @@ Section DistributedDatalog.
     (forall f',
         knows_datalog_fact g f' /\ consistent g f' ->
         prog_impl_implication p (fact_in_inputs g.(input_facts)) f') ->
-    (forall R', rel_edge R' R -> graph_complete_for g R') ->
-    graph_complete_for g R ->
+    graph_complete_for g' R ->
     comp_step g g' ->
     rel_of f = R ->
     knows_datalog_fact g' f ->
     consistent g' f ->
     prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
   Proof.
-    intros Hinp Hsane Hmf Hmfs Hsound Hrels1 Hrels2 Hstep HR Hf1 Hf2. subst.
+    intros Hinp Hsane Hmf Hmfs Hsound Hrels Hstep HR Hf1 Hf2. subst.
     pose proof Hstep as Hstep'.
     invert Hstep.
     - apply Hsound. destruct f; simpl in *.
@@ -2332,40 +2331,32 @@ Section DistributedDatalog.
                   2: { eapply meta_rule_impl with (source_sets := map (fun R args => knows_fact g (normal_dfact R args)) source_rels).
                      { rewrite length_map. reflexivity. }
                      intros. reflexivity. }
-                cbv [meta_facts_semantically_correct] in Hmfs.
-                move Hgmr at bottom. cbv [good_meta_rules] in Hgmr.
-                intros args. rewrite <- Hgmr with (S := target_set _).
-                3: { eapply prog_impl_step.
-                     { apply Exists_exists. eexists.
-                       split; [eassumption|]. eassumption. }
-                     apply Forall_zip. apply Forall2_map_r. apply Forall2_same.
-                     apply Forall_forall. intros R' HR'.
-                     apply Hsound. split.
-                     { eapply something_about_expect_num_R_facts; eauto. }
-                     simpl. reflexivity. }
-                2: { simpl. intros R' S' H'' x0. fwd.
-                     intros. symmetry. apply H''p2. }
-                rewrite <- Hf2. split; intros Hargs.
-                  +++ apply Hrels2 in Hargs; [|reflexivity]. fwd.
-                      eenough (knows_fact g _).
-                      { eapply step_preserves_facts; eassumption. }
+                  cbv [meta_facts_semantically_correct] in Hmfs.
+                  move Hgmr at bottom. cbv [good_meta_rules] in Hgmr.
+                  intros args. rewrite <- Hgmr with (S := target_set _).
+                  3: { eapply prog_impl_step.
+                       { apply Exists_exists. eexists.
+                         split; [eassumption|]. eassumption. }
+                       apply Forall_zip. apply Forall2_map_r. apply Forall2_same.
+                       apply Forall_forall. intros R' HR'.
+                       apply Hsound. split.
+                       { eapply something_about_expect_num_R_facts; eauto. }
+                       simpl. reflexivity. }
+                  2: { simpl. intros R' S' H'' x0. fwd.
+                       intros. symmetry. apply H''p2. }
+                  rewrite <- Hf2. split; intros Hargs.
+                  +++ apply Hrels in Hargs; [|reflexivity]. fwd.
                       eapply knows_meta_fact_steps_learns_nothing; eauto.
-                      simpl. rewrite E. 
-                      
-                      
-                rewrite <- Hmfs.
-                       simpl.
-                     eapply meta_rule_impl. constructor. move Hmfs at bottom. apply Hmfs.
-                intros args. admit. }
-              split.
-              --- apply Forall_zip. eapply Forall2_impl_strong.
-                  2: { apply Forall2_true. rewrite length_map. reflexivity. }
-                  intros R S _ HR _.
-                  eapply something_about_expect_num_R_facts; try eassumption. auto.
+                      { eauto using step_preserves_sanity. }
+                      simpl. rewrite E. assumption.
+                  +++ apply Hsound. simpl. split; [|constructor].
+                      apply only_one_fact_learned in Hargs.
+                      destruct Hargs; [assumption|congruence].
               --- apply Forall_zip. apply Forall2_map_r. apply Forall2_same.
-                  apply Forall_forall. intros R HR. apply Hp1p1p1 in HR.
-                  simpl. intros. split; auto.
-  Admitted.
-
-  syntax error
+                  apply Forall_forall. intros R HR.
+                  apply Hsound. split.
+                  +++ eapply something_about_expect_num_R_facts; try eassumption. auto.
+                  +++ simpl. intros. reflexivity.
+                      Unshelve. exact (fun _ => True). (*where did this come from*)
+  Qed.
 End DistributedDatalog.
