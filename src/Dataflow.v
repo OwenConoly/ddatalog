@@ -2269,6 +2269,29 @@ Section DistributedDatalog.
     rewrite <- Himpl. reflexivity.
   Qed.
 
+  Lemma correct_impl_consistent g f :
+    good_inputs g.(input_facts) ->
+    graph_correct_for g (rel_of f) ->
+    prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
+    knows_datalog_fact g f ->
+    consistent g f.
+  Proof.
+    intros Hinp Hsound Himpl Hf.
+    pose proof Hsound as Hsound'.
+    destruct f; simpl.
+    { constructor. }
+    epose proof (Hsound (meta_fact mf_rel _) ltac:(simpl; reflexivity)) as Hsound.
+    specialize' Hsound.
+    { split.
+      - simpl. exact Hf.
+      - simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
+    cbv [good_meta_rules] in Hgmr.
+    intros.
+    eapply hmfs_unique in Himpl. 3: exact Hsound.
+    2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
+    rewrite <- Himpl. reflexivity.
+  Qed.
+
   Lemma graph_correct_until_any_edge g R1 R2 :
     any_edge R1 R2 ->
     graph_correct_until g R2 ->
@@ -2343,14 +2366,26 @@ Section DistributedDatalog.
       { eauto using steps_preserves_sanity. }
       specialize' H'.
       { eauto using steps_preserves_meta_facts_correct. }
+      
+      assert ((fun P => (P \/ ~P)) (graph_correct_until g (rel_of x) /\ Forall (fun g0 => graph_correct_until g0 (rel_of x)) gs1)) as Hcor.
+      { apply Classical_Prop.classic. }
+      destruct Hcor as [Hcor|Hcor].
+      2: { do 2 eexists. split; [eassumption|]. intros. exfalso. auto. }
+      fwd.
+      specialize (Hg1 ltac:(assumption) ltac:(assumption)).
+      specialize (H' ltac:(assumption)).
       (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
       (*   apply IHR. apply t_step. cbv [rel_edge']. eauto. } *)
-      specialize (H' ltac:(assumption)).
+      assert (Hsmf_rel : graph_correct_until g1 (rel_of x)).
+      { apply trc'_end in Hstep1. destruct Hstep1; subst; auto.
+        rewrite Forall_forall in Hcorp1. auto. }
       specialize' H'.
       (*this next thing is terrible.  should be a nice way to state something equivalent as a lemma.*)
       { apply Forall_forall. intros f' Hf'. destruct f'; [constructor|].
-        assert (Hsmf_rel : graph_sound_for g mf_rel).
-        { eapply IHR. simpl. invert Hr2.
+        apply correct_impl_consistent.
+        - erewrite comp_steps_pres_inputs with (g := g) by eauto. assumption.
+        - apply Hsmf_rel.
+          simpl. invert Hr2.
           + exfalso. apply in_map_iff in Hf'. fwd. destruct x. congruence.
           + simpl. apply t_step. cbv [rel_edge']. eexists. split.
             -- cbv [rel_edge]. eexists. split; [eassumption|]. simpl.
@@ -2362,17 +2397,16 @@ Section DistributedDatalog.
             -- cbv [rel_edge]. eexists. split; [eassumption|]. simpl.
                cbv [zip] in Hf'. apply in_map_iff in Hf'. fwd.
                apply in_combine_l in Hf'p1. eauto.
-            -- auto. }
-        apply sound_impl_consistent.
-        - erewrite comp_steps_pres_inputs by eassumption. assumption.
-        - eapply graph_sound_for_preserved. 2: eassumption.
-          assumption.
+          -- auto.
         - rewrite Forall_forall in H0.
-          erewrite comp_steps_pres_inputs by eassumption.
+          erewrite comp_steps_pres_inputs with (g := g) by eauto.
           apply H0. assumption.
         - rewrite Forall_forall in Hg1. auto. }
       specialize (H' ltac:(assumption) ltac:(assumption) eq_refl).
-      destruct H' as (g2&Hstep2&Hg2). eauto using trc_trans.
+      destruct H' as (gs2&g2&Hstep2&Hg2). eexists. exists g2.
+      split; [eauto using trc'_trans|].
+      intros Hg Hgs. apply Forall_app in Hgs. fwd.
+      apply Hg2; auto.
   Qed.
 
   Lemma list_em U (l : list U) P Q :
