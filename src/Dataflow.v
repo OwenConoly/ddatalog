@@ -1865,7 +1865,29 @@ Section DistributedDatalog.
               fold_right (interp_agg a) (agg_id a) vals1 =
                 fold_right (interp_agg a) (agg_id a) vals2).
 
-  Axiom (blah: forall R1 R2, rel_edge R1 R2 -> R1 <> R2).
+  Lemma trc'_trc {X : Type} (R : X -> _) x l y :
+    trc' R x l y ->
+    trc R x y.
+  Proof. induction 1; eauto. Qed.
+  Hint Resolve trc'_trc : core.
+
+  Hint Constructors trc' : core.
+  Lemma trc_trc' {X : Type} (R : X -> _) x y :
+    trc R x y ->
+    exists l, trc' R x l y.
+  Proof. induction 1; fwd; eauto. Qed.
+  Hint Resolve trc_trc' : core.
+
+  Lemma trc'_trans {X : Type} (R : X -> _) x l1 y l2 z :
+    trc' R x l1 y ->
+    trc' R y l2 z ->
+    trc' R x (l1 ++ l2) z.
+  Proof. induction 1; simpl; eauto. Qed.
+
+  Lemma trc'_end {X : Type} (R : X -> _) x l y :
+    trc' R x l y ->
+    In y (x :: l).
+  Proof. induction 1; simpl; eauto. Qed.
   
   Lemma good_layout_complete'' r hyps g R f :
     good_inputs g.(input_facts) ->
@@ -1876,9 +1898,10 @@ Section DistributedDatalog.
     In r p ->
     rule_impl r f hyps ->
     rel_of f = R ->
-     exists g',
-       comp_step^* g g' /\
-         ((forall R', rel_edge R' R -> graph_correct_for g' R') ->
+     exists gs g',
+       trc' comp_step g gs g' /\
+         (graph_correct_until g R ->
+          Forall (fun g0 => graph_correct_until g0 R) gs ->
           knows_datalog_fact g' f).
   Proof.
     intros Hinp Hsane Hmf Hhyps1 Hhyps2 Hr Himpl Hf.
@@ -1899,18 +1922,20 @@ Section DistributedDatalog.
       eenough (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g1 n) R0 _).
       { pose proof (Classical_Prop.classic (exists num, In (meta_dfact R0 (Some n) num) (known_facts (node_states g1 n)))) as Hor.
         destruct Hor as [Hor|Hor].
-        { fwd. exists g1. split; [eassumption|]. simpl. cbv [knows_fact].
+        { apply trc_trc' in Hstep1. fwd. exists l, g1. split; [eassumption|].
+          simpl. cbv [knows_fact].
           eapply steps_preserves_meta_facts_correct in Hmf; cycle -1.
-          { exact Hstep1. }
+          { eapply trc'_trc. exact Hstep1. }
           all: try eassumption.
           cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
           specialize Hmf with (1 := Hor). destruct Hmf as (_&Hmf). eauto. }
-          eexists. split.
+        apply trc_trc' in Hstep1. fwd.
+        eexists. eexists. split.
           { (*first, step to a state where node n knows all the hypotheses;
               then, one final step where n deduces the conclusion*)
-            eapply Relations.trc_trans.
+            eapply trc'_trans.
             { exact Hstep1. }
-            eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+            eapply TrcFront'. 2: apply TrcRefl'.
             apply LearnFact with (n := n) (f := normal_dfact R0 args).
             simpl. split.
             { eauto. }
@@ -2001,33 +2026,45 @@ Section DistributedDatalog.
 
       epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
       destruct Hor as [Hor|Hor].
-      { fwd. exists g3. split; [eauto using Relations.trc_trans|]. simpl. cbv [knows_fact].
+      { apply trc_trc' in Hg1, Hg2, Hg3. fwd. eexists. exists g3.
+        split; [eauto using trc'_trans|]. simpl. cbv [knows_fact].
         eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf.
         all: try eassumption.
-        2: { eauto using Relations.trc_trans. }
+        2: { eauto using trc'_trans. }
         cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
         move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
-        intros Hcor. right. eexists. eapply Hmf. rewrite H' by assumption.
+        intros Hcor. right. eexists. eapply Hmf. rewrite H'.
+        2: { eassert (H'' : trc' _ g _ g3) by eauto using trc'_trans.
+             apply trc'_end in H''. destruct H'' as [H''|H''].
+             - subst. intros. apply Hcor. apply t_step. cbv [rel_edge']. eauto.
+             - rewrite Forall_forall in H0. intros. eapply H0. 1: assumption.
+               apply t_step. cbv [rel_edge']. eauto. }
         assumption. }
       eassert (Hlast_step: comp_step g3 _).
       { eapply LearnFact with (n := n) (f := normal_dfact _ _).
         simpl. split.
         { eauto. }
         eassumption. }
-      eexists. split.
+      apply trc_trc' in Hg1, Hg2, Hg3. fwd.
+      eexists. eexists. split.
       { (*first, step to a state where node n knows all the hypotheses;
             then, one final step where n deduces the conclusion*)
-        eapply Relations.trc_trans.
+        eapply trc'_trans.
         { exact Hg1. }
-        eapply Relations.trc_trans.
+        eapply trc'_trans.
         { exact Hg2. }
-        eapply Relations.trc_trans.
+        eapply trc'_trans.
         { exact Hg3. }
-        eapply TrcFront. 2: apply TrcRefl. eassumption. }
+        eapply TrcFront'. 2: apply TrcRefl'. eassumption. }
         simpl. cbv [knows_fact]. simpl. right. exists n.
         destr (node_eqb n n); try congruence.
         simpl. rewrite H'. 1: auto. intros.
-        admit.
+        eassert (H'': trc' _ g _ g3) by eauto using trc'_trans.
+        apply trc'_end in H''. destruct H'' as [H''|H''].
+      + subst. apply H0. apply t_step. cbv [rel_edge']. eauto.
+      + rewrite Forall_forall in H1. apply H1.
+        -- repeat rewrite in_app_iff in *. destruct H'' as [? | [? | ?] ]; auto.
+        -- apply t_step. cbv [rel_edge']. eauto.
     - destruct Hgood as (_&_&Hgood&_).
       specialize Hgood with (1 := Hr).
       cbv [knows_datalog_fact].
@@ -2037,14 +2074,15 @@ Section DistributedDatalog.
                    (forall n : Node,
                        In n (firstn len all_nodes) ->
                        exists num : nat, knows_fact g' (meta_dfact target_rel (Some n) num))) as H'.
-      { specialize (H' (length all_nodes)). rewrite firstn_all in H'. fwd.
-        eexists. split; eauto.
+      { specialize (H' (length all_nodes)). rewrite firstn_all in H'.
+        fwd. apply trc_trc' in H'p0. fwd.
+        eexists. eexists. split; eauto.
         destruct (is_input target_rel) eqn:E.
         { cbv [good_rules] in rules_good.
           specialize (Hgood a_node). specialize (rules_good a_node).
           rewrite Forall_forall in rules_good. apply rules_good in Hgood.
           simpl in Hgood. congruence. }
-        intros ? n. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
+        intros ? ? n. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
       intros len. induction len.
       { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
 
@@ -2128,7 +2166,7 @@ Section DistributedDatalog.
       destruct Hn' as [?|?]; [subst|contradiction].
       eexists. cbv [knows_fact]. simpl. right.
       exists n'. destr (node_eqb n' n'); [|congruence]. simpl. left. reflexivity.
-  Admitted.
+  Qed.
 
   Lemma fact_in_inputs_knows_datalog_fact g f :
     fact_in_inputs g.(input_facts) f ->
@@ -2230,24 +2268,6 @@ Section DistributedDatalog.
     2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
     rewrite <- Himpl. reflexivity.
   Qed.
-
-  Lemma trc'_trc {X : Type} (R : X -> _) x l y :
-    trc' R x l y ->
-    trc R x y.
-  Proof. induction 1; eauto. Qed.
-  Hint Resolve trc'_trc : core.
-
-  Hint Constructors trc' : core.
-  Lemma trc'_trans {X : Type} (R : X -> _) x l1 y l2 z :
-    trc' R x l1 y ->
-    trc' R y l2 z ->
-    trc' R x (l1 ++ l2) z.
-  Proof. induction 1; simpl; eauto. Qed.
-
-  Lemma trc'_end {X : Type} (R : X -> _) x l y :
-    trc' R x l y ->
-    In y (x :: l).
-  Proof. induction 1; simpl; eauto. Qed.
 
   Lemma graph_correct_until_any_edge g R1 R2 :
     any_edge R1 R2 ->
