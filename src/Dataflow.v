@@ -1575,15 +1575,23 @@ Section DistributedDatalog.
           knows_fact g (normal_dfact R args) <-> S' args
     end.
   
+  Definition graph_correct_for g R :=
+    (forall f',
+        rel_of f' = R ->
+        knows_datalog_fact g f' /\ consistent g f' ->
+        prog_impl_implication p (fact_in_inputs g.(input_facts)) f').
+  
   Definition graph_sound_for g R :=
     forall g',
       comp_step^* g g' ->
-      good_inputs g'.(input_facts) ->
-      forall f,
-        rel_of f = R ->
-        knows_datalog_fact g' f ->
-        consistent g' f ->
-        prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
+      graph_correct_for g' R.
+
+  Definition graph_relatively_sound_for g R :=
+    forall g' g'',
+      comp_step^* g g' ->      
+      comp_step g' g'' ->
+      (forall R0, graph_correct_for g' R0) ->
+      graph_correct_for g'' R.
 
   Definition graph_complete_for (g : graph_state) (R : rel) :=
     forall f,
@@ -1592,6 +1600,15 @@ Section DistributedDatalog.
       exists g',
         comp_step^* g g' /\
           knows_datalog_fact g' f.
+
+  Definition graph_relatively_complete_for g R :=
+    forall f,
+      rel_of f = R ->
+      prog_impl_implication p (fact_in_inputs (input_facts g)) f ->
+      exists g',
+        comp_step^* g g' /\
+          ((forall R0, graph_correct_for g' R0) ->
+           knows_datalog_fact g' f).
 
   Definition same_msgs_received g g' :=
     forall n,
@@ -1921,20 +1938,17 @@ Section DistributedDatalog.
           simpl. auto. }
         cbv [graph_sound_for] in Hrels. move Hrels at bottom.
         specialize (Hrels g3 ltac:(eauto using Relations.trc_trans)).
-        specialize' Hrels.
-        { repeat erewrite comp_steps_pres_inputs by eassumption. assumption. }
         pose proof Hrels as Hrels'.
         specialize (Hrels (normal_fact source_rel [x]) ltac:(reflexivity)).
         specialize' Hrels.
         { simpl. eauto. }
-        specialize' Hrels.
-        { simpl. constructor. }
+        cbv [graph_correct_for] in Hrels'.
         specialize (Hrels' (meta_fact source_rel S) ltac:(reflexivity)).
         specialize' Hrels'.
-        { eapply comp_steps_preserves_datalog_facts.
-          1: eassumption. eauto using Relations.trc_trans. }
-        specialize' Hrels'.
-        { eapply consistent_preserved; try eassumption. eauto using trc_trans. }
+        { split.
+          - eapply comp_steps_preserves_datalog_facts.
+            1: eassumption. eauto using Relations.trc_trans.
+          - eapply consistent_preserved; try eassumption. eauto using trc_trans. }
         (*should follow from Hrels plus Hrels'*)
         move Hgmr at bottom.
         cbv [good_meta_rules] in Hgmr. rewrite <- Hgmr. 1,3: eassumption.
@@ -2095,8 +2109,7 @@ Section DistributedDatalog.
     graph_sound_for g' R.
   Proof.
     intros H Hstep. cbv [graph_sound_for]. intros.
-    erewrite comp_steps_pres_inputs by eassumption.
-    eapply H. 2,3,4,5: eassumption. eauto using trc_trans.
+    apply H. eauto using trc_trans.
   Qed.
 
   Lemma ct_crt (A : Type) R (x y : A) :
@@ -2148,12 +2161,14 @@ Section DistributedDatalog.
   Proof.
     intros Hinp Hsound Himpl Hf.
     pose proof Hsound as Hsound'.
-    specialize (Hsound g ltac:(eauto) ltac:(assumption)).
+    specialize (Hsound g ltac:(eauto)).
     destruct f; simpl.
     { constructor. }
     epose proof (Hsound (meta_fact mf_rel _) ltac:(simpl; reflexivity)) as Hsound.
-    specialize (Hsound ltac:(simpl; exact Hf)). specialize' Hsound.
-    { simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
+    specialize' Hsound.
+    { split.
+      - simpl. exact Hf.
+      - simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
     cbv [good_meta_rules] in Hgmr.
     intros.
     eapply hmfs_unique in Himpl. 3: exact Hsound.
@@ -2323,9 +2338,7 @@ Section DistributedDatalog.
     (*^note: we only use completeness for normal facts here
       could go like: soundness for smaller rels -> completeness for normal R fact -> soundness for meta R fact -> completeness for meta R fact...
       the only question is, what do i want "completeness" to mean for meta facts?
-      i think, as usual, it should not mean any unnecessary things.  so, not consistency.
-      
-     *)
+      i think, as usual, it should not mean any unnecessary things.  so, not consistency.*)
     comp_step g g' ->
     knows_datalog_fact g' f ->
     consistent g' f ->
@@ -2438,5 +2451,54 @@ Section DistributedDatalog.
                   +++ simpl. intros. reflexivity.
                       Unshelve. exact (fun _ => True). (*where did this come from*)
   Qed.
+
+  (*funny name*)
+  Lemma derelativize_soundness g :
+    (forall R, graph_correct_for g R) ->
+    (forall R, graph_relatively_sound_for g R) ->
+    forall R, graph_sound_for g R.
+  Proof.
+    intros Hinit Hrelative R. cbv [graph_sound_for].
+    intros g' Hsteps. induction Hsteps.
+    - apply Hinit.
+    - apply IHHsteps.
+      + intros R0. specialize (Hrelative R0).
+        cbv [graph_relatively_sound_for] in Hrelative.
+        eapply Hrelative. 3: eassumption. all: auto.
+      + intros R0. cbv [graph_relatively_sound_for]. intros.
+        eapply Hrelative. 2: exact H1. all: eauto.
+  Qed.
+
+  Lemma derelativize_completeness g :
+    (forall R, graph_sound_for g R) ->
+    (forall R, graph_relatively_complete_for g R) ->
+    forall R, graph_complete_for g R.
+  Proof.
+    intros Hs Hc R. cbv [graph_complete_for].
+    intros f ? Hf. subst.
+    cbv [graph_relatively_complete_for] in Hc.
+    specialize (Hc _ _ eq_refl Hf).
+    fwd. eexists. split; [eassumption|]. apply Hcp1.
+    intros. apply Hs. assumption.
+  Qed.
+  
+  Lemma good_layout_sound' g R :
+    well_founded rel_edge'^+ ->
+    good_inputs g.(input_facts) ->
+    sane_graph g ->
+    meta_facts_correct rules g ->
+    graph_relatively_sound_for g R /\ graph_relatively_complete_for g R.
+  Proof.
+    intros Hwf Hinp Hsane Hmfs. specialize (Hwf R). induction Hwf.
+    assert (Hc : graph_relatively_complete_for g x).
+    { eapply good_layout_complete'; try assumption.
+      intros R' HR'. apply H1 in HR'. fwd. assumption. }
+    split; [|assumption].
+    cbv [graph_sound_for].
+      - assumption.
+      - 
+    
+
+  Lemma 
   syntax error
 End DistributedDatalog.
