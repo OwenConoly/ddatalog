@@ -1585,11 +1585,6 @@ Section DistributedDatalog.
         (knows_datalog_fact g f' /\ consistent g f') ->
         prog_impl_implication p (fact_in_inputs g.(input_facts)) f').
   
-  Definition graph_correct_for_normal_facts g R :=
-    (forall args,
-        knows_fact g (normal_dfact R args) ->
-        prog_impl_implication p (fact_in_inputs g.(input_facts)) (normal_fact R args)).
-  
   Definition graph_sound_for g R :=
     forall g',
       comp_step^* g g' ->
@@ -1624,6 +1619,8 @@ Section DistributedDatalog.
 
   Definition rel_edge' R1 R2 :=
     exists R3, rel_edge R1 R3 /\ any_edge^* R3 R2.
+
+  Print trc.
 
   Inductive trc' {A : Type} (R : A -> A -> Prop) : A -> list A -> A -> Prop :=
   | TrcRefl' x : trc' _ x [] x
@@ -2465,7 +2462,7 @@ Section DistributedDatalog.
     specialize (Heverywhere _ ltac:(eassumption)).
     edestruct Heverywhere; [|eassumption].
     exfalso. eauto.
-  Qed.
+  Qed. Search knows_datalog_fact meta_fact.
 
   Lemma meta_fact_ext (r : rule) R S S' hyps :
     (forall x, S x <-> S' x) ->
@@ -2476,7 +2473,7 @@ Section DistributedDatalog.
     constructor; auto. intros. rewrite <- H1. auto.
   Qed.
 
-  Lemma good_layout_sound_normal_facts g g' R :
+  Lemma good_layout_sound'' g g' R :
     good_inputs g.(input_facts) ->
     sane_graph g ->
     (forall f',
@@ -2488,22 +2485,22 @@ Section DistributedDatalog.
       the only question is, what do i want "completeness" to mean for meta facts?
       i think, as usual, it should not mean any unnecessary things.  so, not consistency.*)
     comp_step g g' ->
-    graph_correct_for_normal_facts g' R.
+    graph_correct_for g' R.
   Proof.
-    intros Hinp Hsane Hsound Hrel Hstep args Hf.
+    intros Hinp Hsane Hsound Hrel Hstep f ? (Hf1&Hf2). subst.
     pose proof Hstep as Hstep'.
     invert Hstep.
-    - apply Hsound. split; [|constructor]. simpl.
-      eapply nothing_new_received; eassumption.
-      (* + eapply nothing_new_received; eassumption. destruct (is_input mf_rel). *)
-      (*   -- eapply nothing_new_received; eassumption. intros. rewrite <- Hf2. split; eauto using nothing_new_received. *)
-      (*   -- split. *)
-      (*      ++ intros n'. specialize (Hf1 n'). fwd. eauto using nothing_new_received. *)
-      (*      ++ intros. rewrite <- Hf2. split; eauto using nothing_new_received. *)
-    - destruct f; simpl.
-      + apply only_one_fact_learned in Hf. destruct Hf as [Hf|Hf].
-        { eapply Hsound. simpl. eauto. }
-        invert Hf. simpl in H. destruct H as (_&H).
+    - apply Hsound. destruct f; simpl in *.
+      + eauto using nothing_new_received.
+      + destruct (is_input mf_rel).
+        -- fwd. split; [eauto using nothing_new_received|].
+           intros. rewrite <- Hf2. split; eauto using nothing_new_received.
+        -- split.
+           ++ intros n'. specialize (Hf1 n'). fwd. eauto using nothing_new_received.
+           ++ intros. rewrite <- Hf2. split; eauto using nothing_new_received.
+    - destruct f; simpl in *.
+      + apply only_one_fact_learned in Hf1. destruct Hf1; eauto. subst.
+        simpl in H. destruct H as (_&H).
         (*maybe should proe some lemma about can_learn_normal_fact_at_node..*)
         cbv [can_learn_normal_fact_at_node] in H. fwd. destruct r; fwd.
         -- apply Exists_exists in Hp1p0. destruct Hp1p0 as (r&Hr1&Hr2).
@@ -2528,33 +2525,7 @@ Section DistributedDatalog.
                   destruct Hp1p1p0 as (H'&_). apply H' in Hx.
                   apply Hsound. simpl. eauto.
         -- contradiction.
-      + apply Hsound. split; [|constructor]. simpl.
-        apply only_one_fact_learned in Hf. destruct Hf; [eassumption|congruence].
-  Qed.
-
-  Print graph_correct_for_normal_facts.
-  Print graph_relatively_complete_for.
-  
-  Lemma good_layout_sound_normal_facts g g' R :
-    good_inputs g.(input_facts) ->
-    sane_graph g ->
-    (forall f',
-        knows_datalog_fact g f' /\ consistent g f' ->
-        prog_impl_implication p (fact_in_inputs g.(input_facts)) f') ->
-    graph_relatively_complete_for g' R ->
-    (*^note: we only use completeness for normal facts here
-      could go like: soundness for smaller rels -> completeness for normal R fact -> soundness for meta R fact -> completeness for meta R fact...
-      the only question is, what do i want "completeness" to mean for meta facts?
-      i think, as usual, it should not mean any unnecessary things.  so, not consistency.*)
-    comp_step g g' ->
-    graph_correct_for_normal_facts g' R.
-  Proof.
-
-  
-        { eapply Hsound. simpl. eauto.
-        eapply ; try eassumption.
-
-        destruct (is_input mf_rel) eqn:E.
+      + destruct (is_input mf_rel) eqn:E.
         -- apply Hsound. simpl. rewrite E.
            fwd. apply only_one_fact_learned in Hf1p0. destruct Hf1p0.
            { simpl. split; eauto. intros. rewrite <- Hf2. split; eauto.
