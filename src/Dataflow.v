@@ -4,6 +4,8 @@ From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tact
 From Stdlib Require Import Lia.
 From ATL Require Import Relations. (*TODO i did not actually mean to use trc from here; should i use the stdlib thing instead?*)
 From Datalog Require Import List.
+From Stdlib Require Import Relations.Relation_Operators.
+
 
 Import ListNotations.
 
@@ -1603,13 +1605,28 @@ Section DistributedDatalog.
         comp_step^* g g' /\
           knows_datalog_fact g' f.
 
+  Notation "R ^+" := (clos_trans _ R) (format "R '^+'").
+
+  Definition is_edge (r : rule) R1 R2 :=
+    match r with
+    | normal_rule concls hyps => In R2 (map fact_R concls) /\ In R1 (map fact_R hyps)
+    | agg_rule _ target_rel source_rel => R2 = target_rel /\ R1 = source_rel
+    | meta_rule R _ Rs => R2 = R /\ In R1 Rs
+    end.
+  
+  Definition any_edge R1 R2 :=
+    exists r, In r p /\ is_edge r R1 R2.
+
+  Definition rel_edge' R1 R2 :=
+    exists R3, rel_edge R1 R3 /\ any_edge^* R3 R2.
+  
   Definition graph_relatively_complete_for g R :=
     forall f,
       rel_of f = R ->
       prog_impl_implication p (fact_in_inputs (input_facts g)) f ->
       exists g',
         comp_step^* g g' /\
-          ((forall R0, graph_correct_for g' R0) ->
+          ((forall R0, rel_edge'^+ R0 R -> graph_correct_for g' R0) ->
            knows_datalog_fact g' f).
 
   Definition same_msgs_received g g' :=
@@ -1805,8 +1822,6 @@ Section DistributedDatalog.
     - eauto using steps_preserves_facts.
   Qed.    
 
-  From Stdlib Require Import Relations.Relation_Operators.
-
   Definition set_of fs R :=
     dedup T_eqb (flat_map (fun f =>
                              match f with
@@ -1836,6 +1851,8 @@ Section DistributedDatalog.
               is_list_set S vals2 ->
               fold_right (interp_agg a) (agg_id a) vals1 =
                 fold_right (interp_agg a) (agg_id a) vals2).
+
+  Axiom (blah: forall R1 R2, rel_edge R1 R2 -> R1 <> R2).
   
   Lemma good_layout_complete'' r hyps g R f :
     good_inputs g.(input_facts) ->
@@ -1848,7 +1865,7 @@ Section DistributedDatalog.
     rel_of f = R ->
      exists g',
        comp_step^* g g' /\
-         ((forall R, graph_correct_for g' R) ->
+         ((forall R', rel_edge R' R -> graph_correct_for g' R') ->
           knows_datalog_fact g' f).
   Proof.
     intros Hinp Hsane Hmf Hhyps1 Hhyps2 Hr Himpl Hf.
@@ -1936,44 +1953,38 @@ Section DistributedDatalog.
         split; reflexivity. }
       (*   destruct H as (Hp1&Hp2). split. 2: exact Hp2. *)
 
-      assert (H': (forall R : rel, graph_correct_for g3 R) ->
+      assert (H': (forall R', rel_edge R' target_rel -> graph_correct_for g3 R') ->
                     fold_right (interp_agg rule_agg) (agg_id rule_agg) vals =
                       fold_right (interp_agg rule_agg) (agg_id rule_agg) (set_of (g3.(node_states) n).(known_facts) source_rel)).
       { intros Hcor. eapply aggregation_commutative. 2: apply set_of_spec.
         move H at bottom. cbv [is_list_set] in H. fwd. split; [|assumption].
         intros x. split; intros Hx.
         + cbv [graph_correct_for] in Hcor.
+          specialize (Hcor source_rel). specialize' Hcor.
+          { cbv [rel_edge]. cbv [good_layout] in Hgood'.
+          destruct Hgood' as (_&Hgood'&_). eexists. split.
+          { apply Hgood'. eauto. }
+          simpl. auto. }
           pose proof Hcor as Hcor'.
-        (*   apply Hp0. *)
-          
-        (*   specialize (Hrels source_rel). simpl in Hrels. specialize' Hrels. *)
-        (* { cbv [rel_edge]. cbv [good_layout] in Hgood'. *)
-        (*   destruct Hgood' as (_&Hgood'&_). eexists. split. *)
-        (*   { apply Hgood'. eauto. } *)
-        (*   simpl. auto. } *)
-        (* cbv [graph_sound_for] in Hrels. move Hrels at bottom. *)
-        (* specialize (Hrels g3 ltac:(eauto using Relations.trc_trans)). *)
-        (* pose proof Hrels as Hrels'. *)
-        specialize (Hcor _ (normal_fact source_rel [x]) ltac:(reflexivity)).
-        fwd.
-        specialize' Hcor.
-        { simpl. eauto. }
-        specialize (Hcor' _ (meta_fact source_rel S) ltac:(reflexivity)).
-        specialize' Hcor'.
-        { split.
-          - eapply comp_steps_preserves_datalog_facts.
-            1: eassumption. eauto using Relations.trc_trans.
-          - eapply consistent_preserved; try eassumption. eauto using trc_trans. }
-        (*should follow from Hrels plus Hrels'*)
-        move Hgmr at bottom.
-        apply Hp0.
-        cbv [good_meta_rules] in Hgmr. rewrite <- Hgmr. 1,3: eassumption.
-        simpl. intros R' S' H' x0. fwd.
-        intros. symmetry. apply H'p2.
-      + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
-        specialize (Hhyps1 _ Hx).
-        eapply steps_preserves_known_facts. 2: eassumption.
-        eauto using Relations.trc_trans. }
+          specialize (Hcor (normal_fact source_rel [x]) ltac:(reflexivity)).
+          specialize' Hcor.
+          { simpl. eauto. }
+          specialize (Hcor' (meta_fact source_rel S) ltac:(reflexivity)).
+          specialize' Hcor'.
+          { split.
+            - eapply comp_steps_preserves_datalog_facts.
+              1: eassumption. eauto using Relations.trc_trans.
+            - eapply consistent_preserved; try eassumption. eauto using trc_trans. }
+          (*should follow from Hrels plus Hrels'*)
+          move Hgmr at bottom.
+          apply Hp0.
+          cbv [good_meta_rules] in Hgmr. rewrite <- Hgmr. 1,3: eassumption.
+          simpl. intros R' S' H' x0. fwd.
+          intros. symmetry. apply H'p2.
+        + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
+          specialize (Hhyps1 _ Hx).
+          eapply steps_preserves_known_facts. 2: eassumption.
+          eauto using Relations.trc_trans. }
 
       epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
       destruct Hor as [Hor|Hor].
@@ -1983,7 +1994,8 @@ Section DistributedDatalog.
         2: { eauto using Relations.trc_trans. }
         cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
         move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
-        intros Hcor. right. eexists. eapply Hmf. rewrite H' by assumption. assumption. }
+        intros Hcor. right. eexists. eapply Hmf. rewrite H' by assumption.
+        assumption. }
       eassert (Hlast_step: comp_step g3 _).
       { eapply LearnFact with (n := n) (f := normal_dfact _ _).
         simpl. split.
@@ -2103,9 +2115,7 @@ Section DistributedDatalog.
       destruct Hn' as [?|?]; [subst|contradiction].
       eexists. cbv [knows_fact]. simpl. right.
       exists n'. destr (node_eqb n' n'); [|congruence]. simpl. left. reflexivity.
-  Qed.
-
-  Notation "R ^+" := (clos_trans _ R) (format "R '^+'").
+  Admitted.
 
   Lemma fact_in_inputs_knows_datalog_fact g f :
     fact_in_inputs g.(input_facts) f ->
@@ -2118,19 +2128,6 @@ Section DistributedDatalog.
     specialize (Hinp _ ltac:(eassumption)).
     simpl in Hinp. rewrite Hinp. eauto.
   Qed.
-
-  Definition is_edge (r : rule) R1 R2 :=
-    match r with
-    | normal_rule concls hyps => In R2 (map fact_R concls) /\ In R1 (map fact_R hyps)
-    | agg_rule _ target_rel source_rel => R2 = target_rel /\ R1 = source_rel
-    | meta_rule R _ Rs => R2 = R /\ In R1 Rs
-    end.
-  
-  Definition any_edge R1 R2 :=
-    exists r, In r p /\ is_edge r R1 R2.
-
-  Definition rel_edge' R1 R2 :=
-    exists R3, rel_edge R1 R3 /\ any_edge^* R3 R2.
 
   Lemma any_edge_spec (r : rule) f hyps :
     rule_impl r f hyps ->
@@ -2225,22 +2222,23 @@ Section DistributedDatalog.
     good_inputs g.(input_facts) ->
     sane_graph g ->
     meta_facts_correct rules g ->
-    (forall R', rel_edge'^+ R' R -> graph_sound_for g R') ->
-    graph_complete_for g R.
+    graph_relatively_complete_for g R.
   Proof.
-    intros Hinp Hsane Hmfc IHR.
-    cbv [graph_complete_for].
+    intros Hinp Hsane Hmfc.
+    cbv [graph_relatively_complete_for].
     intros f Hf H. subst.
     (*it's possible to do this without generalizing g, but i don't want to*)
     remember (fact_in_inputs g.(input_facts)) as Q eqn:E.
-    revert g E Hinp Hsane Hmfc IHR. induction H; intros g E Hinp Hsane Hmfc IHR; subst.
+    revert g E Hinp Hsane Hmfc. induction H; intros g E Hinp Hsane Hmfc; subst.
     - exists g. eauto using fact_in_inputs_knows_datalog_fact.
     - assert (HR': Forall (fun R => any_edge R (rel_of x)) (map rel_of l)).
       { apply Exists_exists in H. fwd.
         eapply Forall_impl.
         2: { apply any_edge_spec. eassumption. }
         simpl. cbv [any_edge]. eauto. }
-      assert (Hg1: exists g1, comp_step^* g g1 /\ Forall (knows_datalog_fact g1) l).
+      assert (Hg1: exists g1, comp_step^* g g1 /\ ((forall R0, rel_edge'^+ R0 (rel_of x) ->
+                                                    graph_correct_for g1 R0) ->
+                                             Forall (knows_datalog_fact g1) l)).
       { clear H0 H. induction H1.
         - eauto.
         - simpl in HR'. invert HR'. specialize (IHForall ltac:(assumption)).
@@ -2253,18 +2251,18 @@ Section DistributedDatalog.
           { eauto using steps_preserves_sanity. }
           specialize' H.
           { eauto using steps_preserves_meta_facts_correct. }
-          specialize' H.
-          { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption.
-            apply IHR. eapply smth_about_edges; eassumption. }
+          (* specialize' H. *)
+          (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
+          (*   apply IHR. eapply smth_about_edges; eassumption. } *)
           destruct H as (g2&Hstep2&Hg2).
           eexists. split.
           { eapply trc_trans.
             { apply IHForallp0. }
             apply Hstep2. }
           constructor.
-          -- eauto using comp_steps_preserves_datalog_facts.
-          -- eapply Forall_impl; [|exact IHForallp1].
-             eauto using comp_steps_preserves_datalog_facts. }
+          -- apply Hg2. intros R0 HR0. apply H. eapply smth_about_edges; eassumption.
+          -- eapply Forall_impl; [|apply IHForallp1].
+             1: eauto using comp_steps_preserves_datalog_facts. (*STUCK*) }
       clear H1 HR'.
       destruct Hg1 as (g1&Hstep1&Hg1).
       apply Exists_exists in H. destruct H as (r&Hr1&Hr2).
@@ -2373,23 +2371,21 @@ Section DistributedDatalog.
     constructor; auto. intros. rewrite <- H1. auto.
   Qed.
 
-  Lemma good_layout_sound'' g g' f :
+  Lemma good_layout_sound'' g g' R :
     good_inputs g.(input_facts) ->
     sane_graph g ->
     (forall f',
         knows_datalog_fact g f' /\ consistent g f' ->
         prog_impl_implication p (fact_in_inputs g.(input_facts)) f') ->
-    graph_complete_for g' (rel_of f) ->
+    graph_relatively_complete_for g' R ->
     (*^note: we only use completeness for normal facts here
       could go like: soundness for smaller rels -> completeness for normal R fact -> soundness for meta R fact -> completeness for meta R fact...
       the only question is, what do i want "completeness" to mean for meta facts?
       i think, as usual, it should not mean any unnecessary things.  so, not consistency.*)
     comp_step g g' ->
-    knows_datalog_fact g' f ->
-    consistent g' f ->
-    prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
+    graph_correct_for g' R.
   Proof.
-    intros Hinp Hsane Hsound Hrel Hstep Hf1 Hf2.
+    intros Hinp Hsane Hsound Hrel Hstep f ? (Hf1&Hf2). subst.
     pose proof Hstep as Hstep'.
     invert Hstep.
     - apply Hsound. destruct f; simpl in *.
@@ -2485,7 +2481,8 @@ Section DistributedDatalog.
                   +++ apply Hrel in Hargs; [|reflexivity]. fwd.
                       eapply knows_meta_fact_steps_learns_nothing; eauto.
                       { eauto using step_preserves_sanity. }
-                      simpl. rewrite E. assumption.
+                      { simpl. rewrite E. assumption. }
+                      apply Hargsp1. admit.
                   +++ apply Hsound. simpl. split; [|constructor].
                       apply only_one_fact_learned in Hargs.
                       destruct Hargs; [assumption|congruence].
@@ -2495,7 +2492,15 @@ Section DistributedDatalog.
                   +++ eapply something_about_expect_num_R_facts; try eassumption. auto.
                   +++ simpl. intros. reflexivity.
                       Unshelve. exact (fun _ => True). (*where did this come from*)
-  Qed.
+  Admitted.
+
+  Check good_layout_sound''. Check good_layout_complete'.
+  Print graph_relatively_complete_for.
+  Lemma good_layout_sound' g g' :
+    (forall R0, graph_correct_for g R) ->
+    graph_relatively_complete_for g R ->
+    comp_step g g' ->
+    graph_
 
   (*funny name*)
   Lemma derelativize_soundness g :
