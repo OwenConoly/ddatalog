@@ -1619,14 +1619,27 @@ Section DistributedDatalog.
 
   Definition rel_edge' R1 R2 :=
     exists R3, rel_edge R1 R3 /\ any_edge^* R3 R2.
+
+  Print trc.
+
+  Inductive trc' {A : Type} (R : A -> A -> Prop) : A -> list A -> A -> Prop :=
+  | TrcRefl' x : trc' _ x [] x
+  | TrcFront' x y l z :
+    R x y ->
+    trc' _ y l z ->
+    trc' _ x (y :: l) z.
+
+  Definition graph_correct_until g R :=
+    forall R0, rel_edge'^+ R0 R -> graph_correct_for g R0.
   
   Definition graph_relatively_complete_for g R :=
     forall f,
       rel_of f = R ->
       prog_impl_implication p (fact_in_inputs (input_facts g)) f ->
-      exists g',
-        comp_step^* g g' /\
-          ((forall R0, rel_edge'^+ R0 R -> graph_correct_for g' R0) ->
+      exists l g',
+        trc' comp_step g l g' /\
+          (graph_correct_until g R ->
+           Forall (fun g0 => graph_correct_until g0 R) l ->
            knows_datalog_fact g' f).
 
   Definition same_msgs_received g g' :=
@@ -2218,6 +2231,34 @@ Section DistributedDatalog.
     rewrite <- Himpl. reflexivity.
   Qed.
 
+  Lemma trc'_trc {X : Type} (R : X -> _) x l y :
+    trc' R x l y ->
+    trc R x y.
+  Proof. induction 1; eauto. Qed.
+  Hint Resolve trc'_trc : core.
+
+  Hint Constructors trc' : core.
+  Lemma trc'_trans {X : Type} (R : X -> _) x l1 y l2 z :
+    trc' R x l1 y ->
+    trc' R y l2 z ->
+    trc' R x (l1 ++ l2) z.
+  Proof. induction 1; simpl; eauto. Qed.
+
+  Lemma trc'_end {X : Type} (R : X -> _) x l y :
+    trc' R x l y ->
+    In y (x :: l).
+  Proof. induction 1; simpl; eauto. Qed.
+
+  Lemma graph_correct_until_any_edge g R1 R2 :
+    any_edge R1 R2 ->
+    graph_correct_until g R2 ->
+    graph_correct_until g R1.
+  Proof.
+    intros H1 H2. cbv [graph_correct_until]. intros. apply H2.
+    eapply smth_about_edges; eassumption.
+  Qed.
+  Hint Resolve graph_correct_until_any_edge : core.
+  
   Lemma good_layout_complete' g R :
     good_inputs g.(input_facts) ->
     sane_graph g ->
@@ -2230,23 +2271,24 @@ Section DistributedDatalog.
     (*it's possible to do this without generalizing g, but i don't want to*)
     remember (fact_in_inputs g.(input_facts)) as Q eqn:E.
     revert g E Hinp Hsane Hmfc. induction H; intros g E Hinp Hsane Hmfc; subst.
-    - exists g. eauto using fact_in_inputs_knows_datalog_fact.
+    - exists nil, g. eauto using fact_in_inputs_knows_datalog_fact.
     - assert (HR': Forall (fun R => any_edge R (rel_of x)) (map rel_of l)).
       { apply Exists_exists in H. fwd.
         eapply Forall_impl.
         2: { apply any_edge_spec. eassumption. }
         simpl. cbv [any_edge]. eauto. }
-      assert (Hg1: exists g1, comp_step^* g g1 /\ ((forall R0, rel_edge'^+ R0 (rel_of x) ->
-                                                    graph_correct_for g1 R0) ->
-                                             Forall (knows_datalog_fact g1) l)).
+      assert (Hg1: exists gs g1, trc' comp_step g gs g1 /\
+                             (graph_correct_until g (rel_of x) ->
+                              Forall (fun g0 => graph_correct_until g0 (rel_of x)) gs ->
+                              Forall (knows_datalog_fact g1) l)).
       { clear H0 H. induction H1.
         - eauto.
         - simpl in HR'. invert HR'. specialize (IHForall ltac:(assumption)).
           fwd. move H at bottom. specialize (H g1).
           specialize' H.
-          { erewrite <- comp_steps_pres_inputs by eassumption. reflexivity. }
+          { erewrite <- comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. reflexivity. }
           specialize' H.
-          { erewrite comp_steps_pres_inputs by eassumption. assumption. }
+          { erewrite comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. assumption. }
           specialize' H.
           { eauto using steps_preserves_sanity. }
           specialize' H.
@@ -2254,29 +2296,35 @@ Section DistributedDatalog.
           (* specialize' H. *)
           (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
           (*   apply IHR. eapply smth_about_edges; eassumption. } *)
-          destruct H as (g2&Hstep2&Hg2).
-          eexists. split.
-          { eapply trc_trans.
+          destruct H as (gs2&g2&Hstep2&Hg2).
+          eexists. eexists. split.
+          { eapply trc'_trans.
             { apply IHForallp0. }
             apply Hstep2. }
+          intros H1' H2'. apply Forall_app in H2'. fwd.
           constructor.
-          -- apply Hg2. intros R0 HR0. apply H. eapply smth_about_edges; eassumption.
+          -- apply Hg2.
+             ++ apply trc'_end in IHForallp0. destruct IHForallp0.
+                --- subst. eauto.
+                --- rewrite Forall_forall in H2'p0. eauto.
+             ++ eapply Forall_impl; [|eassumption]. eauto.
           -- eapply Forall_impl; [|apply IHForallp1].
-             1: eauto using comp_steps_preserves_datalog_facts. (*STUCK*) }
+             ++ eauto using comp_steps_preserves_datalog_facts.
+             ++ assumption.
+             ++ eauto. }
       clear H1 HR'.
-      destruct Hg1 as (g1&Hstep1&Hg1).
+      destruct Hg1 as (gs1&g1&Hstep1&Hg1).
       apply Exists_exists in H. destruct H as (r&Hr1&Hr2).
       pose proof good_layout_complete'' as H'.
       specialize (H' r l g1 (rel_of x) x).
       specialize' H'.
-      { erewrite comp_steps_pres_inputs by eassumption. assumption. }
+      { erewrite comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. assumption. }
       specialize' H'.
       { eauto using steps_preserves_sanity. }
       specialize' H'.
       { eauto using steps_preserves_meta_facts_correct. }
-      specialize' H'.
-      { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption.
-        apply IHR. apply t_step. cbv [rel_edge']. eauto. }
+      (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
+      (*   apply IHR. apply t_step. cbv [rel_edge']. eauto. } *)
       specialize (H' ltac:(assumption)).
       specialize' H'.
       (*this next thing is terrible.  should be a nice way to state something equivalent as a lemma.*)
