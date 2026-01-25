@@ -34,20 +34,15 @@ Section DistributedDatalog.
   Let rule := rule rel var fn aggregator T.
   Let fact := fact rel T.
 
-  Inductive drule :=
-  | normal_drule (rule_concls : list clause) (rule_hyps : list clause)
-  | agg_drule (rule_agg : aggregator) (target_rel : rel) (source_rel : rel)
-  | meta_drule (target_rel : rel) (source_rels : list rel).    
-  
-  Definition drule_good (r : drule) :=
+  Definition rule_good (r : rule) :=
     match r with
-    | normal_drule cs _ => Forall (fun R => is_input R = false) (map fact_R cs)
-    | agg_drule _ target_rel _ => is_input target_rel = false
-    | meta_drule R _ => is_input R = false
+    | normal_rule cs _ => Forall (fun R => is_input R = false) (map fact_R cs)
+    | agg_rule _ target_rel _ => is_input target_rel = false
+    | meta_rule R _ _ => is_input R = false
     end.
 
   Definition good_rules rules :=
-    forall (n : Node), Forall drule_good (rules n).
+    forall (n : Node), Forall rule_good (rules n).
   
   (*we can assume this wlog, since any normal rules violating it are useless*)
   Definition good_prog (p : list rule) :=
@@ -62,18 +57,17 @@ Section DistributedDatalog.
             In (agg_rule a R source_rel) p ->
             In source_rel Rs).
 
-  Definition good_layout (p : list rule) (rules : Node -> list drule) :=
+  Definition good_layout (p : list rule) (rules : Node -> list rule) :=
     (forall rule_concls rule_hyps,
-        In (normal_rule rule_concls rule_hyps) p <-> exists n, In (normal_drule rule_concls rule_hyps) (rules n)) /\
+        In (normal_rule rule_concls rule_hyps) p <-> exists n, In (normal_rule rule_concls rule_hyps) (rules n)) /\
       (forall agg target_rel source_rel,
-          In (agg_rule agg target_rel source_rel) p <-> exists n, In (agg_drule agg target_rel source_rel) (rules n)) /\
+          In (agg_rule agg target_rel source_rel) p <-> exists n, In (agg_rule agg target_rel source_rel) (rules n)) /\
       (forall target_rel target_set source_rels,
           In (meta_rule target_rel target_set source_rels) p ->
-          forall n, In (meta_drule target_rel source_rels) (rules n)) /\
-      (forall target_rel source_rels n,
-          In (meta_drule target_rel source_rels) (rules n) ->
-          exists target_set,
-            In (meta_rule target_rel target_set source_rels) p).
+          forall n, In (meta_rule target_rel target_set source_rels) (rules n)) /\
+      (forall target_rel target_set source_rels n,
+          In (meta_rule target_rel target_set source_rels) (rules n) ->
+          In (meta_rule target_rel target_set source_rels) p).
 
   Definition good_meta_rules (p : list rule) :=
     forall Q,
@@ -86,7 +80,7 @@ Section DistributedDatalog.
           forall x,
             prog_impl_implication p Q (normal_fact R x) <-> S x).
 
-  Context (p : list rule) (rules : Node -> list drule).
+  Context (p : list rule) (rules : Node -> list rule).
   Context (rules_good : good_rules rules) (prog_good : good_prog p) (Hlayout : good_layout p rules) (Hgmr : good_meta_rules p).
   
   (*i assume graph is complete, because i suspect this will be tricky enough as is*)
@@ -106,7 +100,7 @@ Section DistributedDatalog.
       input_facts : list dfact;
     }.
 
-  Definition Layout := Node -> list drule.
+  Definition Layout := Node -> list rule.
 
   Definition expect_num_R_facts R known_facts num :=
     if is_input R then
@@ -142,30 +136,30 @@ Section DistributedDatalog.
     simpl. auto.
   Qed.
   
-  Definition can_learn_normal_fact_at_node rules ns R args :=
+  Definition can_learn_normal_fact_at_node (rules : list rule) ns R args :=
     exists r, In r rules /\
     match r with
-    | normal_drule rule_concls rule_hyps =>
+    | normal_rule rule_concls rule_hyps =>
         exists ctx hyps',
         Exists (fun c => interp_clause ctx c (R, args)) rule_concls /\
           Forall2 (interp_clause ctx) rule_hyps hyps' /\
           (forall R0 args0, In (R0, args0) hyps' ->
                        In (normal_dfact R0 args0) ns.(known_facts))
-    | agg_drule rule_agg target_rel source_rel =>
+    | agg_rule rule_agg target_rel source_rel =>
         expect_num_R_facts source_rel ns.(known_facts) (ns.(msgs_received) source_rel) /\
         exists vals,
         (is_list_set (fun x => In (normal_dfact source_rel [x]) ns.(known_facts)) vals) /\
           R = target_rel /\
           args = [fold_right (interp_agg rule_agg) (agg_id rule_agg) vals]
-    | meta_drule _ _ => False
+    | meta_rule _ _ _ => False
     end.
 
   Definition can_learn_meta_fact_at_node rules ns R expected_msgs :=
     exists r, In r rules /\
     match r with
-    | normal_drule _ _ => False
-    | agg_drule _ _ _ => False
-    | meta_drule R0 R's =>
+    | normal_rule _ _ => False
+    | agg_rule _ _ _ => False
+    | meta_rule R0 _ R's =>
         R0 = R /\
         (forall R', In R' R's ->
                expect_num_R_facts R' ns.(known_facts) (ns.(msgs_received) R')) /\
@@ -673,13 +667,13 @@ Section DistributedDatalog.
       In (meta_dfact R (Some n) num) ns.(known_facts) ->
       Forall (fun r =>
                 match r with
-                | normal_drule concls hyps =>
+                | normal_rule concls hyps =>
                     In R (map fact_R concls) ->
                     Forall (fun R' => expect_num_R_facts R' ns.(known_facts) (ns.(msgs_received) R')) (map fact_R hyps)
-                | agg_drule _ target_rel source_rel =>
+                | agg_rule _ target_rel source_rel =>
                     R = target_rel ->
                     expect_num_R_facts source_rel ns.(known_facts) (ns.(msgs_received) source_rel)
-                | meta_drule _ _ => True
+                | meta_rule _ _ _ => True
                 end)
         rules /\
         (forall args : list T,
@@ -828,13 +822,13 @@ Section DistributedDatalog.
     (forall R' args',
         In (normal_dfact R' args') ns.(known_facts) ->
         Exists (fun r => exists concls hyps,
-                    r = normal_drule concls hyps /\
+                    r = normal_rule concls hyps /\
                       In R (map fact_R concls) /\
                       In R' (map fact_R hyps))
                rules0 ->
         In (normal_dfact R' args') ns'.(known_facts)) ->
     (forall R',
-        Exists (fun r => exists a, r = agg_drule a R R') rules0 ->
+        Exists (fun r => exists a, r = agg_rule a R R') rules0 ->
         ns'.(msgs_received) R' = ns.(msgs_received) R' /\
           (forall args',
             In (normal_dfact R' args') ns.(known_facts) <->
@@ -2142,7 +2136,7 @@ Section DistributedDatalog.
            ++ apply Exists_exists in H'. fwd.
               clear H'p0. simpl in H. fwd.
               cbv [can_learn_meta_fact_at_node] in Hp1. fwd.
-              destruct Hlayout as (_&_&_&Hl). specialize (Hl _ _ _ ltac:(eassumption)).
+              destruct Hlayout as (_&_&_&Hl). specialize (Hl _ _ _ _ ltac:(eassumption)).
               fwd.
               eapply prog_impl_step.
               --- apply Exists_exists. eexists. split; [eassumption|].
@@ -2637,7 +2631,6 @@ Section DistributedDatalog.
       { eapply good_layout_sound; eassumption. }
       specialize (H' ltac:(assumption)).
       specialize' H'.
-      (*this next thing is terrible.  should be a nice way to state something equivalent as a lemma.*)
       { apply Forall_forall. intros f' Hf'. destruct f'; [constructor|].
         apply correct_impl_consistent.
         - erewrite comp_steps_pres_inputs with (g := g) by eauto. assumption.
