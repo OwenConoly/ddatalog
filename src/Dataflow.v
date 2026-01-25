@@ -1458,9 +1458,16 @@ Section DistributedDatalog.
       comp_step^* g g' ->
       graph_correct_for g' R.
 
+  Definition finite_fact (f : fact) :=
+    match f with
+    | normal_fact _ _ => True
+    | meta_fact R S' => exists l, is_list_set S' l
+    end.
+  
   Definition graph_complete (g : graph_state) :=
     forall f,
       prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
+      finite_fact f ->
       exists g',
         comp_step^* g g' /\
           knows_datalog_fact g' f.
@@ -1693,9 +1700,14 @@ Section DistributedDatalog.
     forall x, In x l' <-> In x l /\ P x.
   Proof. Admitted.
     
-  Lemma node_can_find_all_conclusions g n R :
+  Lemma node_can_find_all_conclusions g l n R :
+    sane_graph g ->
+    good_inputs g.(input_facts) ->
     meta_facts_correct rules g ->
-    Forall good_rule p ->
+    (forall args g',
+        comp_step^* g g' ->
+        knows_fact g' (normal_dfact R args) ->
+        In args l) ->
     exists g',
       comp_step^* g g' /\
         (forall args,
@@ -1703,34 +1715,59 @@ Section DistributedDatalog.
             In (normal_dfact R args) (known_facts (node_states g' n))) /\
         same_msgs_received g g'.
   Proof.
-    intros Hmf Hp.
+    intros Hsane Hinp Hmf Hl.
     assert (Hor : (fun P => P \/ ~P) (exists num, In (meta_dfact R (Some n) num) (known_facts (node_states g n)))).
     { apply Classical_Prop.classic. }
     simpl in Hor. destruct Hor as [Hor|Hor].
     { fwd. intros. exists g. split; [auto|]. split; [|cbv [same_msgs_received]; auto].
       intros. apply Hmf in Hor. destruct Hor as [_ Hor]. apply Hor. assumption. }
-    set (new_facts := normal_dfacts_of_facts (filter (fun f => rel_eqb (rel_of f) R) (step_everybody (rules n) (normal_facts_of_dfacts (g.(node_states) n).(known_facts))))).
-    pose proof step_to_add_normal_facts_at_node as H'.
-    pose proof (can_filter_prop new_facts (should_learn_fact_at_node (rules n) n (g.(node_states) n))) as H''.
-    specialize' H''.
-    { apply Forall_forall. intros ? _. apply should_learn_fact_at_node_em. }
-    destruct H'' as (new_facts'&H'').
-    specialize (H' g n new_facts' ltac:(assumption)). specialize' H'.
-    { eapply incl_Forall.
-      - cbv [incl]. intros f Hf. apply H'' in Hf. fwd. eassumption.
-      - subst new_facts. cbv [normal_dfacts_of_facts]. apply Forall_flat_map.
-        apply Forall_filter. intros f. destruct f; auto. }
-    specialize' H'.
-    { apply Forall_forall. intros f Hf. apply H'' in Hf. fwd. assumption. }
-    fwd. eexists. split; [eassumption|]. split.
-    2: { eapply add_facts_at_node_same_msgs_received. eassumption. }
-    intros args Hargs.
-    cbv [add_facts_at_node] in H'p1. cbv [equiv_graph] in H'p1. simpl in *. fwd.
-    specialize (H'p1p2 n).
-    erewrite equiv_node_known_facts by eassumption.
-    destr (node_eqb n n); [|congruence].
-    rewrite known_facts_add_facts. apply in_app_iff. left. apply H''. simpl.
-  Admitted.
+    assert (Hl0: forall args g',
+               comp_step^* g g' ->
+               knows_fact g' (normal_dfact R args) ->
+               In (normal_dfact R args) (known_facts (node_states g n)) \/ In args l).
+    { eauto. }
+    clear Hl. rename Hl0 into Hl. revert g Hsane Hinp Hmf Hor Hl.
+    remember (length l) as len eqn:E.
+    assert (Hlen: length l < S len) by lia. clear E.
+    revert l Hlen. induction (S len) as [|len0]; intros l Hlen g Hsane Hinp Hmf Hor Hl.
+    - lia.
+    - assert (Hor' : (fun P => P \/ ~P) (Exists (fun args => can_learn_normal_fact_at_node (rules n) (node_states g n) R args) l)).
+      { apply Classical_Prop.classic. }
+      destruct Hor' as [Hor'|Hor'].
+      + rewrite Exists_exists in Hor'. destruct Hor' as (args&Hor'). fwd.
+        apply in_split in Hor'p0. fwd.
+        specialize (IHlen0 (l1 ++ l2)). specialize' IHlen0.
+        { rewrite length_app in *. simpl in *. lia. }
+        eassert (Hstep : comp_step g _).
+        { eapply LearnFact with (f := normal_dfact R args).
+          simpl. eauto. }
+        epose_dep IHlen0.
+        specialize' IHlen0.
+        { eapply step_preserves_sanity; eassumption. }
+        specialize' IHlen0.
+        { simpl. assumption. }
+        specialize' IHlen0.
+        { eapply step_preserves_mf_correct; eassumption. }
+        simpl in IHlen0. destr (node_eqb n n); [|congruence]. simpl in IHlen0.
+        specialize' IHlen0.
+        { simpl. intros H'. fwd. destruct H'; [congruence|eauto]. }
+        specialize' IHlen0.
+        { simpl. intros args' g' Hsteps Hargs'.
+          specialize (Hl args' g' ltac:(eauto) ltac:(assumption)).
+          move Hl at bottom. destruct Hl as [Hl|Hl]; auto.
+          apply in_app_iff in Hl. rewrite in_app_iff.
+          destruct Hl as [Hl| [Hl| Hl]]; subst; auto. }
+        fwd. exists g'. split; [eauto|]. split; [assumption|]. cbv [same_msgs_received].
+        intros n'. rewrite <- IHlen0p2. simpl. destr (node_eqb n n'); reflexivity.
+      + exists g. ssplit; auto. 2: cbv [same_msgs_received]; auto.
+        intros args Hargs. epose_dep Hl. specialize' Hl.
+        { eapply TrcFront; [|apply TrcRefl].
+          eapply LearnFact with (f := normal_dfact _ _).
+          simpl. split; [|eassumption]. eauto. }
+        specialize' Hl.
+        { right. simpl. exists n. destr (node_eqb n n); [|congruence]. simpl. auto. }
+        destruct Hl; [assumption|]. exfalso. rewrite Exists_exists in Hor'. eauto.
+  Qed.
 
   Lemma receive_fact_at_node_impl ns f f0 :
     In f0 (receive_fact_at_node ns f).(known_facts) ->
@@ -2223,13 +2260,14 @@ Section DistributedDatalog.
     graph_correct g ->
     Forall (knows_datalog_fact g) hyps ->
     Forall (consistent g) hyps ->
+    finite_fact f ->
     In r p ->
     rule_impl r f hyps ->
      exists g',
        comp_step^* g g' /\
          knows_datalog_fact g' f.
   Proof.
-    intros Hinp Hsane Hmf Hcor Hhyps1 Hhyps2 Hr Himpl.
+    intros Hinp Hsane Hmf Hcor Hhyps1 Hhyps2 Hfin Hr Himpl.
     pose proof Hlayout as Hgood.
     pose proof Hgood as Hgood'.
     invert Himpl.
@@ -2372,8 +2410,9 @@ Section DistributedDatalog.
         simpl. cbv [knows_fact]. simpl. right. exists n.
         destr (node_eqb n n); try congruence.
         simpl. rewrite H'. auto.
-    - destruct Hlayout as (Hhl&_&_).
-      specialize Hhl with (1 := Hr).
+    - simpl in Hfin. fwd.
+      destruct Hlayout as (Hhl&_&_).
+      specialize Hhl with (1 := Hr). fwd.
       cbv [knows_datalog_fact].
       enough (forall len,
                exists g' : graph_state,
@@ -2403,7 +2442,7 @@ Section DistributedDatalog.
 
       { rewrite Hor. eauto. }
 
-      destruct Hor as [n Hn].
+      destruct Hor as [n' Hn'].
 
       pose proof node_can_expect_much as Hg2.
       specialize Hg2 with (g := g1).
@@ -2416,13 +2455,19 @@ Section DistributedDatalog.
         intros. eapply comp_steps_preserves_datalog_facts; eassumption. }
       destruct Hg2 as (g2&Hg2&Hhypsg2).
 
+      Check node_can_find_all_conclusions.
+      forall args,
+      can_learn_normal_fact_at_node (rules n) (node_states g' n) R args ->
+      
+      
       pose proof node_can_find_all_conclusions as Hg3.
       
       specialize (Hg3 g2 n target_rel).
       destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
       { admit. }
       { admit. }
-      clear Hhyps3a.
+      Search expect_num_R_facts
+      clear Hhyps3b.
       eexists.
       split.
       { eapply Relations.trc_trans.
