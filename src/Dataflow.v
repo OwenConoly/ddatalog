@@ -5,7 +5,7 @@ From Stdlib Require Import Lia.
 From ATL Require Import Relations. (*TODO i did not actually mean to use trc from here; should i use the stdlib thing instead?*)
 From Datalog Require Import List.
 From Stdlib Require Import Relations.Relation_Operators.
-
+From Stdlib Require Import Permutation.
 
 Import ListNotations.
 
@@ -58,16 +58,11 @@ Section DistributedDatalog.
             In source_rel Rs).
 
   Definition good_layout (p : list rule) (rules : Node -> list rule) :=
-    (forall rule_concls rule_hyps,
-        In (normal_rule rule_concls rule_hyps) p <-> exists n, In (normal_rule rule_concls rule_hyps) (rules n)) /\
-      (forall agg target_rel source_rel,
-          In (agg_rule agg target_rel source_rel) p <-> exists n, In (agg_rule agg target_rel source_rel) (rules n)) /\
-      (forall target_rel target_set source_rels,
-          In (meta_rule target_rel target_set source_rels) p ->
-          forall n, In (meta_rule target_rel target_set source_rels) (rules n)) /\
+    (forall r, In r p -> exists n, In r (rules n)) /\
+      (forall r n, In r (rules n) -> In r p) /\
       (forall target_rel target_set source_rels n,
-          In (meta_rule target_rel target_set source_rels) (rules n) ->
-          In (meta_rule target_rel target_set source_rels) p).
+          In (meta_rule target_rel target_set source_rels) p ->
+          In (meta_rule target_rel target_set source_rels) (rules n)).
 
   Definition good_meta_rules (p : list rule) :=
     forall Q,
@@ -100,8 +95,6 @@ Section DistributedDatalog.
       input_facts : list dfact;
     }.
 
-  Definition Layout := Node -> list rule.
-
   Definition expect_num_R_facts R known_facts num :=
     if is_input R then
       In (meta_dfact R None num) known_facts
@@ -109,18 +102,6 @@ Section DistributedDatalog.
       exists expected_msgss,
         Forall2 (fun n expected_msgs => In (meta_dfact R (Some n) expected_msgs) known_facts) all_nodes expected_msgss /\
           num = fold_left Nat.add expected_msgss O.
-
-  Lemma expect_num_R_facts_incl R kf1 kf2 num :
-    expect_num_R_facts R kf1 num ->
-    incl kf1 kf2 ->
-    expect_num_R_facts R kf2 num.
-  Proof.
-    intros H Hincl. cbv [expect_num_R_facts] in *.
-    destruct (is_input R); auto.
-    fwd. eexists. split; eauto.
-    eapply Forall2_impl; [|eassumption].
-    simpl. auto.
-  Qed.
 
   Lemma expect_num_R_facts_relevant_mfs_incl R kf1 kf2 num :
     expect_num_R_facts R kf1 num ->
@@ -136,6 +117,12 @@ Section DistributedDatalog.
     simpl. auto.
   Qed.
   
+  Lemma expect_num_R_facts_incl R kf1 kf2 num :
+    expect_num_R_facts R kf1 num ->
+    incl kf1 kf2 ->
+    expect_num_R_facts R kf2 num.
+  Proof. eauto using expect_num_R_facts_relevant_mfs_incl. Qed.
+
   Definition can_learn_normal_fact_at_node (rules : list rule) ns R args :=
     exists r, In r rules /\
     match r with
@@ -245,17 +232,6 @@ Section DistributedDatalog.
   Definition knows_fact (g : graph_state) f : Prop :=
     In f g.(input_facts) \/
       exists n, In f (g.(node_states) n).(known_facts).
-
-  Inductive Existsn {T} (P : T -> Prop) : nat -> list T -> Prop :=
-  | Existsn_nil : Existsn _ 0 []
-  | Existsn_no x n l :
-    ~P x ->
-    Existsn _ n l ->
-    Existsn _ n (x :: l)
-  | Existsn_yes x n l :
-    P x ->
-    Existsn _ n l ->
-    Existsn _ (S n) (x :: l).
 
   (*this definition is kind of ugly*)
   Definition good_inputs (inputs : list dfact) :=
@@ -397,104 +373,6 @@ Section DistributedDatalog.
               | _ => solve[eauto 6]           
               end.
 
-  Hint Constructors Existsn : core.
-  Lemma Existsn_S (X : Type) P n (l : list X) :
-    Existsn P (S n) l ->
-    exists l1 x l2,
-      l = l1 ++ x :: l2 /\
-        P x /\
-        Existsn P n (l1 ++ l2).
-  Proof.
-    induction l; invert 1.
-    - specialize (IHl ltac:(assumption)). fwd. do 3 eexists. split.
-      { apply app_comm_cons. }
-      simpl. auto.
-    - exists nil. simpl. eauto.
-  Qed.
-
-  Lemma Existsn_app (X : Type) P n1 n2 (l1 l2 : list X) :
-    Existsn P n1 l1 ->
-    Existsn P n2 l2 ->
-    Existsn P (n1 + n2) (l1 ++ l2).
-  Proof.
-    intros H1. revert n2 l2.
-    induction H1; intros; simpl; eauto.
-  Qed.
-  
-  Lemma Existsn_split (X : Type) P n (l1 l2 : list X) :
-    Existsn P n (l1 ++ l2) ->
-    exists n1 n2,
-      n = n1 + n2 /\
-        Existsn P n1 l1 /\
-        Existsn P n2 l2.
-  Proof.
-    revert n. induction l1; intros n H.
-    - simpl in H. exists 0, n. auto.
-    - invert H.
-      + specialize (IHl1 _ ltac:(eassumption)). fwd. eauto 6.
-      + specialize (IHl1 _ ltac:(eassumption)). fwd.
-        do 2 eexists. split; [|eauto]. lia.
-  Qed.
-
-  From Stdlib Require Import Permutation.
-  Lemma Existsn_perm (X : Type) P n (l1 l2 : list X) :
-    Existsn P n l1 ->
-    Permutation l1 l2 ->
-    Existsn P n l2.
-  Proof.
-    intros H Hperm. revert n H. induction Hperm; intros n H.
-    - auto.
-    - invert H; eauto.
-    - do 2 match goal with
-        | H: Existsn _ _ (_ :: _) |- _ => invert H
-        end; auto.
-    - eauto.
-  Qed.
-
-  Lemma Existsn_0_Forall_not U P (l : list U) :
-    Existsn P 0 l ->
-    Forall (fun x => ~P x) l.
-  Proof. induction l; invert 1; auto. Qed.
-
-  Lemma Forall_not_Existsn_0 U P (l : list U) :
-    Forall (fun x => ~P x) l ->
-    Existsn P 0 l.
-  Proof. induction 1; auto. Qed.
-  
-  Lemma list_set_Existsn_1 U (S : U -> _) l x :
-    is_list_set S l ->
-    S x ->
-    Existsn (eq x) 1 l.
-  Proof.
-    intros Hls Hx. destruct Hls as [H1 H2].
-    apply H1 in Hx. apply in_split in Hx. fwd.
-    apply NoDup_remove_2 in H2. rewrite in_app_iff in H2.
-    replace 1 with (0 + 1) by lia. apply Existsn_app.
-    - apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
-    - apply Existsn_yes; auto.
-      apply Forall_not_Existsn_0. apply Forall_forall. intros ? ? ?. subst. auto.
-  Qed.
-
-  Lemma Existsn_map U1 U2 P n l (f : U1 -> U2) :
-    Existsn P n (map f l) <-> Existsn (fun x => P (f x)) n l.
-  Proof.
-    revert n. induction l; intros n; simpl; split; invert 1; auto.
-    - apply Existsn_no; auto. apply IHl. auto.
-    - apply Existsn_yes; auto. apply IHl. auto.
-    - apply Existsn_no; auto. apply IHl. auto.
-    - apply Existsn_yes; auto. apply IHl. auto.
-  Qed.
-      
-  Lemma Existsn_iff U (P1 P2 : U -> _) n l :
-    Existsn P1 n l ->
-    (forall x, P1 x <-> P2 x) ->
-    Existsn P2 n l.
-  Proof.
-    intros H1 H2. induction H1; auto.
-    - apply Existsn_no; auto. rewrite <- H2. auto.
-    - apply Existsn_yes; auto. rewrite <- H2. auto.
-  Qed.
-      
   Lemma all_nodes_split n :
     exists l1 l2,
       all_nodes = l1 ++ n :: l2 /\
@@ -688,15 +566,6 @@ Section DistributedDatalog.
   Proof.
     revert q. induction m; simpl; try lia.
     intros. rewrite IHm. lia.
-  Qed.
-
-  Lemma Existsn_unique U P n m (l : list U) :
-    Existsn P n l ->
-    Existsn P m l ->
-    n = m.
-  Proof.
-    intros H. revert m. induction H; invert 1; auto.
-    all: exfalso; auto.
   Qed.
 
   Lemma expect_num_R_facts_no_travellers R g n args :
@@ -1165,14 +1034,14 @@ Section DistributedDatalog.
         split.
         -- apply Forall_forall. intros r Hr. destruct r.
            ++ intros HR. pose proof Hfp1p0 as Hfp1p0'.
-              cbv [good_layout] in Hlayout. destruct Hlayout as (Hn&_&_&Hm).
-              eassert (In _ _) as Hr'.
-              { apply Hn. eexists. eassumption. }
-              apply Hm in Hfp1p0'. fwd.
+              cbv [good_layout] in Hlayout. destruct Hlayout as (Hhl&Hlh&Hm).
+              eassert (In (normal_rule _ _) p) as Hr'.
+              { eapply Hlh. eassumption. }
+              apply Hlh in Hfp1p0'.
               pose proof prog_good as Hp. cbv [good_prog] in Hp.
               specialize (Hp _ _ _ Hfp1p0'). destruct Hp as (Hp&_).
               specialize Hp with (1 := Hr') (2 := HR).
-              rewrite Hn in Hr'. fwd.
+              apply Hhl in Hr'. fwd.
               apply Forall_forall.
               intros R' HR'.
               apply Hp in HR'.
@@ -1180,14 +1049,14 @@ Section DistributedDatalog.
               eapply expect_num_R_facts_incl; [eassumption|].
               auto with incl.
            ++ intros. subst. pose proof Hfp1p0 as Hfp1p0'.
-              cbv [good_layout] in Hlayout. destruct Hlayout as (_&Ha&_&Hm).
-              eassert (In _ _) as Hr'.
-              { apply Ha. eexists. eassumption. }
-              apply Hm in Hfp1p0'. fwd.
+              cbv [good_layout] in Hlayout. destruct Hlayout as (Hhl&Hlh&Hm).
+              eassert (In (agg_rule _ _ _) p) as Hr'.
+              { eapply Hlh. eassumption. }
+              apply Hlh in Hfp1p0'. fwd.
               pose proof prog_good as Hp. cbv [good_prog] in Hp.
               specialize (Hp _ _ _ Hfp1p0'). destruct Hp as (_&Hp).
               specialize (Hp _ _ ltac:(eassumption)).
-              rewrite Ha in Hr'. fwd.
+              apply Hhl in Hr'. fwd.
               specialize (Hfp1p1p1 _ Hp).
               eapply expect_num_R_facts_incl; [eassumption|].
               auto with incl.
@@ -1200,14 +1069,14 @@ Section DistributedDatalog.
               intros ? ? [H'|?]; auto. invert H'.
               apply Exists_exists in HR'. fwd.
               pose proof Hfp1p0 as Hfp1p0'.
-              cbv [good_layout] in Hlayout. destruct Hlayout as (_&Ha&_&Hm).
-              eassert (In _ _) as Hr'.
-              { apply Ha. eexists. eassumption. }
-              apply Hm in Hfp1p0'. fwd.
+              cbv [good_layout] in Hlayout. destruct Hlayout as (Hhl&Hlh&Hm).
+              eassert (In (agg_rule _ _ _) p) as Hr'.
+              { eapply Hlh. eassumption. }
+              apply Hlh in Hfp1p0'. fwd.
               pose proof prog_good as Hp. cbv [good_prog] in Hp.
               specialize (Hp _ _ _ Hfp1p0'). destruct Hp as (_&Hp).
               specialize (Hp _ _ ltac:(eassumption)).
-              rewrite Ha in Hr'. fwd.
+              apply Hhl in Hr'. fwd.
               specialize (Hfp1p1p1 _ Hp).
               move Hfp1p1p1 at bottom.
               pose proof reasonable_meta_fact_nodes as H'.
@@ -1928,9 +1797,9 @@ Section DistributedDatalog.
       move Hlayout at bottom. cbv [good_layout] in Hlayout.
       invert Hp1.
       + pose proof Hp0 as Hp0'.
-        destruct Hlayout as (Hln&_&Hlm&_). clear Hlayout. apply Hln in Hp0. clear Hln.
+        destruct Hlayout as (Hhl&Hlh&Hm). apply Hhl in Hp0. clear Hhl.
         fwd. move HR at bottom. simpl in HR.
-        eapply Hlm in Hr. clear Hlm.
+        eapply Hm in Hr. clear Hm.
         pose proof rules_good as rules_good'.
         specialize (rules_good' n).
         rewrite Forall_forall in rules_good'. specialize (rules_good' _ Hr).
@@ -1965,9 +1834,9 @@ Section DistributedDatalog.
            apply HRsp0. rewrite Forall_forall in H0. apply H0. apply in_map_iff.
            eexists (_, _). eauto.
       + pose proof Hp0 as Hp0'.
-        destruct Hlayout as (_&Hla&Hlm&_). clear Hlayout. apply Hla in Hp0. clear Hla.
+        destruct Hlayout as (Hhl&Hlh&Hm). apply Hhl in Hp0. clear Hhl.
         fwd. move HR at bottom. simpl in HR.
-        eapply Hlm in Hr. clear Hlm.
+        eapply Hm in Hr. clear Hm.
         pose proof rules_good as rules_good'.
         specialize (rules_good' n).
         rewrite Forall_forall in rules_good'. specialize (rules_good' _ Hr).
@@ -2083,7 +1952,7 @@ Section DistributedDatalog.
         -- apply Exists_exists in Hp1p0. destruct Hp1p0 as (r&Hr1&Hr2).
            eapply prog_impl_step.
            ++ apply Exists_exists. eexists. split.
-              { destruct Hlayout as (H'&_). apply H'. eauto. }
+              { destruct Hlayout as (_&Hlh&_). eapply Hlh. eassumption. }
               econstructor.
               --- apply Exists_exists. eauto.
               --- eassumption.
@@ -2091,7 +1960,7 @@ Section DistributedDatalog.
               apply Hsound. simpl. eauto 6.
         -- eapply prog_impl_step.
            ++ apply Exists_exists. eexists. split.
-              { destruct Hlayout as (_&H'&_). apply H'. eauto. }
+              { destruct Hlayout as (_&Hlh&_). eapply Hlh. eassumption. }
               econstructor. instantiate (1 := fun _ => _). simpl. eassumption.
            ++ constructor.
               --- apply Hsound. split.
@@ -2136,8 +2005,7 @@ Section DistributedDatalog.
            ++ apply Exists_exists in H'. fwd.
               clear H'p0. simpl in H. fwd.
               cbv [can_learn_meta_fact_at_node] in Hp1. fwd.
-              destruct Hlayout as (_&_&_&Hl). specialize (Hl _ _ _ _ ltac:(eassumption)).
-              fwd.
+              destruct Hlayout as (_&Hlh&_). specialize (Hlh _ _ ltac:(eassumption)).
               eapply prog_impl_step.
               --- apply Exists_exists. eexists. split; [eassumption|].
                   eenough _ as H'. 1: eapply meta_fact_ext; [|exact H'].
@@ -2157,9 +2025,8 @@ Section DistributedDatalog.
                   2: { simpl. intros R' S' H'' x0. fwd.
                        intros. symmetry. apply H''p2. }
                   rewrite <- Hf2. split; intros Hargs.
-                  +++ move Hlayout at bottom. destruct Hlayout as (_&_&_&Hly).
-                      apply Hly in Hp1p0. fwd.
-                      eapply use_meta_facts_correct.
+                  +++ move Hlayout at bottom. destruct Hlayout as (_&Hlh'&_).
+                      apply Hlh' in Hp1p0. eapply use_meta_facts_correct.
                       ---- simpl. assumption.
                       ---- eauto using step_preserves_sanity.
                       ---- eassumption.
@@ -2171,7 +2038,7 @@ Section DistributedDatalog.
                                 destruct Hf; auto. subst. simpl in HR.
                                 exfalso. eapply rel_edge'_irrefl.
                                 cbv [rel_edge']. eexists. split.
-                                { cbv [rel_edge]. eexists. split; [exact Hl|].
+                                { cbv [rel_edge]. eexists. split; [exact Hlh|].
                                   simpl. eauto. }
                                 eauto.
                                 ----- cbv [graph_correct_for]. intros.
@@ -2262,8 +2129,8 @@ Section DistributedDatalog.
       do 2 eexists. split; [eassumption|]. split; [eassumption|].
       intros R' args' H'. rewrite Lists.List.Forall_map in Hhypsg1.
       rewrite Forall_forall in Hhypsg1. apply Hhypsg1 in H'. exact H'.
-    - cbv [good_layout] in Hgood. destruct Hgood as (_&Hgood&_).
-      apply Hgood in Hr. clear Hgood.
+    - cbv [good_layout] in Hgood. destruct Hlayout as (Hhl&Hlh&Hm).
+      apply Hhl in Hr. clear Hgood.
       destruct Hr as (n&Hr).
 
       invert Hhyps1. rename H2 into Hmhyp. rename H3 into Hhyps.
@@ -2361,23 +2228,23 @@ Section DistributedDatalog.
         simpl. cbv [knows_fact]. simpl. right. exists n.
         destr (node_eqb n n); try congruence.
         simpl. rewrite H'. auto.
-    - destruct Hgood as (_&_&Hgood&_).
-      specialize Hgood with (1 := Hr).
+    - destruct Hlayout as (Hhl&_&_).
+      specialize Hhl with (1 := Hr).
       cbv [knows_datalog_fact].
       enough (forall len,
                exists g' : graph_state,
-                 Relations.trc comp_step g g' /\
+                 comp_step^* g g' /\
                    (forall n : Node,
                        In n (firstn len all_nodes) ->
                        exists num : nat, knows_fact g' (meta_dfact target_rel (Some n) num))) as H'.
       { specialize (H' (length all_nodes)). rewrite firstn_all in H'.
         fwd. eexists. split; eauto.
         destruct (is_input target_rel) eqn:E.
-        { cbv [good_rules] in rules_good.
-          specialize (Hgood a_node). specialize (rules_good a_node).
-          rewrite Forall_forall in rules_good. apply rules_good in Hgood.
-          simpl in Hgood. congruence. }
-        intros n. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
+        { cbv [good_rules] in rules_good. 
+          specialize (rules_good n).
+          rewrite Forall_forall in rules_good. apply rules_good in Hhl.
+          simpl in Hhl. congruence. }
+        intros n0. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
       intros len. induction len.
       { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
 
@@ -2422,7 +2289,7 @@ Section DistributedDatalog.
         eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
         simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
         eexists. split.
-        { apply Hgood. }
+        { apply Hgood. eassumption. }
         simpl. split; [reflexivity|]. split.
         { apply Forall_forall.
           eapply Forall_impl; [|eassumption].
@@ -2446,7 +2313,7 @@ Section DistributedDatalog.
         eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
         simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
         eexists. split.
-        { apply Hgood. }
+        { apply Hgood. eassumption. }
         simpl. split; [reflexivity|]. split.
         { apply Forall_forall.
           eapply Forall_impl; [|eassumption].
