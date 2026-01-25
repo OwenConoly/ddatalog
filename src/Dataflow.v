@@ -1635,7 +1635,6 @@ Section DistributedDatalog.
       Exists (fun r => rule_impl r f hyps') p ->
       In f (step_everybody p facts).
   
-  (*this should follow from good_prog p + well-foundedness of meta_rule edges*)
   Definition no_R_cycles R (r : rule) :=
     match r with
     | normal_rule concls hyps =>
@@ -1644,7 +1643,7 @@ Section DistributedDatalog.
         False
     | agg_rule _ _ _ => True (*TODO*)
     | meta_rule _ _ _ => True
-    end.  
+    end.
 
   Definition add_facts ns fs :=
     {| known_facts := fs ++ ns.(known_facts);
@@ -2310,8 +2309,7 @@ Section DistributedDatalog.
         eexists. split.
         { apply set_of_spec. }
         split; reflexivity. }
-      (*   destruct H as (Hp1&Hp2). split. 2: exact Hp2. *)
-
+      
       assert (H': fold_right (interp_agg rule_agg) (agg_id rule_agg) vals =
                     fold_right (interp_agg rule_agg) (agg_id rule_agg) (set_of (g3.(node_states) n).(known_facts) source_rel)).
       { eapply aggregation_commutative. 2: apply set_of_spec.
@@ -2613,9 +2611,6 @@ Section DistributedDatalog.
           { eauto using steps_preserves_sanity. }
           specialize' H.
           { eauto using steps_preserves_meta_facts_correct. }
-          (* specialize' H. *)
-          (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
-          (*   apply IHR. eapply smth_about_edges; eassumption. } *)
           specialize' H.
           { eapply good_layout_sound; eassumption. }
           destruct H as (g2&Hstep2&Hg2).
@@ -2641,8 +2636,6 @@ Section DistributedDatalog.
       specialize' H'.
       { eapply good_layout_sound; eassumption. }
       specialize (H' ltac:(assumption)).
-      (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
-      (*   apply IHR. apply t_step. cbv [rel_edge']. eauto. } *)
       specialize' H'.
       (*this next thing is terrible.  should be a nice way to state something equivalent as a lemma.*)
       { apply Forall_forall. intros f' Hf'. destruct f'; [constructor|].
