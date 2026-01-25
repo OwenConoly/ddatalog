@@ -1584,22 +1584,19 @@ Section DistributedDatalog.
         rel_of f' = R ->
         (knows_datalog_fact g f' /\ consistent g f') ->
         prog_impl_implication p (fact_in_inputs g.(input_facts)) f').
+
+  Definition graph_correct g :=
+    forall f,
+      (knows_datalog_fact g f /\ consistent g f) ->
+      prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
   
   Definition graph_sound_for g R :=
     forall g',
       comp_step^* g g' ->
       graph_correct_for g' R.
 
-  Definition graph_relatively_sound_for g R :=
-    forall g' g'',
-      comp_step^* g g' ->      
-      comp_step g' g'' ->
-      (forall R0, graph_correct_for g' R0) ->
-      graph_correct_for g'' R.
-
-  Definition graph_complete_for (g : graph_state) (R : rel) :=
+  Definition graph_complete (g : graph_state) :=
     forall f,
-      rel_of f = R ->
       prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
       exists g',
         comp_step^* g g' /\
@@ -1620,28 +1617,9 @@ Section DistributedDatalog.
   Definition rel_edge' R1 R2 :=
     exists R3, rel_edge R1 R3 /\ any_edge^* R3 R2.
 
-  Print trc.
-
-  Inductive trc' {A : Type} (R : A -> A -> Prop) : A -> list A -> A -> Prop :=
-  | TrcRefl' x : trc' _ x [] x
-  | TrcFront' x y l z :
-    R x y ->
-    trc' _ y l z ->
-    trc' _ x (y :: l) z.
-
   Definition graph_correct_until g R :=
     forall R0, rel_edge'^+ R0 R -> graph_correct_for g R0.
   
-  Definition graph_relatively_complete_for g R :=
-    forall f,
-      rel_of f = R ->
-      prog_impl_implication p (fact_in_inputs (input_facts g)) f ->
-      exists l g',
-        trc' comp_step g l g' /\
-          (graph_correct_until g R ->
-           Forall (fun g0 => graph_correct_until g0 R) l ->
-           knows_datalog_fact g' f).
-
   Definition same_msgs_received g g' :=
     forall n,
       (g.(node_states) n).(msgs_received) = (g'.(node_states) n).(msgs_received).  
@@ -1865,319 +1843,34 @@ Section DistributedDatalog.
               fold_right (interp_agg a) (agg_id a) vals1 =
                 fold_right (interp_agg a) (agg_id a) vals2).
 
-  Lemma trc'_trc {X : Type} (R : X -> _) x l y :
-    trc' R x l y ->
-    trc R x y.
-  Proof. induction 1; eauto. Qed.
-  Hint Resolve trc'_trc : core.
-
-  Hint Constructors trc' : core.
-  Lemma trc_trc' {X : Type} (R : X -> _) x y :
-    trc R x y ->
-    exists l, trc' R x l y.
-  Proof. induction 1; fwd; eauto. Qed.
-  Hint Resolve trc_trc' : core.
-
-  Lemma trc'_trans {X : Type} (R : X -> _) x l1 y l2 z :
-    trc' R x l1 y ->
-    trc' R y l2 z ->
-    trc' R x (l1 ++ l2) z.
-  Proof. induction 1; simpl; eauto. Qed.
-
-  Lemma trc'_end {X : Type} (R : X -> _) x l y :
-    trc' R x l y ->
-    In y (x :: l).
-  Proof. induction 1; simpl; eauto. Qed.
-  
-  Lemma good_layout_complete'' r hyps g R f :
-    good_inputs g.(input_facts) ->
+  Lemma something_about_expect_num_R_facts R S g n :
     sane_graph g ->
-    meta_facts_correct rules g ->
-    Forall (knows_datalog_fact g) hyps ->
-    Forall (consistent g) hyps ->
-    In r p ->
-    rule_impl r f hyps ->
-    rel_of f = R ->
-     exists gs g',
-       trc' comp_step g gs g' /\
-         (graph_correct_until g R ->
-          Forall (fun g0 => graph_correct_until g0 R) gs ->
-          knows_datalog_fact g' f).
-  Proof.
-    intros Hinp Hsane Hmf Hhyps1 Hhyps2 Hr Himpl Hf.
-    pose proof Hlayout as Hgood.
-    pose proof Hgood as Hgood'.
-    invert Himpl.
-    - cbv [good_layout] in Hgood. destruct Hgood as (Hgood&_).
-      apply Hgood in Hr. clear Hgood.
-      destruct Hr as (n&Hr).
-      
-      edestruct node_can_receive_known_facts as (g1&Hstep1&Hhypsg1).
-      { eassumption. }
-      { apply Forall_map with (f := fun '(R, args) => normal_dfact R args).
-        rewrite Lists.List.Forall_map in Hhyps1.
-        eapply Forall_impl; [|exact Hhyps1].
-        simpl. intros [? ?]. simpl. intros H'. exact H'. }
-
-      eenough (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g1 n) R0 _).
-      { pose proof (Classical_Prop.classic (exists num, In (meta_dfact R0 (Some n) num) (known_facts (node_states g1 n)))) as Hor.
-        destruct Hor as [Hor|Hor].
-        { apply trc_trc' in Hstep1. fwd. exists l, g1. split; [eassumption|].
-          simpl. cbv [knows_fact].
-          eapply steps_preserves_meta_facts_correct in Hmf; cycle -1.
-          { eapply trc'_trc. exact Hstep1. }
-          all: try eassumption.
-          cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
-          specialize Hmf with (1 := Hor). destruct Hmf as (_&Hmf). eauto. }
-        apply trc_trc' in Hstep1. fwd.
-        eexists. eexists. split.
-          { (*first, step to a state where node n knows all the hypotheses;
-              then, one final step where n deduces the conclusion*)
-            eapply trc'_trans.
-            { exact Hstep1. }
-            eapply TrcFront'. 2: apply TrcRefl'.
-            apply LearnFact with (n := n) (f := normal_dfact R0 args).
-            simpl. split.
-            { eauto. }
-            assumption. }
-      simpl. cbv [knows_fact]. simpl. right. exists n.
-      destr (node_eqb n n); [|congruence].
-      simpl. left. reflexivity. }
-      cbv [can_learn_normal_fact_at_node].
-      eexists. split; [eassumption|]. simpl.
-      do 2 eexists. split; [eassumption|]. split; [eassumption|].
-      intros R' args' H'. rewrite Lists.List.Forall_map in Hhypsg1.
-      rewrite Forall_forall in Hhypsg1. apply Hhypsg1 in H'. exact H'.
-    - cbv [good_layout] in Hgood. destruct Hgood as (_&Hgood&_).
-      apply Hgood in Hr. clear Hgood.
-      destruct Hr as (n&Hr).
-
-      invert Hhyps1. rename H2 into Hmhyp. rename H3 into Hhyps.
-      
-      edestruct node_can_receive_known_facts with (g := g) as (g1&Hg1&Hhyps1).
-      { eassumption. }
-      { eapply Forall_map.
-        rewrite Lists.List.Forall_map in Hhyps.
-        exact Hhyps. }
-
-      pose proof Hmhyp as HS.
-      eapply comp_steps_preserves_datalog_facts in Hmhyp; [|exact Hg1].
-      eapply knows_datalog_fact_knows_num_R_facts in Hmhyp. fwd.
-      pose proof Hmhyp as Hmhyp'.
-      eapply node_can_receive_meta_facts in Hmhyp.
-      2: { eauto using steps_preserves_sanity. }
-      2: { erewrite comp_steps_pres_inputs by eauto. assumption. }
-      destruct Hmhyp as (g2&Hg2&Hnum).
-
-      pose proof node_can_receive_expected_facts as Hrcv.
-      specialize Hrcv with (g := g2).
-      Fail specialize Hrcv with (1 := Hnum). (*hmm*) Print meta_facts_correct_at_node.
-      epose_dep Hrcv. specialize' Hrcv.
-      { eapply steps_preserves_sanity; eauto using trc_trans. }
-      specialize' Hrcv.
-      { erewrite comp_steps_pres_inputs. 1: eassumption. eauto using trc_trans. }
-      specialize' Hrcv.
-      { eapply steps_preserves_knows_there_are_num_R_facts; eauto using trc_trans. }
-      specialize (Hrcv Hnum). destruct Hrcv as (g3&Hg3&Hnum').
-
-      eassert (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g3 n) _ _).
-      { cbv [can_learn_normal_fact_at_node].
-        eexists. split; [eassumption|]. simpl.
-        split.
-        { rewrite <- Hnum' in *. eapply expect_num_R_facts_incl; [eassumption|].
-          eapply steps_preserves_known_facts. eassumption. }
-        eexists. split.
-        { apply set_of_spec. }
-        split; reflexivity. }
-      (*   destruct H as (Hp1&Hp2). split. 2: exact Hp2. *)
-
-      assert (H': (forall R', rel_edge R' target_rel -> graph_correct_for g3 R') ->
-                    fold_right (interp_agg rule_agg) (agg_id rule_agg) vals =
-                      fold_right (interp_agg rule_agg) (agg_id rule_agg) (set_of (g3.(node_states) n).(known_facts) source_rel)).
-      { intros Hcor. eapply aggregation_commutative. 2: apply set_of_spec.
-        move H at bottom. cbv [is_list_set] in H. fwd. split; [|assumption].
-        intros x. split; intros Hx.
-        + cbv [graph_correct_for] in Hcor.
-          specialize (Hcor source_rel). specialize' Hcor.
-          { cbv [rel_edge]. cbv [good_layout] in Hgood'.
-          destruct Hgood' as (_&Hgood'&_). eexists. split.
-          { apply Hgood'. eauto. }
-          simpl. auto. }
-          pose proof Hcor as Hcor'.
-          specialize (Hcor (normal_fact source_rel [x]) ltac:(reflexivity)).
-          specialize' Hcor.
-          { simpl. eauto. }
-          specialize (Hcor' (meta_fact source_rel S) ltac:(reflexivity)).
-          specialize' Hcor'.
-          { split.
-            - eapply comp_steps_preserves_datalog_facts.
-              1: eassumption. eauto using Relations.trc_trans.
-            - eapply consistent_preserved; try eassumption. eauto using trc_trans. }
-          (*should follow from Hrels plus Hrels'*)
-          move Hgmr at bottom.
-          apply Hp0.
-          cbv [good_meta_rules] in Hgmr. rewrite <- Hgmr. 1,3: eassumption.
-          simpl. intros R' S' H' x0. fwd.
-          intros. symmetry. apply H'p2.
-        + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
-          specialize (Hhyps1 _ Hx).
-          eapply steps_preserves_known_facts. 2: eassumption.
-          eauto using Relations.trc_trans. }
-
-      epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
-      destruct Hor as [Hor|Hor].
-      { apply trc_trc' in Hg1, Hg2, Hg3. fwd. eexists. exists g3.
-        split; [eauto using trc'_trans|]. simpl. cbv [knows_fact].
-        eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf.
-        all: try eassumption.
-        2: { eauto using trc'_trans. }
-        cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
-        move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
-        intros Hcor. right. eexists. eapply Hmf. rewrite H'.
-        2: { eassert (H'' : trc' _ g _ g3) by eauto using trc'_trans.
-             apply trc'_end in H''. destruct H'' as [H''|H''].
-             - subst. intros. apply Hcor. apply t_step. cbv [rel_edge']. eauto.
-             - rewrite Forall_forall in H0. intros. eapply H0. 1: assumption.
-               apply t_step. cbv [rel_edge']. eauto. }
-        assumption. }
-      eassert (Hlast_step: comp_step g3 _).
-      { eapply LearnFact with (n := n) (f := normal_dfact _ _).
-        simpl. split.
-        { eauto. }
-        eassumption. }
-      apply trc_trc' in Hg1, Hg2, Hg3. fwd.
-      eexists. eexists. split.
-      { (*first, step to a state where node n knows all the hypotheses;
-            then, one final step where n deduces the conclusion*)
-        eapply trc'_trans.
-        { exact Hg1. }
-        eapply trc'_trans.
-        { exact Hg2. }
-        eapply trc'_trans.
-        { exact Hg3. }
-        eapply TrcFront'. 2: apply TrcRefl'. eassumption. }
-        simpl. cbv [knows_fact]. simpl. right. exists n.
-        destr (node_eqb n n); try congruence.
-        simpl. rewrite H'. 1: auto. intros.
-        eassert (H'': trc' _ g _ g3) by eauto using trc'_trans.
-        apply trc'_end in H''. destruct H'' as [H''|H''].
-      + subst. apply H0. apply t_step. cbv [rel_edge']. eauto.
-      + rewrite Forall_forall in H1. apply H1.
-        -- repeat rewrite in_app_iff in *. destruct H'' as [? | [? | ?] ]; auto.
-        -- apply t_step. cbv [rel_edge']. eauto.
-    - destruct Hgood as (_&_&Hgood&_).
-      specialize Hgood with (1 := Hr).
-      cbv [knows_datalog_fact].
-      enough (forall len,
-               exists g' : graph_state,
-                 Relations.trc comp_step g g' /\
-                   (forall n : Node,
-                       In n (firstn len all_nodes) ->
-                       exists num : nat, knows_fact g' (meta_dfact target_rel (Some n) num))) as H'.
-      { specialize (H' (length all_nodes)). rewrite firstn_all in H'.
-        fwd. apply trc_trc' in H'p0. fwd.
-        eexists. eexists. split; eauto.
-        destruct (is_input target_rel) eqn:E.
-        { cbv [good_rules] in rules_good.
-          specialize (Hgood a_node). specialize (rules_good a_node).
-          rewrite Forall_forall in rules_good. apply rules_good in Hgood.
-          simpl in Hgood. congruence. }
-        intros ? ? n. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
-      intros len. induction len.
-      { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
-
-      destruct IHlen as (g1&Hg1&Hhypsg1).
-
-      assert (firstn (S len) all_nodes = firstn len all_nodes \/
-                exists n, firstn (S len) all_nodes = firstn len all_nodes ++ [n]) as [Hor|Hor].
-      { replace (S len) with (len + 1) by lia. rewrite firstn_plus.
-        destruct (skipn len all_nodes); simpl.
-        - left. rewrite app_nil_r. reflexivity.
-        - right. eauto. }
-
-      { rewrite Hor. eauto. }
-
-      destruct Hor as [n Hn].
-
-      pose proof node_can_expect_much as Hg2.
-      specialize Hg2 with (g := g1).
-      epose_dep Hg2. specialize' Hg2.
-      { eauto using steps_preserves_sanity. }
-      specialize' Hg2.
-      { erewrite comp_steps_pres_inputs by eauto. assumption. }
-      specialize (Hg2 ltac:(eassumption)). specialize' Hg2.
-      { eapply Forall_impl; [|eassumption].
-        intros. eapply comp_steps_preserves_datalog_facts; eassumption. }
-      destruct Hg2 as (g2&Hg2&Hhypsg2).
-
-      pose proof node_can_find_all_conclusions as Hg3.
-      
-      specialize (Hg3 g2 n target_rel).
-      destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
-      
-      eexists.
-      split.
-      { eapply Relations.trc_trans.
-        { exact Hg1. }
-        eapply Relations.trc_trans.
-        { exact Hg2. }
-        eapply Relations.trc_trans.
-        { exact Hg3. }
-        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
-        eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
-        simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
-        eexists. split.
-        { apply Hgood. }
-        simpl. split; [reflexivity|]. split.
-        { apply Forall_forall.
-          eapply Forall_impl; [|eassumption].
-          simpl. intros R' HR'.
-          cbv [same_msgs_received] in Hhyps3b. rewrite <- Hhyps3b.
-          eapply expect_num_R_facts_incl; [eassumption|].
-          eapply steps_preserves_known_facts. eassumption. }
-        split.
-        { eassumption. }
-        reflexivity. }
-      rewrite Hn. intros n' Hn'. rewrite in_app_iff in Hn'.
-      destruct Hn' as [Hn'|Hn'].
-      { apply Hhypsg1 in Hn'. fwd. eexists.
-        eapply steps_preserves_facts. 1: eassumption.
-        { (*oops i already proved htis earlier*)
-          eapply Relations.trc_trans.
-        { exact Hg2. }
-        eapply Relations.trc_trans.
-        { exact Hg3. }
-        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
-        eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
-        simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
-        eexists. split.
-        { apply Hgood. }
-        simpl. split; [reflexivity|]. split.
-        { apply Forall_forall.
-          eapply Forall_impl; [|eassumption].
-          simpl. intros R' HR'.
-          cbv [same_msgs_received] in Hhyps3b. rewrite <- Hhyps3b.
-          eapply expect_num_R_facts_incl; [eassumption|].
-          eapply steps_preserves_known_facts. eassumption. }
-        split.
-        { eassumption. }
-        reflexivity.
-        (*end repeated stuff*) } }
-      destruct Hn' as [?|?]; [subst|contradiction].
-      eexists. cbv [knows_fact]. simpl. right.
-      exists n'. destr (node_eqb n' n'); [|congruence]. simpl. left. reflexivity.
-  Qed.
-
-  Lemma fact_in_inputs_knows_datalog_fact g f :
-    fact_in_inputs g.(input_facts) f ->
     good_inputs g.(input_facts) ->
-    knows_datalog_fact g f.
+    expect_num_R_facts R (g.(node_states) n).(known_facts)
+      ((g.(node_states) n).(msgs_received) R) ->
+    knows_datalog_fact g (meta_fact R S).
   Proof.
-    intros H Hinp. destruct f; simpl in *; eauto.
-    fwd.
-    destruct Hinp as [Hinp _]. rewrite Forall_forall in Hinp.
-    specialize (Hinp _ ltac:(eassumption)).
-    simpl in Hinp. rewrite Hinp. eauto.
+    intros Hsane Hinp H.
+    destruct Hsane as (HmfNone&_&_&_&_&Hcnt&Hinp_sane).
+    move Hcnt at bottom. move Hinp_sane at bottom.
+    specialize (Hcnt n R). specialize (Hinp_sane R).
+    simpl. cbv [expect_num_R_facts] in H. destruct (is_input R).
+    --- eexists. split; [eauto|]. fwd. erewrite map_ext in Hcntp2.
+        2: { intros. apply Hinp_sanep0. }
+        rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
+        move Hinp at bottom. destruct Hinp as (_&Hinp). epose_dep Hinp.
+        specialize' Hinp.
+        { apply HmfNone. eauto. }
+        destruct Hinp as (_&Hinp). fwd.
+        eapply Existsn_unique in Hinpp1; [|exact Hcntp1]. subst.
+        assert (num' = (g.(node_states) n).(msgs_received) R) by lia.
+        subst. assumption.
+    --- move H at bottom. fwd. intros n'.
+        apply Forall2_forget_r in Hp0. move Hall_nodes at bottom.
+        destruct Hall_nodes as (H'&_). rewrite Forall_forall in Hp0.
+        specialize (Hp0 n'). specialize' Hp0.
+        { apply H'. constructor. }
+        fwd. eauto.
   Qed.
 
   Lemma expect_num_R_facts_knows_everything g n R args :
@@ -2207,6 +1900,18 @@ Section DistributedDatalog.
     intros HQ H1 H2 args. cbv [good_meta_rules] in Hgmr.
     eapply Hgmr in H1, H2; try eassumption.
     rewrite <- H1, <- H2. reflexivity.
+  Qed.
+
+  Lemma fact_in_inputs_knows_datalog_fact g f :
+    fact_in_inputs g.(input_facts) f ->
+    good_inputs g.(input_facts) ->
+    knows_datalog_fact g f.
+  Proof.
+    intros H Hinp. destruct f; simpl in *; eauto.
+    fwd.
+    destruct Hinp as [Hinp _]. rewrite Forall_forall in Hinp.
+    specialize (Hinp _ ltac:(eassumption)).
+    simpl in Hinp. rewrite Hinp. eauto.
   Qed.
 
   Lemma use_meta_facts_correct R S Rs g :
@@ -2301,223 +2006,6 @@ Section DistributedDatalog.
            apply H0p0 in H'. apply HRsp0 in H'.
            eapply expect_num_R_facts_knows_everything; assumption.
   Qed.
-  
-  Lemma any_edge_spec (r : rule) f hyps :
-    rule_impl r f hyps ->
-    Forall (fun R => is_edge r R (rel_of f)) (map rel_of hyps).
-  Proof.
-    invert 1; simpl in *.
-    - apply Exists_exists in H0. fwd. invert H0p1.
-      apply Forall_map. apply Forall_map. apply Forall2_forget_l in H1.
-      eapply Forall_impl; [|eassumption]. simpl.
-      intros [R' args'] H. fwd. invert Hp1. simpl. auto using in_map.
-    - constructor; simpl; auto. apply Forall_map. apply Forall_map.
-      simpl. apply Forall_forall. auto.
-    -  apply Forall_map. apply Forall_zip. eapply Forall2_impl_strong.
-       2: { apply Forall2_true. assumption. }
-       simpl. auto.
-  Qed.
-
-  Lemma graph_sound_for_preserved g R g' :
-    graph_sound_for g R ->
-    comp_step^* g g' ->
-    graph_sound_for g' R.
-  Proof.
-    intros H Hstep. cbv [graph_sound_for]. intros.
-    apply H. eauto using trc_trans.
-  Qed.
-
-  Lemma ct_crt (A : Type) R (x y : A) :
-    R^+ x y ->
-    exists z, R^* x z /\ R z y.
-  Proof. induction 1; fwd; eauto using trc_trans. Qed.
-
-  Hint Constructors clos_trans : core.
-  Lemma crt_ct' (A : Type) R (x y z : A) :
-    R^* x z ->
-    R^+ z y ->
-    R^+ x y.
-  Proof. induction 1; eauto. Qed.
-
-  Lemma crt_ct (A : Type) R (x y z : A) :
-    R^* x z ->
-    R z y ->
-    R^+ x y.
-  Proof. induction 1; fwd; eauto using crt_ct'. Qed.
-  
-  Lemma smth_about_edges R0 R R' :
-    any_edge R0 R ->
-    rel_edge'^+ R' R0 ->
-    rel_edge'^+ R' R.
-  Proof.
-    intros H1 H2. apply ct_crt in H2. fwd.
-    eapply crt_ct. 1: eassumption. clear H2p0.
-    cbv [rel_edge'] in *. fwd. eauto using trc_trans.
-  Qed.
-
-  Lemma sound_impl_consistent g f :
-    good_inputs g.(input_facts) ->
-    graph_sound_for g (rel_of f) ->
-    prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
-    knows_datalog_fact g f ->
-    consistent g f.
-  Proof.
-    intros Hinp Hsound Himpl Hf.
-    pose proof Hsound as Hsound'.
-    specialize (Hsound g ltac:(eauto)).
-    destruct f; simpl.
-    { constructor. }
-    epose proof (Hsound (meta_fact mf_rel _) ltac:(simpl; reflexivity)) as Hsound.
-    specialize' Hsound.
-    { split.
-      - simpl. exact Hf.
-      - simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
-    cbv [good_meta_rules] in Hgmr.
-    intros.
-    eapply hmfs_unique in Himpl. 3: exact Hsound.
-    2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
-    rewrite <- Himpl. reflexivity.
-  Qed.
-
-  Lemma correct_impl_consistent g f :
-    good_inputs g.(input_facts) ->
-    graph_correct_for g (rel_of f) ->
-    prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
-    knows_datalog_fact g f ->
-    consistent g f.
-  Proof.
-    intros Hinp Hsound Himpl Hf.
-    pose proof Hsound as Hsound'.
-    destruct f; simpl.
-    { constructor. }
-    epose proof (Hsound (meta_fact mf_rel _) ltac:(simpl; reflexivity)) as Hsound.
-    specialize' Hsound.
-    { split.
-      - simpl. exact Hf.
-      - simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
-    cbv [good_meta_rules] in Hgmr.
-    intros.
-    eapply hmfs_unique in Himpl. 3: exact Hsound.
-    2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
-    rewrite <- Himpl. reflexivity.
-  Qed.
-
-  Lemma graph_correct_until_any_edge g R1 R2 :
-    any_edge R1 R2 ->
-    graph_correct_until g R2 ->
-    graph_correct_until g R1.
-  Proof.
-    intros H1 H2. cbv [graph_correct_until]. intros. apply H2.
-    eapply smth_about_edges; eassumption.
-  Qed.
-  Hint Resolve graph_correct_until_any_edge : core.
-  
-  Lemma good_layout_complete' g R :
-    good_inputs g.(input_facts) ->
-    sane_graph g ->
-    meta_facts_correct rules g ->
-    graph_relatively_complete_for g R.
-  Proof.
-    intros Hinp Hsane Hmfc.
-    cbv [graph_relatively_complete_for].
-    intros f Hf H. subst.
-    (*it's possible to do this without generalizing g, but i don't want to*)
-    remember (fact_in_inputs g.(input_facts)) as Q eqn:E.
-    revert g E Hinp Hsane Hmfc. induction H; intros g E Hinp Hsane Hmfc; subst.
-    - exists nil, g. eauto using fact_in_inputs_knows_datalog_fact.
-    - assert (HR': Forall (fun R => any_edge R (rel_of x)) (map rel_of l)).
-      { apply Exists_exists in H. fwd.
-        eapply Forall_impl.
-        2: { apply any_edge_spec. eassumption. }
-        simpl. cbv [any_edge]. eauto. }
-      assert (Hg1: exists gs g1, trc' comp_step g gs g1 /\
-                             (graph_correct_until g (rel_of x) ->
-                              Forall (fun g0 => graph_correct_until g0 (rel_of x)) gs ->
-                              Forall (knows_datalog_fact g1) l)).
-      { clear H0 H. induction H1.
-        - eauto.
-        - simpl in HR'. invert HR'. specialize (IHForall ltac:(assumption)).
-          fwd. move H at bottom. specialize (H g1).
-          specialize' H.
-          { erewrite <- comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. reflexivity. }
-          specialize' H.
-          { erewrite comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. assumption. }
-          specialize' H.
-          { eauto using steps_preserves_sanity. }
-          specialize' H.
-          { eauto using steps_preserves_meta_facts_correct. }
-          (* specialize' H. *)
-          (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
-          (*   apply IHR. eapply smth_about_edges; eassumption. } *)
-          destruct H as (gs2&g2&Hstep2&Hg2).
-          eexists. eexists. split.
-          { eapply trc'_trans.
-            { apply IHForallp0. }
-            apply Hstep2. }
-          intros H1' H2'. apply Forall_app in H2'. fwd.
-          constructor.
-          -- apply Hg2.
-             ++ apply trc'_end in IHForallp0. destruct IHForallp0.
-                --- subst. eauto.
-                --- rewrite Forall_forall in H2'p0. eauto.
-             ++ eapply Forall_impl; [|eassumption]. eauto.
-          -- eapply Forall_impl; [|apply IHForallp1].
-             ++ eauto using comp_steps_preserves_datalog_facts.
-             ++ assumption.
-             ++ eauto. }
-      clear H1 HR'.
-      destruct Hg1 as (gs1&g1&Hstep1&Hg1).
-      apply Exists_exists in H. destruct H as (r&Hr1&Hr2).
-      pose proof good_layout_complete'' as H'.
-      specialize (H' r l g1 (rel_of x) x).
-      specialize' H'.
-      { erewrite comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. assumption. }
-      specialize' H'.
-      { eauto using steps_preserves_sanity. }
-      specialize' H'.
-      { eauto using steps_preserves_meta_facts_correct. }
-      
-      assert ((fun P => (P \/ ~P)) (graph_correct_until g (rel_of x) /\ Forall (fun g0 => graph_correct_until g0 (rel_of x)) gs1)) as Hcor.
-      { apply Classical_Prop.classic. }
-      destruct Hcor as [Hcor|Hcor].
-      2: { do 2 eexists. split; [eassumption|]. intros. exfalso. auto. }
-      fwd.
-      specialize (Hg1 ltac:(assumption) ltac:(assumption)).
-      specialize (H' ltac:(assumption)).
-      (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
-      (*   apply IHR. apply t_step. cbv [rel_edge']. eauto. } *)
-      assert (Hsmf_rel : graph_correct_until g1 (rel_of x)).
-      { apply trc'_end in Hstep1. destruct Hstep1; subst; auto.
-        rewrite Forall_forall in Hcorp1. auto. }
-      specialize' H'.
-      (*this next thing is terrible.  should be a nice way to state something equivalent as a lemma.*)
-      { apply Forall_forall. intros f' Hf'. destruct f'; [constructor|].
-        apply correct_impl_consistent.
-        - erewrite comp_steps_pres_inputs with (g := g) by eauto. assumption.
-        - apply Hsmf_rel.
-          simpl. invert Hr2.
-          + exfalso. apply in_map_iff in Hf'. fwd. destruct x. congruence.
-          + simpl. apply t_step. cbv [rel_edge']. eexists. split.
-            -- cbv [rel_edge]. eexists. split; [eassumption|]. simpl.
-               destruct Hf' as [Hf'|Hf'].
-               ++ invert Hf'. eauto.
-               ++ apply in_map_iff in Hf'. fwd. congruence.
-            -- auto.
-          + simpl. apply t_step. cbv [rel_edge']. eexists. split.
-            -- cbv [rel_edge]. eexists. split; [eassumption|]. simpl.
-               cbv [zip] in Hf'. apply in_map_iff in Hf'. fwd.
-               apply in_combine_l in Hf'p1. eauto.
-          -- auto.
-        - rewrite Forall_forall in H0.
-          erewrite comp_steps_pres_inputs with (g := g) by eauto.
-          apply H0. assumption.
-        - rewrite Forall_forall in Hg1. auto. }
-      specialize (H' ltac:(assumption) ltac:(assumption) eq_refl).
-      destruct H' as (gs2&g2&Hstep2&Hg2). eexists. exists g2.
-      split; [eauto using trc'_trans|].
-      intros Hg Hgs. apply Forall_app in Hgs. fwd.
-      apply Hg2; auto.
-  Qed.
 
   Lemma list_em U (l : list U) P Q :
     Forall (fun x => P x \/ Q x) l ->
@@ -2525,36 +2013,6 @@ Section DistributedDatalog.
   Proof.
     induction 1; auto.
     do 2 match goal with | H: _ \/ _ |- _ => destruct H end; auto.
-  Qed.
-
-  Lemma something_about_expect_num_R_facts R S g n :
-    sane_graph g ->
-    good_inputs g.(input_facts) ->
-    expect_num_R_facts R (g.(node_states) n).(known_facts)
-      ((g.(node_states) n).(msgs_received) R) ->
-    knows_datalog_fact g (meta_fact R S).
-  Proof.
-    intros Hsane Hinp H.
-    destruct Hsane as (HmfNone&_&_&_&_&Hcnt&Hinp_sane).
-    move Hcnt at bottom. move Hinp_sane at bottom.
-    specialize (Hcnt n R). specialize (Hinp_sane R).
-    simpl. cbv [expect_num_R_facts] in H. destruct (is_input R).
-    --- eexists. split; [eauto|]. fwd. erewrite map_ext in Hcntp2.
-        2: { intros. apply Hinp_sanep0. }
-        rewrite map_const in Hcntp2. rewrite fold_left_add_repeat in Hcntp2.
-        move Hinp at bottom. destruct Hinp as (_&Hinp). epose_dep Hinp.
-        specialize' Hinp.
-        { apply HmfNone. eauto. }
-        destruct Hinp as (_&Hinp). fwd.
-        eapply Existsn_unique in Hinpp1; [|exact Hcntp1]. subst.
-        assert (num' = (g.(node_states) n).(msgs_received) R) by lia.
-        subst. assumption.
-    --- move H at bottom. fwd. intros n'.
-        apply Forall2_forget_r in Hp0. move Hall_nodes at bottom.
-        destruct Hall_nodes as (H'&_). rewrite Forall_forall in Hp0.
-        specialize (Hp0 n'). specialize' Hp0.
-        { apply H'. constructor. }
-        fwd. eauto.
   Qed.
 
   Lemma meta_fact_ext (r : rule) R S S' hyps :
@@ -2603,19 +2061,17 @@ Section DistributedDatalog.
     ~rel_edge' R R.
   Proof.
     intros ?. specialize (rel_edge'_wf R). induction rel_edge'_wf; eauto.
-  Qed.  
-    
-  Lemma good_layout_sound'' g g' R :
-    good_inputs g.(input_facts) ->
+  Qed.
+  
+  Lemma good_layout_sound' g g' :
     sane_graph g ->
-    (forall f',
-        knows_datalog_fact g f' /\ consistent g f' ->
-        prog_impl_implication p (fact_in_inputs g.(input_facts)) f') ->
+    good_inputs g.(input_facts) ->
     meta_facts_correct rules g ->
+    graph_correct g ->
     comp_step g g' ->
-    graph_correct_for g' R.
+    graph_correct g'.
   Proof.
-    intros Hinp Hsane Hsound Hmfs Hstep f ? (Hf1&Hf2). subst.
+    intros Hsane Hinp Hmfs Hsound Hstep f (Hf1&Hf2).
     pose proof Hstep as Hstep'.
     invert Hstep.
     - apply Hsound. destruct f; simpl in *.
@@ -2741,61 +2197,467 @@ Section DistributedDatalog.
                   +++ simpl. intros. reflexivity.
   Qed.
 
-  
-
-  Lemma good_layout_sound' g g' :
-    (forall R0, graph_correct_for g R) ->
-    graph_relatively_complete_for g R ->
-    comp_step g g' ->
-    graph_
-
-  (*funny name*)
-  Lemma derelativize_soundness g :
-    (forall R, graph_correct_for g R) ->
-    (forall R, graph_relatively_sound_for g R) ->
-    forall R, graph_sound_for g R.
+  Lemma good_layout_sound g g' :
+    sane_graph g ->
+    good_inputs g.(input_facts) ->
+    meta_facts_correct rules g ->
+    graph_correct g ->
+    comp_step^* g g' ->
+    graph_correct g'.
   Proof.
-    intros Hinit Hrelative R. cbv [graph_sound_for].
-    intros g' Hsteps. induction Hsteps.
-    - apply Hinit.
-    - apply IHHsteps.
-      + intros R0. specialize (Hrelative R0).
-        cbv [graph_relatively_sound_for] in Hrelative.
-        eapply Hrelative. 3: eassumption. all: auto.
-      + intros R0. cbv [graph_relatively_sound_for]. intros.
-        eapply Hrelative. 2: exact H1. all: eauto.
+    induction 5; auto. apply IHtrc.
+    - eauto using step_preserves_sanity.
+    - erewrite comp_step_pres_inputs by eassumption. assumption.
+    - eapply step_preserves_mf_correct; eassumption.
+    - eapply good_layout_sound'; eassumption.
   Qed.
 
-  Lemma derelativize_completeness g :
-    (forall R, graph_sound_for g R) ->
-    (forall R, graph_relatively_complete_for g R) ->
-    forall R, graph_complete_for g R.
-  Proof.
-    intros Hs Hc R. cbv [graph_complete_for].
-    intros f ? Hf. subst.
-    cbv [graph_relatively_complete_for] in Hc.
-    specialize (Hc _ _ eq_refl Hf).
-    fwd. eexists. split; [eassumption|]. apply Hcp1.
-    intros. apply Hs. assumption.
-  Qed.
-  
-  Lemma good_layout_sound' g R :
-    well_founded rel_edge'^+ ->
+  Lemma good_layout_complete'' r hyps g f :
     good_inputs g.(input_facts) ->
     sane_graph g ->
     meta_facts_correct rules g ->
-    graph_relatively_sound_for g R /\ graph_relatively_complete_for g R.
+    graph_correct g ->
+    Forall (knows_datalog_fact g) hyps ->
+    Forall (consistent g) hyps ->
+    In r p ->
+    rule_impl r f hyps ->
+     exists g',
+       comp_step^* g g' /\
+         knows_datalog_fact g' f.
   Proof.
-    intros Hwf Hinp Hsane Hmfs. specialize (Hwf R). induction Hwf.
-    assert (Hc : graph_relatively_complete_for g x).
-    { eapply good_layout_complete'; try assumption.
-      intros R' HR'. apply H1 in HR'. fwd. assumption. }
-    split; [|assumption].
-    cbv [graph_sound_for].
-      - assumption.
-      - 
-    
+    intros Hinp Hsane Hmf Hcor Hhyps1 Hhyps2 Hr Himpl.
+    pose proof Hlayout as Hgood.
+    pose proof Hgood as Hgood'.
+    invert Himpl.
+    - cbv [good_layout] in Hgood. destruct Hgood as (Hgood&_).
+      apply Hgood in Hr. clear Hgood.
+      destruct Hr as (n&Hr).
+      
+      edestruct node_can_receive_known_facts as (g1&Hstep1&Hhypsg1).
+      { eassumption. }
+      { apply Forall_map with (f := fun '(R, args) => normal_dfact R args).
+        rewrite Lists.List.Forall_map in Hhyps1.
+        eapply Forall_impl; [|exact Hhyps1].
+        simpl. intros [? ?]. simpl. intros H'. exact H'. }
 
-  Lemma 
+      eenough (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g1 n) R _).
+      { pose proof (Classical_Prop.classic (exists num, In (meta_dfact R (Some n) num) (known_facts (node_states g1 n)))) as Hor.
+        destruct Hor as [Hor|Hor].
+        { exists g1. split; [eassumption|].
+          simpl. cbv [knows_fact].
+          eapply steps_preserves_meta_facts_correct in Hmf; cycle -1.
+          { exact Hstep1. }
+          all: try eassumption.
+          cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
+          fwd. specialize Hmf with (1 := Hor). destruct Hmf as (_&Hmf). eauto. }
+        fwd.
+        eexists. split.
+          { (*first, step to a state where node n knows all the hypotheses;
+              then, one final step where n deduces the conclusion*)
+            eapply trc_trans.
+            { exact Hstep1. }
+            eapply TrcFront. 2: apply TrcRefl.
+            apply LearnFact with (n := n) (f := normal_dfact R args).
+            simpl. split.
+            { eauto. }
+            assumption. }
+      simpl. cbv [knows_fact]. simpl. right. exists n.
+      destr (node_eqb n n); [|congruence].
+      simpl. left. reflexivity. }
+      cbv [can_learn_normal_fact_at_node].
+      eexists. split; [eassumption|]. simpl.
+      do 2 eexists. split; [eassumption|]. split; [eassumption|].
+      intros R' args' H'. rewrite Lists.List.Forall_map in Hhypsg1.
+      rewrite Forall_forall in Hhypsg1. apply Hhypsg1 in H'. exact H'.
+    - cbv [good_layout] in Hgood. destruct Hgood as (_&Hgood&_).
+      apply Hgood in Hr. clear Hgood.
+      destruct Hr as (n&Hr).
+
+      invert Hhyps1. rename H2 into Hmhyp. rename H3 into Hhyps.
+      
+      edestruct node_can_receive_known_facts with (g := g) as (g1&Hg1&Hhyps1).
+      { eassumption. }
+      { eapply Forall_map.
+        rewrite Lists.List.Forall_map in Hhyps.
+        exact Hhyps. }
+
+      pose proof Hmhyp as HS.
+      eapply comp_steps_preserves_datalog_facts in Hmhyp; [|exact Hg1].
+      eapply knows_datalog_fact_knows_num_R_facts in Hmhyp. fwd.
+      pose proof Hmhyp as Hmhyp'.
+      eapply node_can_receive_meta_facts in Hmhyp.
+      2: { eauto using steps_preserves_sanity. }
+      2: { erewrite comp_steps_pres_inputs by eauto. assumption. }
+      destruct Hmhyp as (g2&Hg2&Hnum).
+
+      pose proof node_can_receive_expected_facts as Hrcv.
+      specialize Hrcv with (g := g2).
+      Fail specialize Hrcv with (1 := Hnum). (*hmm*) Print meta_facts_correct_at_node.
+      epose_dep Hrcv. specialize' Hrcv.
+      { eapply steps_preserves_sanity; eauto using trc_trans. }
+      specialize' Hrcv.
+      { erewrite comp_steps_pres_inputs. 1: eassumption. eauto using trc_trans. }
+      specialize' Hrcv.
+      { eapply steps_preserves_knows_there_are_num_R_facts; eauto using trc_trans. }
+      specialize (Hrcv Hnum). destruct Hrcv as (g3&Hg3&Hnum').
+
+      eassert (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g3 n) _ _).
+      { cbv [can_learn_normal_fact_at_node].
+        eexists. split; [eassumption|]. simpl.
+        split.
+        { rewrite <- Hnum' in *. eapply expect_num_R_facts_incl; [eassumption|].
+          eapply steps_preserves_known_facts. eassumption. }
+        eexists. split.
+        { apply set_of_spec. }
+        split; reflexivity. }
+      (*   destruct H as (Hp1&Hp2). split. 2: exact Hp2. *)
+
+      assert (H': fold_right (interp_agg rule_agg) (agg_id rule_agg) vals =
+                    fold_right (interp_agg rule_agg) (agg_id rule_agg) (set_of (g3.(node_states) n).(known_facts) source_rel)).
+      { eapply aggregation_commutative. 2: apply set_of_spec.
+        move H at bottom. cbv [is_list_set] in H. fwd. split; [|assumption].
+        intros x. split; intros Hx.
+        + pose proof good_layout_sound as Hsound.
+          specialize (Hsound g g3 ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using trc_trans)).
+          pose proof Hsound as Hsound'.
+          specialize (Hsound (normal_fact source_rel [x])).
+          specialize' Hsound.
+          { simpl. eauto. }
+          specialize (Hsound' (meta_fact source_rel S)).
+          specialize' Hsound'.
+          { split.
+            - eapply comp_steps_preserves_datalog_facts.
+              1: eassumption. eauto using Relations.trc_trans.
+            - eapply consistent_preserved; try eassumption. eauto using trc_trans. }
+          (*should follow from Hrels plus Hrels'*)
+          move Hgmr at bottom.
+          apply Hp0.
+          cbv [good_meta_rules] in Hgmr. rewrite <- Hgmr. 1,3: eassumption.
+          simpl. intros R' S' H' x0. fwd.
+          intros. symmetry. apply H'p2.
+        + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
+          specialize (Hhyps1 _ Hx).
+          eapply steps_preserves_known_facts. 2: eassumption.
+          eauto using Relations.trc_trans. }
+
+      epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
+      destruct Hor as [Hor|Hor].
+      { fwd. exists g3.
+        split; [eauto using trc_trans|]. simpl. cbv [knows_fact].
+        eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf.
+        all: try eassumption.
+        2: { eauto using trc_trans. }
+        cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
+        move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
+        right. eexists. eapply Hmf. rewrite H'.
+        assumption. }
+      eassert (Hlast_step: comp_step g3 _).
+      { eapply LearnFact with (n := n) (f := normal_dfact _ _).
+        simpl. split.
+        { eauto. }
+        eassumption. }
+      fwd. eexists. split.
+      { (*first, step to a state where node n knows all the hypotheses;
+            then, one final step where n deduces the conclusion*)
+        eapply trc_trans.
+        { exact Hg1. }
+        eapply trc_trans.
+        { exact Hg2. }
+        eapply trc_trans.
+        { exact Hg3. }
+        eapply TrcFront. 2: apply TrcRefl. eassumption. }
+        simpl. cbv [knows_fact]. simpl. right. exists n.
+        destr (node_eqb n n); try congruence.
+        simpl. rewrite H'. auto.
+    - destruct Hgood as (_&_&Hgood&_).
+      specialize Hgood with (1 := Hr).
+      cbv [knows_datalog_fact].
+      enough (forall len,
+               exists g' : graph_state,
+                 Relations.trc comp_step g g' /\
+                   (forall n : Node,
+                       In n (firstn len all_nodes) ->
+                       exists num : nat, knows_fact g' (meta_dfact target_rel (Some n) num))) as H'.
+      { specialize (H' (length all_nodes)). rewrite firstn_all in H'.
+        fwd. eexists. split; eauto.
+        destruct (is_input target_rel) eqn:E.
+        { cbv [good_rules] in rules_good.
+          specialize (Hgood a_node). specialize (rules_good a_node).
+          rewrite Forall_forall in rules_good. apply rules_good in Hgood.
+          simpl in Hgood. congruence. }
+        intros n. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
+      intros len. induction len.
+      { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
+
+      destruct IHlen as (g1&Hg1&Hhypsg1).
+
+      assert (firstn (S len) all_nodes = firstn len all_nodes \/
+                exists n, firstn (S len) all_nodes = firstn len all_nodes ++ [n]) as [Hor|Hor].
+      { replace (S len) with (len + 1) by lia. rewrite firstn_plus.
+        destruct (skipn len all_nodes); simpl.
+        - left. rewrite app_nil_r. reflexivity.
+        - right. eauto. }
+
+      { rewrite Hor. eauto. }
+
+      destruct Hor as [n Hn].
+
+      pose proof node_can_expect_much as Hg2.
+      specialize Hg2 with (g := g1).
+      epose_dep Hg2. specialize' Hg2.
+      { eauto using steps_preserves_sanity. }
+      specialize' Hg2.
+      { erewrite comp_steps_pres_inputs by eauto. assumption. }
+      specialize (Hg2 ltac:(eassumption)). specialize' Hg2.
+      { eapply Forall_impl; [|eassumption].
+        intros. eapply comp_steps_preserves_datalog_facts; eassumption. }
+      destruct Hg2 as (g2&Hg2&Hhypsg2).
+
+      pose proof node_can_find_all_conclusions as Hg3.
+      
+      specialize (Hg3 g2 n target_rel).
+      destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
+      
+      eexists.
+      split.
+      { eapply Relations.trc_trans.
+        { exact Hg1. }
+        eapply Relations.trc_trans.
+        { exact Hg2. }
+        eapply Relations.trc_trans.
+        { exact Hg3. }
+        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
+        simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
+        eexists. split.
+        { apply Hgood. }
+        simpl. split; [reflexivity|]. split.
+        { apply Forall_forall.
+          eapply Forall_impl; [|eassumption].
+          simpl. intros R' HR'.
+          cbv [same_msgs_received] in Hhyps3b. rewrite <- Hhyps3b.
+          eapply expect_num_R_facts_incl; [eassumption|].
+          eapply steps_preserves_known_facts. eassumption. }
+        split.
+        { eassumption. }
+        reflexivity. }
+      rewrite Hn. intros n' Hn'. rewrite in_app_iff in Hn'.
+      destruct Hn' as [Hn'|Hn'].
+      { apply Hhypsg1 in Hn'. fwd. eexists.
+        eapply steps_preserves_facts. 1: eassumption.
+        { (*oops i already proved htis earlier*)
+          eapply Relations.trc_trans.
+        { exact Hg2. }
+        eapply Relations.trc_trans.
+        { exact Hg3. }
+        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
+        simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
+        eexists. split.
+        { apply Hgood. }
+        simpl. split; [reflexivity|]. split.
+        { apply Forall_forall.
+          eapply Forall_impl; [|eassumption].
+          simpl. intros R' HR'.
+          cbv [same_msgs_received] in Hhyps3b. rewrite <- Hhyps3b.
+          eapply expect_num_R_facts_incl; [eassumption|].
+          eapply steps_preserves_known_facts. eassumption. }
+        split.
+        { eassumption. }
+        reflexivity.
+        (*end repeated stuff*) } }
+      destruct Hn' as [?|?]; [subst|contradiction].
+      eexists. cbv [knows_fact]. simpl. right.
+      exists n'. destr (node_eqb n' n'); [|congruence]. simpl. left. reflexivity.
+  Qed.
+
+  Lemma any_edge_spec (r : rule) f hyps :
+    rule_impl r f hyps ->
+    Forall (fun R => is_edge r R (rel_of f)) (map rel_of hyps).
+  Proof.
+    invert 1; simpl in *.
+    - apply Exists_exists in H0. fwd. invert H0p1.
+      apply Forall_map. apply Forall_map. apply Forall2_forget_l in H1.
+      eapply Forall_impl; [|eassumption]. simpl.
+      intros [R' args'] H. fwd. invert Hp1. simpl. auto using in_map.
+    - constructor; simpl; auto. apply Forall_map. apply Forall_map.
+      simpl. apply Forall_forall. auto.
+    -  apply Forall_map. apply Forall_zip. eapply Forall2_impl_strong.
+       2: { apply Forall2_true. assumption. }
+       simpl. auto.
+  Qed.
+
+  Lemma graph_sound_for_preserved g R g' :
+    graph_sound_for g R ->
+    comp_step^* g g' ->
+    graph_sound_for g' R.
+  Proof.
+    intros H Hstep. cbv [graph_sound_for]. intros.
+    apply H. eauto using trc_trans.
+  Qed.
+
+  Lemma ct_crt (A : Type) R (x y : A) :
+    R^+ x y ->
+    exists z, R^* x z /\ R z y.
+  Proof. induction 1; fwd; eauto using trc_trans. Qed.
+
+  Hint Constructors clos_trans : core.
+  Lemma crt_ct' (A : Type) R (x y z : A) :
+    R^* x z ->
+    R^+ z y ->
+    R^+ x y.
+  Proof. induction 1; eauto. Qed.
+
+  Lemma crt_ct (A : Type) R (x y z : A) :
+    R^* x z ->
+    R z y ->
+    R^+ x y.
+  Proof. induction 1; fwd; eauto using crt_ct'. Qed.
+  
+  Lemma smth_about_edges R0 R R' :
+    any_edge R0 R ->
+    rel_edge'^+ R' R0 ->
+    rel_edge'^+ R' R.
+  Proof.
+    intros H1 H2. apply ct_crt in H2. fwd.
+    eapply crt_ct. 1: eassumption. clear H2p0.
+    cbv [rel_edge'] in *. fwd. eauto using trc_trans.
+  Qed.
+
+  Lemma sound_impl_consistent g f :
+    good_inputs g.(input_facts) ->
+    graph_sound_for g (rel_of f) ->
+    prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
+    knows_datalog_fact g f ->
+    consistent g f.
+  Proof.
+    intros Hinp Hsound Himpl Hf.
+    pose proof Hsound as Hsound'.
+    specialize (Hsound g ltac:(eauto)).
+    destruct f; simpl.
+    { constructor. }
+    epose proof (Hsound (meta_fact mf_rel _) ltac:(simpl; reflexivity)) as Hsound.
+    specialize' Hsound.
+    { split.
+      - simpl. exact Hf.
+      - simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
+    cbv [good_meta_rules] in Hgmr.
+    intros.
+    eapply hmfs_unique in Himpl. 3: exact Hsound.
+    2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
+    rewrite <- Himpl. reflexivity.
+  Qed.
+
+  Lemma correct_impl_consistent g f :
+    good_inputs g.(input_facts) ->
+    graph_correct_for g (rel_of f) ->
+    prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
+    knows_datalog_fact g f ->
+    consistent g f.
+  Proof.
+    intros Hinp Hsound Himpl Hf.
+    pose proof Hsound as Hsound'.
+    destruct f; simpl.
+    { constructor. }
+    epose proof (Hsound (meta_fact mf_rel _) ltac:(simpl; reflexivity)) as Hsound.
+    specialize' Hsound.
+    { split.
+      - simpl. exact Hf.
+      - simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
+    cbv [good_meta_rules] in Hgmr.
+    intros.
+    eapply hmfs_unique in Himpl. 3: exact Hsound.
+    2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
+    rewrite <- Himpl. reflexivity.
+  Qed.
+
+  Lemma graph_correct_until_any_edge g R1 R2 :
+    any_edge R1 R2 ->
+    graph_correct_until g R2 ->
+    graph_correct_until g R1.
+  Proof.
+    intros H1 H2. cbv [graph_correct_until]. intros. apply H2.
+    eapply smth_about_edges; eassumption.
+  Qed.
+  Hint Resolve graph_correct_until_any_edge : core.
+
+  Lemma good_layout_complete g :
+    good_inputs g.(input_facts) ->
+    sane_graph g ->
+    meta_facts_correct rules g ->
+    graph_correct g ->
+    graph_complete g.
+  Proof.
+    intros Hinp Hsane Hmfc Hsound.
+    cbv [graph_complete].
+    intros f H.
+    (*it's possible to do this without generalizing g, but i don't want to*)
+    remember (fact_in_inputs g.(input_facts)) as Q eqn:E.
+    revert g E Hinp Hsane Hmfc Hsound. induction H; intros g E Hinp Hsane Hmfc Hsound; subst.
+    - exists g. eauto using fact_in_inputs_knows_datalog_fact.
+    - assert (HR': Forall (fun R => any_edge R (rel_of x)) (map rel_of l)).
+      { apply Exists_exists in H. fwd.
+        eapply Forall_impl.
+        2: { apply any_edge_spec. eassumption. }
+        simpl. cbv [any_edge]. eauto. }
+      assert (Hg1: exists g1, comp_step^* g g1 /\ Forall (knows_datalog_fact g1) l).
+      { clear H0 H. induction H1.
+        - eauto.
+        - simpl in HR'. invert HR'. specialize (IHForall ltac:(assumption)).
+          fwd. move H at bottom. specialize (H g1).
+          specialize' H.
+          { erewrite <- comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. reflexivity. }
+          specialize' H.
+          { erewrite comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. assumption. }
+          specialize' H.
+          { eauto using steps_preserves_sanity. }
+          specialize' H.
+          { eauto using steps_preserves_meta_facts_correct. }
+          (* specialize' H. *)
+          (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
+          (*   apply IHR. eapply smth_about_edges; eassumption. } *)
+          specialize' H.
+          { eapply good_layout_sound; eassumption. }
+          destruct H as (g2&Hstep2&Hg2).
+          eexists. split.
+          { eapply trc_trans.
+            { apply IHForallp0. }
+            apply Hstep2. }
+          constructor; auto.
+          eapply Forall_impl; [|apply IHForallp1].
+          eauto using comp_steps_preserves_datalog_facts. }
+      clear H1 HR'.
+      destruct Hg1 as (g1&Hstep1&Hg1).
+      apply Exists_exists in H. destruct H as (r&Hr1&Hr2).
+      pose proof good_layout_complete'' as H'.
+      specialize (H' r l g1 x).
+      specialize' H'.
+      { erewrite comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. assumption. }
+      specialize' H'.
+      { eauto using steps_preserves_sanity. }
+      specialize' H'.
+      { eauto using steps_preserves_meta_facts_correct. }
+
+      specialize' H'.
+      { eapply good_layout_sound; eassumption. }
+      specialize (H' ltac:(assumption)).
+      (* { intros R' HR'. eapply graph_sound_for_preserved. 2: eassumption. *)
+      (*   apply IHR. apply t_step. cbv [rel_edge']. eauto. } *)
+      specialize' H'.
+      (*this next thing is terrible.  should be a nice way to state something equivalent as a lemma.*)
+      { apply Forall_forall. intros f' Hf'. destruct f'; [constructor|].
+        apply correct_impl_consistent.
+        - erewrite comp_steps_pres_inputs with (g := g) by eauto. assumption.
+        - intros ? ? ?. eapply good_layout_sound; eassumption.
+        - rewrite Forall_forall in H0.
+          erewrite comp_steps_pres_inputs with (g := g) by eauto.
+          apply H0. assumption.
+        - rewrite Forall_forall in Hg1. auto. }
+      specialize (H' ltac:(assumption) ltac:(assumption)).
+      destruct H' as (g2&Hstep2&Hg2). exists g2.
+      split; [eauto using trc_trans|].
+      assumption.
+  Qed.
+
   syntax error
 End DistributedDatalog.
