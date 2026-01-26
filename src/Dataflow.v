@@ -2,10 +2,17 @@ From Stdlib Require Import List Bool.
 From Datalog Require Import Datalog Tactics.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 From Stdlib Require Import Lia.
-From ATL Require Import Relations. (*TODO i did not actually mean to use trc from here; should i use the stdlib thing instead?*)
 From Datalog Require Import List.
 From Stdlib Require Import Relations.Relation_Operators.
 From Stdlib Require Import Permutation.
+
+Notation "R ^*" := (clos_refl_trans_1n _ R) (format "R ^*").
+Hint Constructors clos_refl_trans_1n : core.
+Lemma crt1n_transitive A R (x y z : A) :
+  R^* x y ->
+  R^* y z ->
+  R^* x z.
+Proof. induction 1; eauto. Qed.
 
 Import ListNotations.
 
@@ -358,7 +365,7 @@ Section DistributedDatalog.
               | H: knows_fact _ _ |- _ => destruct H
               (* | H: exists _, _ |- _ => destruct H *)
               (* | H: _ /\ _ |- _ => destruct H *)
-              | _ => progress fwd
+              | _ => progress fwd (*slow, would be nice to replace by lines above*)
               | H: context[node_eqb ?x ?y] |- _ => destr (node_eqb x y); try congruence
               | |- context[node_eqb ?x ?y] => destr (node_eqb x y); try congruence
               | H: context[rel_eqb ?x ?y] |- _ => destr (rel_eqb x y); try congruence
@@ -368,7 +375,7 @@ Section DistributedDatalog.
               | H: _ \/ _ |- _ => destruct H
               | _ => solve_in_travellers
               | _ => congruence
-              | _ => solve[eauto 6]           
+              | _ => solve[eauto 6]
               end.
 
   Lemma all_nodes_split n :
@@ -674,10 +681,10 @@ Section DistributedDatalog.
   Proof.
     induction 4.
     - reflexivity.
-    - rewrite IHtrc.
+    - rewrite IHclos_refl_trans_1n.
       + eapply expect_num_R_facts_msgs_received_stable_step; eassumption.
       + eauto using steps_preserves_sanity.
-      + erewrite comp_steps_pres_inputs by (eapply TrcFront; eauto). assumption.
+      + erewrite comp_steps_pres_inputs by (eapply rt1n_trans; eauto). assumption.
       + erewrite expect_num_R_facts_msgs_received_stable_step by eassumption.
         eapply expect_num_R_facts_incl.
         -- eassumption.
@@ -903,7 +910,6 @@ Section DistributedDatalog.
                 destr (node_eqb n' n'); [|congruence].
                 simpl. left. reflexivity. }
               cbv [expect_num_R_facts] in Hmfp0.
-              (*why do we know that R' is not an input?*)
               destruct (is_input R'); [congruence|].
               --- fwd.
                   apply Forall2_forget_r in Hmfp0p0.
@@ -1008,7 +1014,6 @@ Section DistributedDatalog.
                 destr (node_eqb n' n'); [|congruence].
                 simpl. left. reflexivity. }
               cbv [expect_num_R_facts] in H'p0.
-              (*why do we know that R' is not an input?*)
               destruct (is_input R'); [congruence|].
               --- fwd.
                   apply Forall2_forget_r in H'p0p0.
@@ -1084,7 +1089,6 @@ Section DistributedDatalog.
                 destr (node_eqb n' n'); [|congruence].
                 simpl. left. reflexivity. }
               cbv [expect_num_R_facts] in Hfp1p1p1.
-              (*why do we know that R' is not an input?*)
               destruct (is_input R'); [congruence|].
               --- fwd.
                   apply Forall2_forget_r in Hfp1p1p1p0.
@@ -1152,12 +1156,12 @@ Section DistributedDatalog.
     intros Hs Hk. destruct Hs as (_&_&_&_&Heverywhere&_).
     apply Heverywhere with (n := n) in Hk. destruct Hk as [Hk|Hk].
     - apply in_split in Hk. fwd. eexists. split.
-      { eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+      { eapply rt1n_trans. 2: apply rt1n_refl.
         apply ReceiveFact. eassumption. }
       simpl. destr (node_eqb n n); [|congruence].
       apply receive_fact_at_node_receives_facts.
     - exists g. split.
-      { apply Relations.TrcRefl. }
+      { apply rt1n_refl. }
       assumption.
   Qed.
 
@@ -1167,10 +1171,8 @@ Section DistributedDatalog.
   Proof.
     induction 1; auto with incl.
     eapply incl_tran; eauto using step_preserves_known_facts.
-    About incl_tran. (*HWY would you call it that*)
   Qed.
     
-  Hint Resolve TrcRefl TrcFront : core.
   Lemma node_can_receive_known_facts g hyps n :
     sane_graph g ->
     Forall (knows_fact g) hyps ->
@@ -1185,7 +1187,7 @@ Section DistributedDatalog.
       specialize (Hg' ltac:(eauto using steps_preserves_sanity) ltac:(eauto using steps_preserves_facts)).
       fwd.
       eexists. split.
-      { eapply trc_trans; eassumption. }
+      { eapply crt1n_transitive; eassumption. }
       constructor; [eassumption|].
       eapply Forall_impl; [|eassumption].
       simpl. intros. eapply steps_preserves_known_facts; eauto.
@@ -1284,7 +1286,7 @@ Section DistributedDatalog.
     - apply Existsn_S in Hg. fwd. epose (g1 := _).
       specialize (IHnum_trav g1). eenough _ as H'.
       { specialize (IHnum_trav H'). fwd. eexists. split.
-        { eapply TrcFront.
+        { eapply rt1n_trans.
           { apply ReceiveFact. eassumption. }
           subst g1. eassumption. }
         subst g1. simpl in *. destr (node_eqb n0 n0); [|congruence].
@@ -1340,7 +1342,7 @@ Section DistributedDatalog.
     intros Hs Hinp Hmf Hstep. induction Hstep; auto.
     apply IHHstep.
     - eauto using steps_preserves_sanity.
-    - erewrite comp_steps_pres_inputs by (eapply TrcFront; eauto). assumption.
+    - erewrite comp_steps_pres_inputs by (eapply rt1n_trans; eauto). assumption.
     - eapply step_preserves_mf_correct; eauto.
   Qed.
 
@@ -1364,7 +1366,7 @@ Section DistributedDatalog.
     fwd. eexists. split; cycle 1.
     { eapply expect_num_R_facts_incl. 1: eassumption.
       eapply steps_preserves_known_facts. eassumption. }
-    eauto using Relations.trc_trans.
+    eauto using crt1n_transitive.
   Qed.
 
   (*what a stupid name*)
@@ -1389,7 +1391,7 @@ Section DistributedDatalog.
       2: { erewrite comp_steps_pres_inputs by eauto. assumption. }
       fwd.
       eexists. split.
-      { eapply Relations.trc_trans; eassumption. }
+      { eapply crt1n_transitive; eassumption. }
       constructor; eauto. eapply Forall_impl; [|eassumption].
       simpl. intros R' H'. eapply expect_num_R_facts_incl.
       { erewrite expect_num_R_facts_msgs_received_stable_steps.
@@ -1407,7 +1409,6 @@ Section DistributedDatalog.
     | meta_fact R _ => R
     end.
   
-  (*oops this is the same as "facts_of" defined up above*)
   Definition fact_in_inputs inps f :=
     match f with
     | normal_fact R args => In (normal_dfact R args) inps
@@ -1560,7 +1561,7 @@ Section DistributedDatalog.
         intros n'. rewrite <- IHlen0p2. simpl. destr (node_eqb n n'); reflexivity.
       + exists g. ssplit; auto. 2: cbv [same_msgs_received]; auto.
         intros args Hargs. epose_dep Hl. specialize' Hl.
-        { eapply TrcFront; [|apply TrcRefl].
+        { eapply rt1n_trans; [|apply rt1n_refl].
           eapply LearnFact with (f := normal_dfact _ _).
           simpl. split; [|eassumption]. eauto. }
         specialize' Hl.
@@ -1658,7 +1659,7 @@ Section DistributedDatalog.
   Proof.
     induction 3; auto.
     intros. eapply knows_meta_fact_step_learns_nothing; eauto.
-    apply IHtrc.
+    apply IHclos_refl_trans_1n.
     - eauto using steps_preserves_sanity.
     - eauto using comp_steps_preserves_datalog_facts.
     - assumption.
@@ -2011,7 +2012,7 @@ Section DistributedDatalog.
     comp_step^* g g' ->
     graph_correct g'.
   Proof.
-    induction 5; auto. apply IHtrc.
+    induction 5; auto. apply IHclos_refl_trans_1n.
     - eauto using step_preserves_sanity.
     - erewrite comp_step_pres_inputs by eassumption. assumption.
     - eapply step_preserves_mf_correct; eassumption.
@@ -2066,9 +2067,9 @@ Section DistributedDatalog.
         eexists. split.
           { (*first, step to a state where node n knows all the hypotheses;
               then, one final step where n deduces the conclusion*)
-            eapply trc_trans.
+            eapply crt1n_transitive.
             { exact Hstep1. }
-            eapply TrcFront. 2: apply TrcRefl.
+            eapply rt1n_trans. 2: apply rt1n_refl.
             apply LearnFact with (n := n) (f := normal_dfact R args).
             simpl. split.
             { eauto. }
@@ -2104,13 +2105,12 @@ Section DistributedDatalog.
 
       pose proof node_can_receive_expected_facts as Hrcv.
       specialize Hrcv with (g := g2).
-      Fail specialize Hrcv with (1 := Hnum). (*hmm*) Print meta_facts_correct_at_node.
       epose_dep Hrcv. specialize' Hrcv.
-      { eapply steps_preserves_sanity; eauto using trc_trans. }
+      { eapply steps_preserves_sanity; eauto using crt1n_transitive. }
       specialize' Hrcv.
-      { erewrite comp_steps_pres_inputs. 1: eassumption. eauto using trc_trans. }
+      { erewrite comp_steps_pres_inputs. 1: eassumption. eauto using crt1n_transitive. }
       specialize' Hrcv.
-      { eapply steps_preserves_knows_there_are_num_R_facts; eauto using trc_trans. }
+      { eapply steps_preserves_knows_there_are_num_R_facts; eauto using crt1n_transitive. }
       specialize (Hrcv Hnum). destruct Hrcv as (g3&Hg3&Hnum').
 
       eassert (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g3 n) _ _).
@@ -2123,7 +2123,7 @@ Section DistributedDatalog.
         { move H at bottom. cbv [is_list_set] in H. fwd. split; [|eassumption].
           intros x. split; intros Hx.
           + pose proof good_layout_sound as Hsound.
-            specialize (Hsound g g3 ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using trc_trans)).
+            specialize (Hsound g g3 ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using crt1n_transitive)).
             pose proof Hsound as Hsound'.
             specialize (Hsound (normal_fact source_rel [x])).
             specialize' Hsound.
@@ -2132,8 +2132,8 @@ Section DistributedDatalog.
             specialize' Hsound'.
             { split.
               - eapply comp_steps_preserves_datalog_facts.
-                1: eassumption. eauto using Relations.trc_trans.
-              - eapply consistent_preserved; try eassumption. eauto using trc_trans. }
+                1: eassumption. eauto using crt1n_transitive.
+              - eapply consistent_preserved; try eassumption. eauto using crt1n_transitive. }
             (*should follow from Hrels plus Hrels'*)
             move Hgmr at bottom.
             apply Hp0.
@@ -2143,15 +2143,15 @@ Section DistributedDatalog.
           + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
             specialize (Hhyps1 _ Hx).
             eapply steps_preserves_known_facts. 2: eassumption.
-            eauto using Relations.trc_trans. }
+            eauto using crt1n_transitive. }
         split; reflexivity. }
       epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
       destruct Hor as [Hor|Hor].
       { fwd. exists g3.
-        split; [eauto using trc_trans|]. simpl. cbv [knows_fact].
+        split; [eauto using crt1n_transitive|]. simpl. cbv [knows_fact].
         eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf.
         all: try eassumption.
-        2: { eauto using trc_trans. }
+        2: { eauto using crt1n_transitive. }
         cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
         move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
         right. eexists. eapply Hmf. assumption. }
@@ -2163,13 +2163,13 @@ Section DistributedDatalog.
       fwd. eexists. split.
       { (*first, step to a state where node n knows all the hypotheses;
             then, one final step where n deduces the conclusion*)
-        eapply trc_trans.
+        eapply crt1n_transitive.
         { exact Hg1. }
-        eapply trc_trans.
+        eapply crt1n_transitive.
         { exact Hg2. }
-        eapply trc_trans.
+        eapply crt1n_transitive.
         { exact Hg3. }
-        eapply TrcFront. 2: apply TrcRefl. eassumption. }
+        eapply rt1n_trans. 2: apply rt1n_refl. eassumption. }
         simpl. cbv [knows_fact]. simpl. right. exists n.
         destr (node_eqb n n); try congruence. simpl. auto.
     - simpl in Hfin. fwd.
@@ -2192,7 +2192,7 @@ Section DistributedDatalog.
           simpl in Hml. congruence. }
         intros n0. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
       intros len. induction len.
-      { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
+      { exists g. split; [apply rt1n_refl|]. simpl. contradiction. }
 
       destruct IHlen as (g1&Hg1&Hhypsg1).
 
@@ -2224,9 +2224,9 @@ Section DistributedDatalog.
       specialize' Hg3.
       { eauto using steps_preserves_sanity. }
       specialize' Hg3.
-      { erewrite comp_steps_pres_inputs with (g := g) by eauto using trc_trans. assumption. }
+      { erewrite comp_steps_pres_inputs with (g := g) by eauto using crt1n_transitive. assumption. }
       specialize' Hg3.
-      { eapply steps_preserves_meta_facts_correct; eauto using trc_trans. }
+      { eapply steps_preserves_meta_facts_correct; eauto using crt1n_transitive. }
       specialize' Hg3.
       { intros args g' Hsteps Hargs.
         apply Hfin.
@@ -2235,20 +2235,20 @@ Section DistributedDatalog.
         2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
         apply Hpii.
         pose proof good_layout_sound as Hsound.
-        specialize (Hsound g g' ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using trc_trans)).
-        erewrite <- comp_steps_pres_inputs with (g' := g') by eauto using trc_trans.
+        specialize (Hsound g g' ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using crt1n_transitive)).
+        erewrite <- comp_steps_pres_inputs with (g' := g') by eauto using crt1n_transitive.
         apply Hsound. simpl. auto. }
       destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
 
       eexists.
       split.
-      { eapply Relations.trc_trans.
+      { eapply crt1n_transitive.
         { exact Hg1. }
-        eapply Relations.trc_trans.
+        eapply crt1n_transitive.
         { exact Hg2. }
-        eapply Relations.trc_trans.
+        eapply crt1n_transitive.
         { exact Hg3. }
-        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        eapply rt1n_trans. 2: apply rt1n_refl.
         eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
         simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
         eexists. split.
@@ -2268,11 +2268,11 @@ Section DistributedDatalog.
       { apply Hhypsg1 in Hn'. fwd. eexists.
         eapply steps_preserves_facts. 1: eassumption.
         { (*oops i already proved htis earlier*)
-          eapply Relations.trc_trans.
+          eapply crt1n_transitive.
         { exact Hg2. }
-        eapply Relations.trc_trans.
+        eapply crt1n_transitive.
         { exact Hg3. }
-        eapply Relations.TrcFront. 2: apply Relations.TrcRefl.
+        eapply rt1n_trans. 2: apply rt1n_refl.
         eapply LearnFact with (f := meta_dfact target_rel (Some n) _).
         simpl. split; [reflexivity|]. cbv [can_learn_meta_fact_at_node].
         eexists. split.
@@ -2299,7 +2299,7 @@ Section DistributedDatalog.
     graph_sound_for g' R.
   Proof.
     intros H Hstep. cbv [graph_sound_for]. intros.
-    apply H. eauto using trc_trans.
+    apply H. eauto using crt1n_transitive.
   Qed.
 
   Lemma sound_impl_consistent g f :
@@ -2402,7 +2402,7 @@ Section DistributedDatalog.
           { eapply good_layout_sound; eassumption. }
           destruct H as (g2&Hstep2&Hg2).
           eexists. split.
-          { eapply trc_trans.
+          { eapply crt1n_transitive.
             { apply IHForallp0. }
             apply Hstep2. }
           constructor; auto.
@@ -2440,9 +2440,7 @@ Section DistributedDatalog.
         apply fact_in_inputs_finite. }
       specialize (H' ltac:(assumption) ltac:(assumption)).
       destruct H' as (g2&Hstep2&Hg2). exists g2.
-      split; [eauto using trc_trans|].
+      split; [eauto using crt1n_transitive|].
       assumption.
   Qed.
-
-  syntax error
 End DistributedDatalog.
