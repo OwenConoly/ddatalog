@@ -1494,58 +1494,11 @@ Section DistributedDatalog.
     forall n,
       (g.(node_states) n).(msgs_received) = (g'.(node_states) n).(msgs_received).  
 
-  (*These things should come from datalog/src/Interpreter.v,
-    which is currently very far from compiling.*)
-  Axiom good_rule : rule -> Prop.
-  Axiom step_everybody : list rule -> list fact -> list fact.
-  Axiom step_everybody_complete :
-    forall p hyps' facts f,
-      Forall good_rule p ->
-      incl hyps' facts ->
-      Exists (fun r => rule_impl r f hyps') p ->
-      In f (step_everybody p facts).
-
-  Definition is_normal_dfact f :=
-    match f with
-    | normal_dfact _ _ => true
-    | meta_dfact _ _ _ => false
-    end.
-  
   Definition rel_ofd f :=
     match f with
     | normal_dfact R _ => R
     | meta_dfact R _ _ => R
     end.           
-  
-  Definition add_facts ns fs :=
-    {| known_facts := fs ++ ns.(known_facts);
-      msgs_received := ns.(msgs_received);
-      msgs_sent := fun R =>
-                     ns.(msgs_sent) R + length (filter (fun f => is_normal_dfact f && rel_eqb (rel_ofd f) R) fs); |}.
-
-  Definition equiv_fun {A B : Type} (f f' : A -> B) :=
-    forall x, f x = f' x.
-  
-  Definition equiv_node ns ns' :=
-    ns.(known_facts) = ns'.(known_facts) /\
-      equiv_fun ns.(msgs_received) ns'.(msgs_received) /\
-      equiv_fun ns.(msgs_sent) ns'.(msgs_sent).
-
-  Definition equiv_graph g g' :=
-    g.(travellers) = g'.(travellers) /\
-      g.(input_facts) = g'.(input_facts) /\
-      forall n, equiv_node (g.(node_states) n) (g'.(node_states) n).
-
-  Definition add_facts_at_node g n fs g' :=
-    equiv_graph
-      g'
-      {| node_states := fun n' => if node_eqb n n' then
-                                 add_facts (g.(node_states) n) fs
-                               else
-                                 g.(node_states) n';
-        travellers := flat_map (fun f => map (fun n' => (n', f)) all_nodes) fs ++ g.(travellers);
-        input_facts := g.(input_facts); |}.
-  Hint Unfold add_facts_at_node equiv_graph equiv_node equiv_fun : core.
 
   Lemma expect_num_R_facts_knows_everything g n R args :
     sane_graph g ->
@@ -1564,24 +1517,6 @@ Section DistributedDatalog.
     exfalso. eauto.
   Qed.
 
-  Lemma equiv_node_known_facts ns ns' :
-    equiv_node ns ns' ->
-    ns.(known_facts) = ns'.(known_facts).
-  Proof. cbv [equiv_node]. intros. fwd. auto. Qed.
-  
-  Lemma equiv_node_msgs_received ns ns' R :
-    equiv_node ns ns' ->
-    ns.(msgs_received) R = ns'.(msgs_received) R.
-  Proof. cbv [equiv_node]. intros. fwd. auto. Qed.
-  
-  Lemma known_facts_add_facts ns fs :
-    (add_facts ns fs).(known_facts) = fs ++ ns.(known_facts).
-  Proof. destruct ns. reflexivity. Qed.
-
-  Lemma msgs_received_add_facts ns fs :
-    (add_facts ns fs).(msgs_received) = ns.(msgs_received).
-  Proof. destruct ns. reflexivity. Qed.
-
   Lemma no_learning_inputs g n R args :
     can_learn_normal_fact_at_node (rules n) (node_states g n) R args ->
     is_input R = false.
@@ -1599,107 +1534,6 @@ Section DistributedDatalog.
     - contradiction.
   Qed.
   
-  (*this has something to do with can_learn_normal_fact_at_node_relevant_facts_incl*)
-  Lemma step_to_add_normal_facts_at_node g n fs :
-    meta_facts_correct rules g ->
-    Forall (fun f => is_normal_dfact f = true) fs ->
-    Forall (should_learn_fact_at_node (rules n) n (g.(node_states) n)) fs ->
-    exists g',
-      comp_step^* g g' /\
-        add_facts_at_node g n fs g'.
-  Proof.
-    intros Hmf. induction 1; intros Hshould.
-    - exists g. split; auto. cbv [add_facts_at_node equiv_graph]. simpl. ssplit; auto.
-      intros n'. destr (node_eqb n n'); auto.
-    - invert Hshould. specialize (IHForall ltac:(assumption)). fwd.
-      destruct x; simpl in *; try congruence. fwd.
-      cbv [add_facts_at_node equiv_graph] in IHForallp1.
-      simpl in IHForallp1. fwd.
-      eexists. split.
-      + eapply trc_trans; [eassumption|].
-        eapply TrcFront; [|apply TrcRefl].
-        specialize (IHForallp1p2 n). destr (node_eqb n n); [|congruence].
-        eapply LearnFact with (f := normal_dfact _ _).
-        simpl. split.
-        { intros num Hnum. 
-          erewrite equiv_node_known_facts in Hnum by eassumption.
-          eapply H3p0.
-          rewrite known_facts_add_facts in Hnum. apply in_app_iff in Hnum.
-          destruct Hnum as [Hnum|Hnum]; [|exact Hnum].
-          rewrite Forall_forall in H0. apply H0 in Hnum. simpl in Hnum. congruence. }
-        instantiate (1 := nf_args).
-        cbv [can_learn_normal_fact_at_node] in *. fwd. exists r. split; [eassumption|].
-        destruct r; fwd.
-        -- do 2 eexists. split; [eassumption|]. split; [eassumption|].
-           erewrite equiv_node_known_facts by eassumption.
-           rewrite known_facts_add_facts.
-           intros. apply in_app_iff. auto.
-        -- erewrite equiv_node_known_facts by eassumption.
-           erewrite equiv_node_msgs_received by eassumption.
-           rewrite msgs_received_add_facts. split.
-           { eapply expect_num_R_facts_incl; [eassumption|].
-             rewrite known_facts_add_facts. auto with incl. }
-           eexists. ssplit; eauto. rewrite known_facts_add_facts.
-           destruct H3p1p1p1p0 as [ils1 ils2]. split; [|assumption].
-           intros x. rewrite in_app_iff. split.
-           2: { intros. right. apply ils1. assumption. }
-           intros [Hx|Hx].
-           2: { apply ils1. assumption. }
-           rewrite Forall_forall in H4. specialize (H4 _ Hx). simpl in H4.
-           destruct H4 as [_ H4]. apply ils1.
-           cbv [meta_facts_correct] in Hmf. specialize (Hmf n).
-           cbv [meta_facts_correct_at_node] in Hmf.
-           cbv [expect_num_R_facts] in H3p1p1p0.
-           pose proof H4 as H4'.
-           apply no_learning_inputs in H4. rewrite H4 in H3p1p1p0.
-           fwd. apply Forall2_forget_r in H3p1p1p0p0.
-           rewrite Forall_forall in H3p1p1p0p0. specialize (H3p1p1p0p0 n).
-           specialize' H3p1p1p0p0.
-           { destruct Hall_nodes as [H' _]. apply H'. constructor. }
-           fwd. specialize (Hmf _ _ ltac:(eassumption)). destruct Hmf as [_ Hmf].
-           apply Hmf. assumption.
-        -- contradiction.
-      + cbv [add_facts_at_node equiv_graph]. simpl. ssplit.
-        -- rewrite <- app_assoc. f_equal. assumption.
-        -- assumption.
-        -- intros n'. specialize (IHForallp1p2 n'). destr (node_eqb n n'); auto.
-           cbv [equiv_node]. simpl.
-           erewrite equiv_node_known_facts by eassumption.
-           rewrite known_facts_add_facts. split; [reflexivity|].
-           split.
-           { cbv [equiv_node] in IHForallp1p2. fwd. auto. }
-           cbv [equiv_fun]. intros R.
-           cbv [equiv_node] in IHForallp1p2. fwd. do 2 rewrite IHForallp1p2p2.
-           destr (rel_eqb nf_rel R); simpl; lia.
-  Qed.
-
-  Definition normal_dfacts_of_facts : list fact -> list dfact :=
-    flat_map (fun f => match f with
-                    | normal_fact R args => [normal_dfact R args]
-                    | meta_fact _ _ => []
-                    end).
-
-  Definition normal_facts_of_dfacts : list dfact -> list fact :=
-    flat_map (fun f => match f with
-                    | normal_dfact R args => [normal_fact R args]
-                    | meta_dfact _ _ _ => []
-                    end).
-
-  Lemma should_learn_fact_at_node_em rules0 n ns f :
-    should_learn_fact_at_node rules0 n ns f \/ ~should_learn_fact_at_node rules0 n ns f.
-  Proof. apply Classical_Prop.classic. Qed.
-
-  Lemma add_facts_at_node_same_msgs_received g n fs g' :
-    add_facts_at_node g n fs g' ->
-    same_msgs_received g g'.
-  Proof. Admitted.
-
-  Lemma can_filter_prop {X : Type} (l : list X) P :
-    Forall (fun x => P x \/ ~P x) l ->
-    exists l',
-    forall x, In x l' <-> In x l /\ P x.
-  Proof. Admitted.
-    
   Lemma node_can_find_all_conclusions g l n R :
     sane_graph g ->
     good_inputs g.(input_facts) ->
