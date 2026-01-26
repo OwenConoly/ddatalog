@@ -2270,6 +2270,11 @@ Section DistributedDatalog.
     intros Hinp Hsane Hmf Hcor Hhyps1 Hhyps2 Hfin Hr Himpl.
     pose proof Hlayout as Hgood.
     pose proof Hgood as Hgood'.
+    assert (Hpii: prog_impl_implication p (fact_in_inputs g.(input_facts)) f).
+    { eapply prog_impl_step.
+      - apply Exists_exists. eauto.
+      - eapply Forall_impl. 2: apply Forall_and; [exact Hhyps1|exact Hhyps2].
+        simpl. intros. apply Hcor. assumption. }
     invert Himpl.
     - cbv [good_layout] in Hgood. destruct Hgood as (Hgood&_).
       apply Hgood in Hr. clear Hgood.
@@ -2411,8 +2416,8 @@ Section DistributedDatalog.
         destr (node_eqb n n); try congruence.
         simpl. rewrite H'. auto.
     - simpl in Hfin. fwd.
-      destruct Hlayout as (Hhl&_&_).
-      specialize Hhl with (1 := Hr). fwd.
+      destruct Hlayout as (_&_&Hml).
+      specialize Hml with (1 := Hr).
       cbv [knows_datalog_fact].
       enough (forall len,
                exists g' : graph_state,
@@ -2424,9 +2429,10 @@ Section DistributedDatalog.
         fwd. eexists. split; eauto.
         destruct (is_input target_rel) eqn:E.
         { cbv [good_rules] in rules_good. 
-          specialize (rules_good n).
-          rewrite Forall_forall in rules_good. apply rules_good in Hhl.
-          simpl in Hhl. congruence. }
+          specialize (rules_good a_node).
+          specialize (Hml a_node).
+          rewrite Forall_forall in rules_good. apply rules_good in Hml.
+          simpl in Hml. congruence. }
         intros n0. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
       intros len. induction len.
       { exists g. split; [apply Relations.TrcRefl|]. simpl. contradiction. }
@@ -2442,7 +2448,7 @@ Section DistributedDatalog.
 
       { rewrite Hor. eauto. }
 
-      destruct Hor as [n' Hn'].
+      destruct Hor as [n Hn].
 
       pose proof node_can_expect_much as Hg2.
       specialize Hg2 with (g := g1).
@@ -2455,19 +2461,28 @@ Section DistributedDatalog.
         intros. eapply comp_steps_preserves_datalog_facts; eassumption. }
       destruct Hg2 as (g2&Hg2&Hhypsg2).
 
-      Check node_can_find_all_conclusions.
-      forall args,
-      can_learn_normal_fact_at_node (rules n) (node_states g' n) R args ->
-      
-      
       pose proof node_can_find_all_conclusions as Hg3.
-      
-      specialize (Hg3 g2 n target_rel).
+
+      specialize (Hg3 g2 l n target_rel).
+      specialize' Hg3.
+      { eauto using steps_preserves_sanity. }
+      specialize' Hg3.
+      { erewrite comp_steps_pres_inputs with (g := g) by eauto using trc_trans. assumption. }
+      specialize' Hg3.
+      { eapply steps_preserves_meta_facts_correct; eauto using trc_trans. }
+      specialize' Hg3.
+      { intros args g' Hsteps Hargs.
+        destruct Hfin as [Hfin _]. apply Hfin.
+        move Hgmr at bottom. move Hpii at bottom.
+        cbv [good_meta_rules] in Hgmr. eapply Hgmr in Hpii.
+        2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
+        apply Hpii.
+        pose proof good_layout_sound as Hsound.
+        specialize (Hsound g g' ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using trc_trans)).
+        erewrite <- comp_steps_pres_inputs with (g' := g') by eauto using trc_trans.
+        apply Hsound. simpl. auto. }
       destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
-      { admit. }
-      { admit. }
-      Search expect_num_R_facts
-      clear Hhyps3b.
+
       eexists.
       split.
       { eapply Relations.trc_trans.
@@ -2640,7 +2655,7 @@ Section DistributedDatalog.
   Proof.
     intros Hinp Hsane Hmfc Hsound.
     cbv [graph_complete].
-    intros f H.
+    intros f H Hfin.
     (*it's possible to do this without generalizing g, but i don't want to*)
     remember (fact_in_inputs g.(input_facts)) as Q eqn:E.
     revert g E Hinp Hsane Hmfc Hsound. induction H; intros g E Hinp Hsane Hmfc Hsound; subst.
@@ -2654,7 +2669,7 @@ Section DistributedDatalog.
       { clear H0 H. induction H1.
         - eauto.
         - simpl in HR'. invert HR'. specialize (IHForall ltac:(assumption)).
-          fwd. move H at bottom. specialize (H g1).
+          fwd. move H at bottom. specialize' H. { admit. } specialize (H g1).
           specialize' H.
           { erewrite <- comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. reflexivity. }
           specialize' H.
@@ -2697,7 +2712,7 @@ Section DistributedDatalog.
           erewrite comp_steps_pres_inputs with (g := g) by eauto.
           apply H0. assumption.
         - rewrite Forall_forall in Hg1. auto. }
-      specialize (H' ltac:(assumption) ltac:(assumption)).
+      specialize (H' ltac:(assumption) ltac:(assumption) ltac:(assumption)).
       destruct H' as (g2&Hstep2&Hg2). exists g2.
       split; [eauto using trc_trans|].
       assumption.
