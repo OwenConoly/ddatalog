@@ -1438,11 +1438,6 @@ Section DistributedDatalog.
       (knows_datalog_fact g f /\ consistent g f) ->
       prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
   
-  Definition graph_sound_for g R :=
-    forall g',
-      comp_step^* g g' ->
-      graph_correct_for g' R.
-
   Definition finite_fact (f : fact) :=
     match f with
     | normal_fact _ _ => True
@@ -2291,39 +2286,6 @@ Section DistributedDatalog.
       destruct Hn' as [?|?]; [subst|contradiction].
       eexists. cbv [knows_fact]. simpl. right.
       exists n'. destr (node_eqb n' n'); [|congruence]. simpl. left. reflexivity.
-  Qed.
-
-  Lemma graph_sound_for_preserved g R g' :
-    graph_sound_for g R ->
-    comp_step^* g g' ->
-    graph_sound_for g' R.
-  Proof.
-    intros H Hstep. cbv [graph_sound_for]. intros.
-    apply H. eauto using crt1n_transitive.
-  Qed.
-
-  Lemma sound_impl_consistent g f :
-    good_inputs g.(input_facts) ->
-    graph_sound_for g (rel_of f) ->
-    prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
-    knows_datalog_fact g f ->
-    consistent g f.
-  Proof.
-    intros Hinp Hsound Himpl Hf.
-    pose proof Hsound as Hsound'.
-    specialize (Hsound g ltac:(eauto)).
-    destruct f; simpl.
-    { constructor. }
-    epose proof (Hsound (meta_fact mf_rel _) ltac:(simpl; reflexivity)) as Hsound.
-    specialize' Hsound.
-    { split.
-      - simpl. exact Hf.
-      - simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
-    cbv [good_meta_rules] in Hgmr.
-    intros.
-    eapply hmfs_unique in Himpl. 3: exact Hsound.
-    2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
-    rewrite <- Himpl. reflexivity.
   Qed.
 
   Lemma correct_impl_consistent g f :
