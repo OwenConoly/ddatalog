@@ -23,8 +23,6 @@ Section DistributedDatalog.
   Context (is_input : rel -> bool).
   Context {rel_eqb : rel -> rel -> bool}.
   Context {rel_eqb_spec : EqDecider rel_eqb}.
-  Context {T_eqb : T -> T -> bool}.
-  Context {T_eqb_spec : EqDecider T_eqb}.
   
   Inductive dfact :=
   | normal_dfact (nf_rel: rel) (nf_args: list T)
@@ -1710,37 +1708,7 @@ Section DistributedDatalog.
     split.
     - eauto using knows_meta_fact_steps_learns_nothing.
     - eauto using steps_preserves_facts.
-  Qed.    
-
-  Definition set_of fs R :=
-    dedup T_eqb (flat_map (fun f =>
-                             match f with
-                             | normal_dfact R0 [x] => if rel_eqb R R0 then [x] else []
-                             | _ => []
-                             end) fs).
-
-  Lemma set_of_spec fs R :
-    is_list_set (fun x => In (normal_dfact R [x]) fs) (set_of fs R).
-  Proof.
-    cbv [is_list_set]. split.
-    - intros. cbv [set_of]. rewrite <- dedup_preserves_In.
-      rewrite in_flat_map. split; intros H.
-      + eexists. split; [eassumption|]. simpl. destr (rel_eqb R R); simpl; eauto.
-      + fwd. destruct x0; try contradiction.
-        destruct nf_args; try contradiction.
-        destruct nf_args; try contradiction.
-        destr (rel_eqb R nf_rel); try contradiction.
-        destruct Hp1; try contradiction.
-        subst. assumption.
-    - cbv [set_of]. apply NoDup_dedup.
   Qed.
-
-  (*this looks like something that should be proved from the simpler hypothesis that interp_agg a is commutative.  but I'm not particularly attached to the fold_right semantics here, so i won't bother to do that*)
-  Context (aggregation_commutative : forall a vals1 vals2 S,
-              is_list_set S vals1 ->
-              is_list_set S vals2 ->
-              fold_right (interp_agg a) (agg_id a) vals1 =
-                fold_right (interp_agg a) (agg_id a) vals2).
 
   Lemma something_about_expect_num_R_facts R S g n :
     sane_graph g ->
@@ -2188,37 +2156,31 @@ Section DistributedDatalog.
         { rewrite <- Hnum' in *. eapply expect_num_R_facts_incl; [eassumption|].
           eapply steps_preserves_known_facts. eassumption. }
         eexists. split.
-        { apply set_of_spec. }
+        { move H at bottom. cbv [is_list_set] in H. fwd. split; [|eassumption].
+          intros x. split; intros Hx.
+          + pose proof good_layout_sound as Hsound.
+            specialize (Hsound g g3 ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using trc_trans)).
+            pose proof Hsound as Hsound'.
+            specialize (Hsound (normal_fact source_rel [x])).
+            specialize' Hsound.
+            { simpl. eauto. }
+            specialize (Hsound' (meta_fact source_rel S)).
+            specialize' Hsound'.
+            { split.
+              - eapply comp_steps_preserves_datalog_facts.
+                1: eassumption. eauto using Relations.trc_trans.
+              - eapply consistent_preserved; try eassumption. eauto using trc_trans. }
+            (*should follow from Hrels plus Hrels'*)
+            move Hgmr at bottom.
+            apply Hp0.
+            cbv [good_meta_rules] in Hgmr. rewrite <- Hgmr. 1,3: eassumption.
+            simpl. intros R' S' H' x0. fwd.
+            intros. symmetry. apply H'p2.
+          + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
+            specialize (Hhyps1 _ Hx).
+            eapply steps_preserves_known_facts. 2: eassumption.
+            eauto using Relations.trc_trans. }
         split; reflexivity. }
-      
-      assert (H': fold_right (interp_agg rule_agg) (agg_id rule_agg) vals =
-                    fold_right (interp_agg rule_agg) (agg_id rule_agg) (set_of (g3.(node_states) n).(known_facts) source_rel)).
-      { eapply aggregation_commutative. 2: apply set_of_spec.
-        move H at bottom. cbv [is_list_set] in H. fwd. split; [|assumption].
-        intros x. split; intros Hx.
-        + pose proof good_layout_sound as Hsound.
-          specialize (Hsound g g3 ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using trc_trans)).
-          pose proof Hsound as Hsound'.
-          specialize (Hsound (normal_fact source_rel [x])).
-          specialize' Hsound.
-          { simpl. eauto. }
-          specialize (Hsound' (meta_fact source_rel S)).
-          specialize' Hsound'.
-          { split.
-            - eapply comp_steps_preserves_datalog_facts.
-              1: eassumption. eauto using Relations.trc_trans.
-            - eapply consistent_preserved; try eassumption. eauto using trc_trans. }
-          (*should follow from Hrels plus Hrels'*)
-          move Hgmr at bottom.
-          apply Hp0.
-          cbv [good_meta_rules] in Hgmr. rewrite <- Hgmr. 1,3: eassumption.
-          simpl. intros R' S' H' x0. fwd.
-          intros. symmetry. apply H'p2.
-        + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
-          specialize (Hhyps1 _ Hx).
-          eapply steps_preserves_known_facts. 2: eassumption.
-          eauto using Relations.trc_trans. }
-
       epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
       destruct Hor as [Hor|Hor].
       { fwd. exists g3.
@@ -2228,8 +2190,7 @@ Section DistributedDatalog.
         2: { eauto using trc_trans. }
         cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
         move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
-        right. eexists. eapply Hmf. rewrite H'.
-        assumption. }
+        right. eexists. eapply Hmf. assumption. }
       eassert (Hlast_step: comp_step g3 _).
       { eapply LearnFact with (n := n) (f := normal_dfact _ _).
         simpl. split.
@@ -2246,8 +2207,7 @@ Section DistributedDatalog.
         { exact Hg3. }
         eapply TrcFront. 2: apply TrcRefl. eassumption. }
         simpl. cbv [knows_fact]. simpl. right. exists n.
-        destr (node_eqb n n); try congruence.
-        simpl. rewrite H'. auto.
+        destr (node_eqb n n); try congruence. simpl. auto.
     - simpl in Hfin. fwd.
       destruct Hlayout as (_&_&Hml).
       specialize Hml with (1 := Hr).
