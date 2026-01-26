@@ -1461,13 +1461,12 @@ Section DistributedDatalog.
   Definition finite_fact (f : fact) :=
     match f with
     | normal_fact _ _ => True
-    | meta_fact R S' => exists l, is_list_set S' l
+    | meta_fact R S' => exists l, forall x, S' x -> In x l
     end.
   
   Definition graph_complete (g : graph_state) :=
     forall f,
       prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
-      finite_fact f ->
       exists g',
         comp_step^* g g' /\
           knows_datalog_fact g' f.
@@ -2306,7 +2305,7 @@ Section DistributedDatalog.
       { eapply steps_preserves_meta_facts_correct; eauto using trc_trans. }
       specialize' Hg3.
       { intros args g' Hsteps Hargs.
-        destruct Hfin as [Hfin _]. apply Hfin.
+        apply Hfin.
         move Hgmr at bottom. move Hpii at bottom.
         cbv [good_meta_rules] in Hgmr. eapply Hgmr in Hpii.
         2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
@@ -2480,6 +2479,29 @@ Section DistributedDatalog.
   Qed.
   Hint Resolve graph_correct_until_any_edge : core.
 
+  Definition finite {T} (S0 : T -> _) :=
+    exists l, forall x, S0 x -> In x l.
+
+  Lemma fact_in_inputs_finite fs R S :
+    fact_in_inputs fs (meta_fact R S) ->
+    finite S.
+  Proof.
+    simpl. intros H. fwd. cbv [finite].
+    exists (flat_map (fun f => match f with
+                       | normal_dfact R args => [args]
+                       | meta_dfact _ _ _ => []
+                       end) fs).
+    intros. apply in_flat_map. eexists. rewrite <- Hp2. split; [eassumption|].
+    simpl. auto.
+  Qed.
+
+  Definition meta_facts_finite (p : list rule) :=
+    forall Q,
+      (forall R S, Q (meta_fact R S) -> finite S) ->
+      (forall R S, prog_impl_implication p Q (meta_fact R S) -> finite S).
+              
+  Context (Hfinite : meta_facts_finite p).
+  
   Lemma good_layout_complete g :
     good_inputs g.(input_facts) ->
     sane_graph g ->
@@ -2489,7 +2511,7 @@ Section DistributedDatalog.
   Proof.
     intros Hinp Hsane Hmfc Hsound.
     cbv [graph_complete].
-    intros f H Hfin.
+    intros f H.
     (*it's possible to do this without generalizing g, but i don't want to*)
     remember (fact_in_inputs g.(input_facts)) as Q eqn:E.
     revert g E Hinp Hsane Hmfc Hsound. induction H; intros g E Hinp Hsane Hmfc Hsound; subst.
@@ -2503,7 +2525,7 @@ Section DistributedDatalog.
       { clear H0 H. induction H1.
         - eauto.
         - simpl in HR'. invert HR'. specialize (IHForall ltac:(assumption)).
-          fwd. move H at bottom. specialize' H. { admit. } specialize (H g1).
+          fwd. move H at bottom. specialize (H g1).
           specialize' H.
           { erewrite <- comp_steps_pres_inputs with (g := g) (g' := g1) by eauto. reflexivity. }
           specialize' H.
@@ -2546,7 +2568,13 @@ Section DistributedDatalog.
           erewrite comp_steps_pres_inputs with (g := g) by eauto.
           apply H0. assumption.
         - rewrite Forall_forall in Hg1. auto. }
-      specialize (H' ltac:(assumption) ltac:(assumption) ltac:(assumption)).
+      specialize' H'.
+      { cbv [finite_fact]. destruct x; [constructor|].
+        eapply Hfinite.
+        2: { eapply prog_impl_step; [|eassumption].
+             apply Exists_exists. eauto. }
+        apply fact_in_inputs_finite. }
+      specialize (H' ltac:(assumption) ltac:(assumption)).
       destruct H' as (g2&Hstep2&Hg2). exists g2.
       split; [eauto using trc_trans|].
       assumption.
