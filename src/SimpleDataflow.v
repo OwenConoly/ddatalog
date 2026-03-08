@@ -69,17 +69,26 @@ Section DistributedDatalog.
           In (meta_rule target_rel target_set source_rels) p ->
           In (meta_rule target_rel target_set source_rels) (rules n)).
 
+  Definition consistent (p : list rule) Q R S0 :=
+    forall x,
+      prog_impl_implication p Q (normal_fact R x) <-> S0 x.
+
+  Definition rule_impl_implication (r : rule) Q f :=
+    exists hyps,
+      rule_impl r f hyps /\ Forall Q hyps.
+
   Definition good_meta_rules (p : list rule) :=
-    forall Q,
-      (forall R' S',
-          Q (meta_fact R' S') ->
-          forall x,
-            Q (normal_fact R' x) <-> S' x) ->
-      (forall R S,
-          prog_impl_implication p Q (meta_fact R S) ->
-          forall x,
-            Q (normal_fact R x) \/
-              (prog_impl_implication p Q (normal_fact R x) <-> S x)).
+    Forall (fun r =>
+              forall Q R0 S0,
+                rule_impl_implication r
+                  (fun f =>
+                     match f with
+                     | normal_fact _ _ => False
+                     | meta_fact R' S' => consistent p Q R' S'
+                     end)
+                  (meta_fact R0 S0) ->
+                consistent p Q R0 S0)
+      p.
 
   Context (p : list rule) (rules : Node -> list rule).
   Context (rules_good : good_rules rules) (prog_good : good_prog p) (Hlayout : good_layout p rules) (Hgmr : good_meta_rules p).
