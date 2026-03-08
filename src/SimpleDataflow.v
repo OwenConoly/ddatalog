@@ -908,7 +908,6 @@ Section DistributedDatalog.
               --- simpl. intros. split; auto. intros [?|?]; auto. subst.
                   simpl in *. rewrite Forall_forall in H'p1.
                   specialize (H'p1 _ ltac:(eassumption)).
-                  Check expect_num_R_facts_knows_meta_facts.
                   apply expect_num_R_facts_knows_meta_facts; try assumption.
                   destruct Hs as (_&_&Htrav&_). eapply Htrav. rewrite H.
                   apply in_app_iff. simpl. eauto.
