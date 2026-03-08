@@ -1018,61 +1018,16 @@ Section DistributedDatalog.
                            subst. simpl in Hf'. exfalso. auto.
                       ---- simpl. auto.
                   +++ simpl. auto.
-        -- intros args Hargs. right. apply Hfp1p1p2.
-           eapply can_learn_normal_fact_at_node_relevant_normal_facts_incl; [eassumption| |].
-           ++ simpl. intros R' args' [H'|H'] ?; [congruence|]. assumption.
-           ++ simpl. simpl. intros R' HR'. split; auto. split.
-              { intros. split; auto. intros [?|?]; [congruence|auto]. }
-              intros ? ? [H'|?]; auto. invert H'.
-              apply Exists_exists in HR'. fwd.
-              pose proof Hfp1p0 as Hfp1p0'.
-              cbv [good_layout] in Hlayout. destruct Hlayout as (Hhl&Hlh&Hm).
-              eassert (In (agg_rule _ _ _) p) as Hr'.
-              { eapply Hlh. eassumption. }
-              apply Hlh in Hfp1p0'. fwd.
-              pose proof prog_good as Hp. cbv [good_prog] in Hp.
-              specialize (Hp _ _ _ Hfp1p0'). destruct Hp as (_&Hp).
-              specialize (Hp _ _ ltac:(eassumption)).
-              apply Hhl in Hr'. fwd.
-              specialize (Hfp1p1p1 _ Hp).
-              move Hfp1p1p1 at bottom.
-              pose proof reasonable_meta_fact_nodes as H'.
-              pose proof mfs_unique as H''.
-              epose_dep H'. specialize (H' Hs' Hinp). specialize' H'.
-              { cbv [knows_fact]. simpl. right. exists n'.
-                destr (node_eqb n' n'); [|congruence].
-                simpl. left. reflexivity. }
-              cbv [expect_num_R_facts] in Hfp1p1p1.
-              destruct (is_input R'); [congruence|].
-              --- fwd.
-                  apply Forall2_forget_r in Hfp1p1p1p0.
-                  rewrite Forall_forall in Hfp1p1p1p0.
-                  specialize (Hfp1p1p1p0 n0).
-                  specialize' Hfp1p1p1p0.
-                  { destruct Hall_nodes as [HH _]. apply HH. constructor. }
-                  fwd.
-                  epose_dep H''. specialize (H'' Hs' Hinp).
-                  specialize' H''.
-                  { cbv [knows_fact]. simpl. right. exists n0.
-                    destr (node_eqb n0 n0); [|congruence].
-                    simpl. left. reflexivity. }
-                  specialize' H''.
-                  { right. simpl. exists n0.
-                    destr (node_eqb n0 n0); [|congruence].
-                    simpl. right. eassumption. }
-                  subst. assumption.
-        2: { apply Hmf in H'. fwd. split.
-             - eapply Forall_impl; [|eassumption].
-               simpl. intros r Hr. destruct r; auto.
-               ++ intros Hcs. specialize (Hr Hcs).
-                  eapply Forall_impl; [|exact Hr].
-                  simpl.
-                  intros. eapply expect_num_R_facts_incl; [eassumption|].
-                  auto with incl.
-               ++ intros. subst. specialize (Hr eq_refl).
-                  intros. eapply expect_num_R_facts_incl; [eassumption|].
-                  auto with incl.
-             - intros args Hargs. right. apply H'p1.
+        -- apply Hmf in H'. fwd.
+           do 2 eexists. split; [eassumption|]. split; [assumption|]. split.
+           ++ eapply Forall_impl; [|eassumption].
+              simpl. intros. eapply expect_num_R_facts_incl; [eassumption|].
+              auto with incl.
+           ++ intros args Hargs. right. apply H'p3.
+              eapply can_learn_normal_fact_at_node'_incl; [eassumption| |].
+              --- simpl. intros. split; auto. intros [?|?]; auto. subst.
+                  simpl in *. rewrite Forall_forall in H'p2.
+                  specialize (H'p2 _ ltac:(eassumption)).
                eapply can_learn_normal_fact_at_node_relevant_normal_facts_incl; [eassumption| |].
                + simpl. intros ? ? [?|?]; [congruence|auto].
                + simpl. intros R' HR'. split; auto. split.
