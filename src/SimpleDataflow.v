@@ -847,6 +847,24 @@ Section DistributedDatalog.
       subst. assumption.
   Qed.
 
+  Lemma no_learning_inputs g n R args :
+    can_learn_normal_fact_at_node (rules n) (node_states g n) R args ->
+    is_input R = false.
+  Proof.
+    intros H.
+    cbv [can_learn_normal_fact_at_node can_learn_normal_fact_at_node'] in H.
+    fwd. cbv [good_rules] in rules_good. specialize (rules_good n).
+    rewrite Forall_forall in rules_good.
+    specialize (rules_good _ ltac:(eassumption)).
+    destruct r; fwd; simpl in rules_good.
+    - apply Exists_exists in Hp1p0. fwd. invert Hp1p0p1.
+      apply Lists.List.Forall_map in rules_good.
+      rewrite Forall_forall in rules_good.
+      apply rules_good. assumption.
+    - assumption.
+    - contradiction.
+  Qed.
+
   Lemma step_preserves_mf_correct g g' :
     sane_graph g ->
     good_inputs g.(input_facts) ->
@@ -918,58 +936,27 @@ Section DistributedDatalog.
       destr (node_eqb n n'); auto.
       destruct f; simpl in *; fwd.
       + pose proof Hmf as Hmf'.
-        specialize (Hmf n'). cbv [meta_facts_correct_at_node] in *. simpl.
+        specialize (Hmf' n'). cbv [meta_facts_correct_at_node] in Hmf'.
+        cbv [meta_facts_correct_at_node]. simpl.
         intros R num [H'|H']; [discriminate|].
-        specialize Hmf with (1 := H'). fwd. split.
+        specialize Hmf' with (1 := H'). fwd.
+        do 2 eexists. split; [eassumption|]. split.
         -- eapply Forall_impl; [|eassumption].
-           simpl. intros r Hr. destruct r; auto.
-           ++ intros Hcs. specialize (Hr Hcs).
-              eapply Forall_impl; [|exact Hr].
-              simpl.
-              intros. eapply expect_num_R_facts_incl; [eassumption|].
-              auto with incl.
-           ++ intros. subst. specialize (Hr eq_refl).
-              intros. eapply expect_num_R_facts_incl; [eassumption|].
-              auto with incl.
-        -- intros args Hargs. right. apply Hmfp1. move Hmfp0 at bottom.
-           eapply can_learn_normal_fact_at_node_relevant_normal_facts_incl; [eassumption| |].
-           ++ simpl. intros R' args' [HR'|HR'] Hex; auto. invert HR'.
-              apply Exists_exists in Hex. rewrite Forall_forall in Hmfp0.
-              fwd. apply Hmfp0 in Hexp0. specialize (Hexp0 Hexp1p1).
-              rewrite Forall_forall in Hexp0.
-              specialize (Hexp0 _ Hexp1p2).
-              move Hmf' at bottom. cbv [expect_num_R_facts] in Hexp0.
-              destruct (is_input R') eqn:Ex.
-              { exfalso. move Hs' at bottom. cbv [sane_graph] in Hs'. simpl in Hs'.
-                destruct Hs' as (_&_&_&_&_&_&Hinp_sane).
-                specialize (Hinp_sane R'). rewrite Ex in Hinp_sane. fwd.
-                specialize (Hinp_sanep0 n'). destr (node_eqb n' n'); [|congruence].
-                simpl in Hinp_sanep0. destr (rel_eqb R' R'); [|congruence].
-                discriminate Hinp_sanep0. }
-              fwd. apply Forall2_forget_r in Hexp0p0. rewrite Forall_forall in Hexp0p0.
-              specialize (Hexp0p0 n'). specialize' Hexp0p0.
-              { destruct Hall_nodes as [H ?]. apply H. constructor. }
-              fwd. specialize (Hmf' _ _ _ ltac:(eassumption)). fwd. apply Hmf'p1.
-              assumption.
-           ++ simpl. intros R' HR'. ssplit; auto.
-              2: { intros ? ? [?|?]; [congruence|auto]. }
-              intros args'. split; auto. intros [Hargs'|Hargs']; auto.
-              invert Hargs'.
-              apply Exists_exists in HR'. rewrite Forall_forall in Hmfp0.
-              fwd. apply Hmfp0 in HR'p0. specialize (HR'p0 eq_refl).
-              move Hmf' at bottom. cbv [expect_num_R_facts] in HR'p0.
-              destruct (is_input R') eqn:Ex.
-              { exfalso. move Hs' at bottom. cbv [sane_graph] in Hs'. simpl in Hs'.
-                destruct Hs' as (_&_&_&_&_&_&Hinp_sane).
-                specialize (Hinp_sane R'). rewrite Ex in Hinp_sane. fwd.
-                specialize (Hinp_sanep0 n'). destr (node_eqb n' n'); [|congruence].
-                simpl in Hinp_sanep0. destr (rel_eqb R' R'); [|congruence].
-                discriminate Hinp_sanep0. }
-              fwd. apply Forall2_forget_r in HR'p0p0. rewrite Forall_forall in HR'p0p0.
-              specialize (HR'p0p0 n'). specialize' HR'p0p0.
-              { destruct Hall_nodes as [H ?]. apply H. constructor. }
-              fwd. specialize (Hmf' _ _ _ ltac:(eassumption)). fwd. apply Hmf'p1.
-              assumption.
+           simpl. intros. eapply expect_num_R_facts_incl; [eassumption|].
+           auto with incl.
+        -- intros args Hargs. right. apply Hmf'p2.
+           eapply can_learn_normal_fact_at_node'_incl; [eassumption| |].
+           ++ simpl. intros f' Hf'. split; auto. intros [?|?]; auto.
+              subst. simpl in Hf'. exfalso.
+              rewrite Forall_forall in Hmf'p1.
+              specialize (Hmf'p1 _ ltac:(eassumption)).
+              apply no_learning_inputs in Hfp1.
+              cbv [expect_num_R_facts] in Hmf'p1. rewrite Hfp1 in Hmf'p1.
+              fwd. apply Forall2_forget_r in Hmf'p1p0. rewrite Forall_forall in Hmf'p1p0.
+              epose_dep Hmf'p1p0. specialize' Hmf'p1p0.
+              { destruct Hall_nodes as [Han _]. apply Han. constructor. }
+              fwd. eapply Hfp0. exact Hmf'p1p0p1.
+           ++ simpl. auto.
       + cbv [meta_facts_correct_at_node]. simpl. intros R num [H'|H'].
         2: { apply Hmf in H'. fwd. split.
              - eapply Forall_impl; [|eassumption].
@@ -1427,23 +1414,6 @@ Section DistributedDatalog.
   Definition same_msgs_received g g' :=
     forall n,
       (g.(node_states) n).(msgs_received) = (g'.(node_states) n).(msgs_received).
-
-  Lemma no_learning_inputs g n R args :
-    can_learn_normal_fact_at_node (rules n) (node_states g n) R args ->
-    is_input R = false.
-  Proof.
-    intros H. cbv [can_learn_normal_fact_at_node] in H. fwd.
-    cbv [good_rules] in rules_good. specialize (rules_good n).
-    rewrite Forall_forall in rules_good.
-    specialize (rules_good _ ltac:(eassumption)).
-    destruct r; fwd; simpl in rules_good.
-    - apply Exists_exists in Hp1p0. fwd. invert Hp1p0p1.
-      apply Lists.List.Forall_map in rules_good.
-      rewrite Forall_forall in rules_good.
-      apply rules_good. assumption.
-    - assumption.
-    - contradiction.
-  Qed.
 
   Lemma node_can_find_all_conclusions g l n R :
     sane_graph g ->
