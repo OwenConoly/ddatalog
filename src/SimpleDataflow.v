@@ -39,15 +39,12 @@ Section DistributedDatalog.
   Let rule := rule rel var fn aggregator T.
   Let fact := fact rel T.
 
-  Definition rule_good (r : rule) :=
+  Definition good_rule_inputs (r : rule) :=
     match r with
     | normal_rule cs _ => Forall (fun R => is_input R = false) (map fact_R cs)
     | agg_rule _ target_rel _ => is_input target_rel = false
     | meta_rule R _ _ => is_input R = false
     end.
-
-  Definition good_rules rules :=
-    forall (n : Node), Forall rule_good (rules n).
 
   Definition good_layout (p : list rule) (rules : Node -> list rule) :=
     (forall r, In r p -> exists n, In r (rules n)) /\
@@ -80,7 +77,7 @@ Section DistributedDatalog.
       p.
 
   Context (p : list rule) (rules : Node -> list rule).
-  Context (rules_good : good_rules rules) (Hlayout : good_layout p rules) (Hgmr : good_meta_rules p).
+  Context (Hp_inp : Forall good_rule_inputs p) (Hlayout : good_layout p rules) (Hgmr : good_meta_rules p).
 
   (*i assume graph is complete, because i suspect this will be tricky enough as is*)
   Record node_state := {
@@ -527,25 +524,25 @@ Section DistributedDatalog.
                 - eassumption. }
               split; [eassumption|].
               destr (node_eqb n n'); simpl; assumption.
-      + intros R. specialize (Hinp_sane R). pose proof rules_good as Hr.
-        specialize (Hr n).
+      + intros R. specialize (Hinp_sane R). pose proof Hp_inp as Hr.
+        rewrite Forall_forall in Hr.
         destruct (is_input R) eqn:ER; t.
         2: { split; t. intros ?. eapply Hinp_sanep1. t.
              cbv [can_learn_meta_fact_at_node] in Hp1. fwd.
-             move rules_good at bottom. cbv [good_rules] in rules_good.
-             epose_dep  rules_good. rewrite Forall_forall in rules_good.
-             apply rules_good in Hp1p0. simpl in Hp1p0. congruence. }
+             epose_dep Hr. specialize' Hr.
+             { destruct Hlayout as [_ [Hl _]]. eapply Hl. eassumption. }
+             simpl in Hr. congruence. }
         split; t.
         2: { intros ?. eapply Hinp_sanep1. t. }
         exfalso.
         cbv [can_learn_normal_fact_at_node can_learn_normal_fact_at_node'] in Hp1.
-        fwd. destruct r; fwd.
-        -- rewrite Forall_forall in Hr. specialize (Hr _ ltac:(eassumption)).
-           simpl in Hr. apply Lists.List.Forall_map in Hr. rewrite Forall_forall in Hr.
+        fwd. epose_dep Hr. specialize' Hr.
+        { destruct Hlayout as [_ [Hl _]]. eapply Hl. eassumption. }
+        destruct r; fwd.
+        -- simpl in Hr. apply Lists.List.Forall_map in Hr. rewrite Forall_forall in Hr.
            apply Exists_exists in Hp1p1p0. fwd. specialize (Hr _ ltac:(eassumption)).
            invert Hp1p1p0p1. congruence.
-        -- rewrite Forall_forall in Hr. specialize (Hr _ ltac:(eassumption)).
-           simpl in Hr. congruence.
+        -- congruence.
         -- contradiction.
   Qed.
 
@@ -869,14 +866,13 @@ Section DistributedDatalog.
   Proof.
     intros H.
     cbv [can_learn_normal_fact_at_node can_learn_normal_fact_at_node'] in H.
-    fwd. cbv [good_rules] in rules_good. specialize (rules_good n).
-    rewrite Forall_forall in rules_good.
-    specialize (rules_good _ ltac:(eassumption)).
-    destruct r; fwd; simpl in rules_good.
+    fwd. destruct Hlayout as [_ [Hl _]]. apply Hl in Hp0.
+    rewrite Forall_forall in Hp_inp. specialize (Hp_inp _ Hp0).
+    destruct r; fwd; simpl in Hp_inp.
     - apply Exists_exists in Hp1p0. fwd. invert Hp1p0p1.
-      apply Lists.List.Forall_map in rules_good.
-      rewrite Forall_forall in rules_good.
-      apply rules_good. assumption.
+      apply Lists.List.Forall_map in Hp_inp.
+      rewrite Forall_forall in Hp_inp.
+      apply Hp_inp. assumption.
     - assumption.
     - contradiction.
   Qed.
@@ -887,10 +883,9 @@ Section DistributedDatalog.
   Proof.
     intros H.
     cbv [can_learn_meta_fact_at_node] in H.
-    fwd. cbv [good_rules] in rules_good. specialize (rules_good n).
-    rewrite Forall_forall in rules_good.
-    specialize (rules_good _ ltac:(eassumption)).
-    simpl in rules_good. assumption.
+    fwd. destruct Hlayout as [_ [Hl _]]. apply Hl in Hp0.
+    rewrite Forall_forall in Hp_inp. specialize (Hp_inp _ Hp0).
+    simpl in Hp_inp. assumption.
   Qed.
 
   Lemma step_preserves_mf_correct g g' :
@@ -1570,10 +1565,8 @@ Section DistributedDatalog.
     is_input (rel_of f) = false.
   Proof.
     intros H1 H2.
-    cbv [good_rules] in rules_good. cbv [good_layout] in Hlayout.
-    destruct Hlayout as [Hl _]. apply Hl in H2. fwd.
-    epose_dep rules_good. rewrite Forall_forall in rules_good.
-    apply rules_good in H2. invert H1.
+    rewrite Forall_forall in Hp_inp. apply Hp_inp in H2.
+    invert H1.
     + apply Exists_exists in H. fwd. invert Hp1. simpl. simpl in H2.
       rewrite Forall_forall in H2. apply H2. apply in_map_iff. eauto.
     + simpl. simpl in H2. assumption.
@@ -1585,35 +1578,38 @@ Section DistributedDatalog.
     prog_impl_implication p Q (meta_fact R0 S0) ->
     consistent p Q R0 S0.
   Proof.
-    intros HQ H. remember (meta_fact R0 S0) as f eqn:E. revert E.
-    induction H; intro; subst.
+    intros HQ H. remember (meta_fact R0 S0) as f eqn:E. revert R0 S0 E.
+    induction H; intros R0 S0 ?; subst.
     - cbv [consistent]. cbv [good_input_hyps] in HQ. fwd. intros x.
       rewrite <- HQp0 with (S' := S0); [|eassumption]. split.
       2: { intros. apply partial_in. assumption. }
       intros H'. invert H'; auto. exfalso. rename H0 into Hr.
       apply Exists_exists in Hr. fwd. apply HQp1 in H. simpl in H.
       apply no_learning_inputs' in Hrp1; [|eassumption]. simpl in Hrp1. congruence.
-    -
-      cbv [good_rules] in rules_good. cbv [good_layout] in Hlayout.
-      destruct Hlayout as [Hl _]. apply Hl in Hrp0. fwd.
-      epose_dep rules_good. rewrite Forall_forall in rules_good.
-      apply rules_good in Hrp0.
-      clear -H Hrp0 Hrp1. invert Hrp1.
-      + simpl in Hrp0. apply Exists_exists in H3.
-      invert H
+    - apply Exists_exists in H. fwd.
+      cbv [good_meta_rules] in Hgmr. rewrite Forall_forall in Hgmr.
+      specialize (Hgmr _ ltac:(eassumption)). cbv [consistent].
+      intros args. rewrite Hgmr.
+      2: { cbv [rule_impl_implication]. eexists. split; [eassumption|].
+           invert Hp1. apply Forall2_zip in H1; [|assumption].
+           apply Forall_zip. eapply Forall2_impl; [|exact H1].
+           simpl. auto. }
+      split; auto. intros [HQ'|?]; auto. exfalso.
+      apply HQ in HQ'. simpl in HQ'.
+      rewrite Forall_forall in Hp_inp. apply Hp_inp in Hp0.
+      invert Hp1. simpl in Hp0. congruence.
+  Qed.
 
   Lemma hmfs_unique Q R S S' :
-     ->
+    good_input_hyps Q ->
     prog_impl_implication p Q (meta_fact R S) ->
     prog_impl_implication p Q (meta_fact R S') ->
     forall args,
-      Q (normal_fact R args) \/
-        (S args <-> S' args).
+      S args <-> S' args.
   Proof.
-    intros HQ H1 H2 args. cbv [good_meta_rules] in Hgmr. Print consistent.
-    eapply Hgmr in H1, H2; try eassumption.
-    destruct H1 as [H1|H1]; destruct H2 as [H2|H2]; eauto.
-    right. rewrite <- H1, <- H2. reflexivity.
+    intros HQ H1 H2 args. cbv [good_meta_rules] in Hgmr.
+    eapply meta_rules_sound in H1, H2; try assumption.
+    cbv [consistent] in H1, H2. rewrite <- H1, <- H2. reflexivity.
   Qed.
 
   Lemma fact_in_inputs_knows_datalog_fact g f :
@@ -1635,12 +1631,9 @@ Section DistributedDatalog.
   Proof.
     intros Hinp.
     invert 1; auto.
-    (*hypotheses are set up in an insane way, why is this so hard*)
-    rename H0 into Hr. apply Exists_exists in Hr. fwd. cbv [good_layout] in Hlayout.
-    destruct Hlayout as (Hlayout'&_&_). apply Hlayout' in Hrp0. fwd.
-    cbv [good_rules] in rules_good. epose_dep rules_good.
-    rewrite Forall_forall in rules_good. apply rules_good in Hrp0.
-    cbv [rule_good] in Hrp0. invert Hrp1. congruence.
+    rename H0 into Hr. apply Exists_exists in Hr. fwd.
+    rewrite Forall_forall in Hp_inp. specialize (Hp_inp _ Hrp0).
+    invert Hrp1. simpl in Hp_inp. congruence.
   Qed.
 
   Lemma use_meta_facts_correct R S Rs g :
