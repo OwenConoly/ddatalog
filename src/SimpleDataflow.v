@@ -74,7 +74,9 @@ Section DistributedDatalog.
                      | meta_fact R' S' => consistent p Q R' S'
                      end)
                   (meta_fact R0 S0) ->
-                consistent p Q R0 S0)
+                forall x,
+                  prog_impl_implication p Q (normal_fact R0 x) <-> Q (normal_fact R0 x) \/ S0 x
+      (*consistent p Q R0 S0*))
       p.
 
   Context (p : list rule) (rules : Node -> list rule).
@@ -1341,7 +1343,7 @@ Section DistributedDatalog.
           forall args, T args <-> In (normal_dfact R args) inps
     end.
 
-  Definition consistent g f :=
+  Definition mf_consistent g f :=
     match f with
     | normal_fact _ _ => True
     | meta_fact R S' =>
@@ -1352,12 +1354,12 @@ Section DistributedDatalog.
   Definition graph_correct_for g R :=
     (forall f',
         rel_of f' = R ->
-        (knows_datalog_fact g f' /\ consistent g f') ->
+        (knows_datalog_fact g f' /\ mf_consistent g f') ->
         prog_impl_implication p (fact_in_inputs g.(input_facts)) f').
 
   Definition graph_correct g :=
     forall f,
-      (knows_datalog_fact g f /\ consistent g f) ->
+      (knows_datalog_fact g f /\ mf_consistent g f) ->
       prog_impl_implication p (fact_in_inputs g.(input_facts)) f.
 
   Definition finite_fact (f : fact) :=
@@ -1377,6 +1379,7 @@ Section DistributedDatalog.
     forall n,
       (g.(node_states) n).(msgs_received) = (g'.(node_states) n).(msgs_received).
 
+  Print meta_facts_correct_at_node.
   Lemma node_can_find_all_conclusions g l n R :
     sane_graph g ->
     good_inputs g.(input_facts) ->
@@ -1396,8 +1399,8 @@ Section DistributedDatalog.
     assert (Hor : (fun P => P \/ ~P) (exists num, In (meta_dfact R (Some n) num) (known_facts (node_states g n)))).
     { apply Classical_Prop.classic. }
     simpl in Hor. destruct Hor as [Hor|Hor].
-    { fwd. intros. exists g. split; [auto|]. split; [|cbv [same_msgs_received]; auto].
-      intros. apply Hmf in Hor. destruct Hor as [_ Hor]. apply Hor. assumption. }
+    { admit. } (* fwd. intros. exists g. split; [auto|]. split; [|cbv [same_msgs_received]; auto]. *)
+      (* intros. Print meta_facts_correct_at_node. apply Hmf in Hor. fwd. Print good_meta_rules. capply Horp3auto. destruct Hor as [_ Hor]. apply Hor. assumption. } *)
     assert (Hl0: forall args g',
                comp_step^* g g' ->
                knows_fact g' (normal_dfact R args) ->
@@ -1444,7 +1447,7 @@ Section DistributedDatalog.
         specialize' Hl.
         { right. simpl. exists n. destr (node_eqb n n); [|congruence]. simpl. auto. }
         destruct Hl; [assumption|]. exfalso. rewrite Exists_exists in Hor'. eauto.
-  Qed.
+  Abort.
 
   Lemma receive_fact_at_node_impl ns f f0 :
     In f0 (receive_fact_at_node ns f).(known_facts) ->
@@ -1545,27 +1548,69 @@ Section DistributedDatalog.
   Lemma consistent_preserved g g' R S :
     sane_graph g ->
     knows_datalog_fact g (meta_fact R S) ->
-    consistent g (meta_fact R S) ->
+    mf_consistent g (meta_fact R S) ->
     comp_step^* g g' ->
-    consistent g' (meta_fact R S).
+    mf_consistent g' (meta_fact R S).
   Proof.
-    intros Hs Hk Hc Hstep. cbv [consistent].
-    cbv [consistent] in Hc. intros args. rewrite <- Hc. clear Hc.
+    intros Hs Hk Hc Hstep. cbv [mf_consistent].
+    cbv [mf_consistent] in Hc. intros args. rewrite <- Hc. clear Hc.
     split.
     - eauto using knows_meta_fact_steps_learns_nothing.
     - eauto using steps_preserves_facts.
   Qed.
 
+  Definition good_input_hyps Q :=
+    (forall R' S',
+        Q (meta_fact R' S') -> forall x, Q (normal_fact R' x) <-> S' x) /\
+      forall f, Q f -> is_input (rel_of f) = true.
+
+  Lemma no_learning_inputs' r f hyps :
+    rule_impl r f hyps ->
+    In r p ->
+    is_input (rel_of f) = false.
+  Proof.
+    intros H1 H2.
+    cbv [good_rules] in rules_good. cbv [good_layout] in Hlayout.
+    destruct Hlayout as [Hl _]. apply Hl in H2. fwd.
+    epose_dep rules_good. rewrite Forall_forall in rules_good.
+    apply rules_good in H2. invert H1.
+    + apply Exists_exists in H. fwd. invert Hp1. simpl. simpl in H2.
+      rewrite Forall_forall in H2. apply H2. apply in_map_iff. eauto.
+    + simpl. simpl in H2. assumption.
+    + simpl. simpl in H2. assumption.
+  Qed.
+
+  Lemma meta_rules_sound Q R0 S0 :
+    good_input_hyps Q ->
+    prog_impl_implication p Q (meta_fact R0 S0) ->
+    consistent p Q R0 S0.
+  Proof.
+    intros HQ H. remember (meta_fact R0 S0) as f eqn:E. revert E.
+    induction H; intro; subst.
+    - cbv [consistent]. cbv [good_input_hyps] in HQ. fwd. intros x.
+      rewrite <- HQp0 with (S' := S0); [|eassumption]. split.
+      2: { intros. apply partial_in. assumption. }
+      intros H'. invert H'; auto. exfalso. rename H0 into Hr.
+      apply Exists_exists in Hr. fwd. apply HQp1 in H. simpl in H.
+      apply no_learning_inputs' in Hrp1; [|eassumption]. simpl in Hrp1. congruence.
+    -
+      cbv [good_rules] in rules_good. cbv [good_layout] in Hlayout.
+      destruct Hlayout as [Hl _]. apply Hl in Hrp0. fwd.
+      epose_dep rules_good. rewrite Forall_forall in rules_good.
+      apply rules_good in Hrp0.
+      clear -H Hrp0 Hrp1. invert Hrp1.
+      + simpl in Hrp0. apply Exists_exists in H3.
+      invert H
+
   Lemma hmfs_unique Q R S S' :
-    (forall (R' : rel) (S' : list T -> Prop),
-        Q (meta_fact R' S') -> forall x : list T, Q (normal_fact R' x) <-> S' x) ->
+     ->
     prog_impl_implication p Q (meta_fact R S) ->
     prog_impl_implication p Q (meta_fact R S') ->
     forall args,
       Q (normal_fact R args) \/
         (S args <-> S' args).
   Proof.
-    intros HQ H1 H2 args. cbv [good_meta_rules] in Hgmr.
+    intros HQ H1 H2 args. cbv [good_meta_rules] in Hgmr. Print consistent.
     eapply Hgmr in H1, H2; try eassumption.
     destruct H1 as [H1|H1]; destruct H2 as [H2|H2]; eauto.
     right. rewrite <- H1, <- H2. reflexivity.
