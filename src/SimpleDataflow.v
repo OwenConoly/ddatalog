@@ -1674,7 +1674,6 @@ Section DistributedDatalog.
     good_meta_rule p (meta_rule R f Rs) ->
     good_meta_rule' R Rs.
   Proof.
-    Print good_meta_rule.
     cbv [good_meta_rule good_meta_rule']. intros H Q args Hargs.
     pose proof H as H'.
     specialize (H Q).
@@ -1703,6 +1702,18 @@ Section DistributedDatalog.
     right. apply H'. clear H'. right. exact Hargs.
   Qed.
 
+  Lemma good_meta_rule'_good_meta_rule R f Rs :
+    good_meta_rule' R Rs ->
+    good_meta_rule p (meta_rule R f Rs).
+  Proof. Print good_meta_rule.
+    cbv [good_meta_rule' good_meta_rule]. intros H Q R0 S0 H0 args.
+    cbv [rule_impl_implication] in H0. fwd. invert H0p0.
+    apply Forall2_zip in H0p1; [|assumption].
+    split; intros Hargs.
+    - apply H in Hargs. destruct Hargs as [Hargs|Hargs]; [auto|]. admit.
+    - admit.
+  Abort.
+
   Lemma intersect_meta_rules R f Rs f' Rs' :
     good_meta_rule p (meta_rule R f Rs) ->
     good_meta_rule p (meta_rule R f' Rs') ->
@@ -1725,7 +1736,7 @@ Section DistributedDatalog.
         (*instantiate H1 with Q := prog_impl_implication Q \ R0.  instantiate H2 with Q := Q and Q := Q \ R0.*)
         pose proof H2 as H2'.
         specialize (H1 (fun f => prog_impl_implication p Q f /\ rel_of f <> R0)).
-        specialize (H2 (prog_impl_implication p Q)).
+        specialize (H2 Q).
         specialize (H2' (fun f => prog_impl_implication p Q f /\ rel_of f <> R0)).
         cbv [rule_impl_implication] in H'. fwd. invert H'p0. rewrite length_app in *.
         rewrite <- (firstn_skipn (length Rs0) source_sets) in H'p1.
@@ -1744,7 +1755,7 @@ Section DistributedDatalog.
             rewrite length_map. reflexivity.
           - apply Forall_zip. rewrite <- Forall2_map_r.
             apply Forall2_same. apply Forall_forall. intros R'' HR''.
-            cbv [consistent]. intros. admit. }
+            cbv [consistent]. intros. reflexivity. }
         epose_dep H2'. specialize' H2'.
         { clear H1 H2. eexists. split.
           - eapply meta_rule_impl with
@@ -1760,51 +1771,10 @@ Section DistributedDatalog.
             + intros. apply partial_in. split; [assumption|].
               rewrite Forall_forall in E. apply E in HR''. simpl.
               destr (rel_eqb R0 R''); congruence. }
-        Print good_meta_rule.
-        assert (H2'' : forall x,
-                   prog_impl_implication p (prog_impl_implication p Q) (normal_fact R' x) <->
-    prog_impl_implication
-        { clear H1 H2. eexists. split.
-          - eapply meta_rule_impl with
-              (source_sets := map (fun _ _ => _) Rs').
-            2: reflexivity.
-            rewrite length_map. reflexivity.
-          - apply Forall_zip. rewrite <- Forall2_map_r.
-            apply Forall2_same. apply Forall_forall. intros R'' HR''.
-            cbv [consistent]. intros. reflexivity. }
-        Print good_meta_rule.
-          - rewrite zip_app.
-            2: { rewrite length_firstn. lia. }
-            rewrite zip_cons.
-            apply Forall_app. apply Forall_app in H'p1. fwd.
-            split.
-            { apply Forall_zip.
-              eapply Forall2_impl_strong; [|eassumption].
-              simpl. intros R'' S'' H'' HR'' _. cbv [consistent]. intros args''.
-              cbv [consistent] in H''. rewrite <- H''
-                args.
-              Search Forall2.
-              rewrite
-              Search zip Forall2. apply Forall_zip_Forall2 in H'p1p1. apply Forall_forall. intros h Hh. Search In combine. eapply Forall_impl; [|eassumption]. simpl.
-            ; [assumption|]. constructor; [|assumption].
-            simpl zip.
-            Search zip.
-            simpl.
-            simpl.
-            cbv [zip].
-              Search combine. Search zip.
-            apply meta_rule_impl with (source_sets :=  econstructor. ; [|eassumption].
-          invert H'p0. econstructor.
-        cbv [rule_impl_implication] in H'. fwd. invert H'p0.
-
-        Search (_ = false).
-        assert (E' : ~existsb (rel_eqb R0) Rs' = true).
-        Search existsb.
-
-        Search existsb. apply existsb_exists in E.
-        specialize (IHRs ltac:(assumption)). apply IHRs.
-        fwd.
-        apply IHRs in  exists f.
+        (*this seems true, but I think i am going about the proof not quite right*)
+        (*and i don't actually need this lemma; intersection property of
+          good_meta_rule' suffices*)
+  Abort.
 
   Lemma use_meta_facts_correct R g :
     good_inputs g.(input_facts) ->
