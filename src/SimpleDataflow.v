@@ -1028,40 +1028,18 @@ Section DistributedDatalog.
               --- simpl. intros. split; auto. intros [?|?]; auto. subst.
                   simpl in *. rewrite Forall_forall in H'p2.
                   specialize (H'p2 _ ltac:(eassumption)).
-               eapply can_learn_normal_fact_at_node_relevant_normal_facts_incl; [eassumption| |].
-               + simpl. intros ? ? [?|?]; [congruence|auto].
-               + simpl. intros R' HR'. split; auto. split.
-              { intros. split; auto. intros [?|?]; [congruence|auto]. }
-              intros ? ? [H'|?]; auto. invert H'.
-              apply Exists_exists in HR'. fwd.
-              rewrite Forall_forall in H'p0. specialize (H'p0 _ HR'p0).
-              simpl in H'p0. specialize (H'p0 eq_refl).
-              pose proof reasonable_meta_fact_nodes as H'.
-              pose proof mfs_unique as H''.
-              epose_dep H'. specialize (H' Hs' Hinp). specialize' H'.
-              { cbv [knows_fact]. simpl. right. exists n'.
-                destr (node_eqb n' n'); [|congruence].
-                simpl. left. reflexivity. }
-              cbv [expect_num_R_facts] in H'p0.
-              destruct (is_input R'); [congruence|].
-              --- fwd.
-                  apply Forall2_forget_r in H'p0p0.
-                  rewrite Forall_forall in H'p0p0.
-                  specialize (H'p0p0 n0).
-                  specialize' H'p0p0.
-                  { destruct Hall_nodes as [HH _]. apply HH. constructor. }
-                  fwd.
-                  epose_dep H''. specialize (H'' Hs' Hinp).
-                  specialize' H''.
-                  { cbv [knows_fact]. simpl. right. exists n0.
-                    destr (node_eqb n0 n0); [|congruence].
-                    simpl. left. reflexivity. }
-                  specialize' H''.
-                  { right. simpl. exists n0.
-                    destr (node_eqb n0 n0); [|congruence].
-                    simpl. right. eassumption. }
-                  subst. assumption. }
-
+                  cbv [expect_num_R_facts] in H'p2.
+                  pose proof Hfp1 as Hfp1'.
+                  apply no_learning_inputs_meta in Hfp1'.
+                  rewrite Hfp1' in H'p2. fwd.
+                  apply Forall2_forget_r in H'p2p0. rewrite Forall_forall in H'p2p0.
+                  epose_dep H'p2p0. specialize' H'p2p0.
+                  { destruct Hall_nodes as [Han _]. apply Han. constructor. }
+                  fwd. destruct Hs as (_&_&_&Hmfcnt&_). move Hmfcnt at bottom.
+                  specialize (Hmfcnt _ _ _ H'p2p0p1). subst.
+                  move Hfp1 at bottom. cbv [can_learn_meta_fact_at_node] in Hfp1.
+                  fwd. assumption.
+              --- simpl. auto.
   Qed.
 
   Lemma comp_step_preserves_datalog_facts f g g' :
