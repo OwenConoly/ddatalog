@@ -64,18 +64,37 @@ Section DistributedDatalog.
   (*this definition is no good.
     with program [A(x) :- B(x); B(x) :- A(x); C(x) :- A(x)],
     allows meta rule concluding C meta-facts from B meta-facts.*)
-  Definition good_meta_rule (p : list rule) r :=
-    forall Q R0 S0,
-      rule_impl_implication r
-        (fun f =>
-           match f with
-           | normal_fact _ _ => False
-           | meta_fact R' S' => consistent p Q R' S'
-           end)
-        (meta_fact R0 S0) ->
-      forall x,
-        prog_impl_implication p Q (normal_fact R0 x) <-> Q (normal_fact R0 x) \/ S0 x
-  (*consistent p Q R0 S0*).
+  (* Definition good_meta_rule (p : list rule) r := *)
+  (*   forall Q R0 S0, *)
+  (*     rule_impl_implication r *)
+  (*       (fun f => *)
+  (*          match f with *)
+  (*          | normal_fact _ _ => False *)
+  (*          | meta_fact R' S' => consistent p Q R' S' *)
+  (*          end) *)
+  (*       (meta_fact R0 S0) -> *)
+  (*     forall Q x, *)
+  (*       prog_impl_implication p Q (normal_fact R0 x) <-> *)
+  (*         Exists (fun r => rule_impl_implication *)
+  (* (*consistent p Q R0 S0*). *)
+
+  Definition rel_of (f : fact) :=
+    match f with
+    | normal_fact R _ => R
+    | meta_fact R _ => R
+    end.
+
+  Definition good_meta_rule' (p : list rule) R Rs :=
+    forall Q args,
+      prog_impl_implication p Q (normal_fact R args) ->
+      Q (normal_fact R args) \/
+        Exists (fun r => rule_impl_implication r (fun f => prog_impl_implication p Q f /\ In (rel_of f) Rs) (normal_fact R args)) p.
+
+  Definition good_meta_rule (p : list rule) (r : rule) :=
+    match r with
+    | meta_rule R _ Rs => good_meta_rule' p R Rs
+    | _ => True
+    end.
 
   Context (p : list rule) (rules : Node -> list rule).
   Context (Hp_inp : Forall good_rule_inputs p) (Hlayout : good_layout p rules) (Hgmr : Forall (good_meta_rule p) p).
@@ -1323,12 +1342,6 @@ Section DistributedDatalog.
       eapply steps_preserves_known_facts. eassumption.
   Qed.
 
-  Definition rel_of (f : fact) :=
-    match f with
-    | normal_fact R _ => R
-    | meta_fact R _ => R
-    end.
-
   Definition fact_in_inputs inps f :=
     match f with
     | normal_fact R args => In (normal_dfact R args) inps
@@ -1574,32 +1587,32 @@ Section DistributedDatalog.
     + simpl. simpl in H2. assumption.
   Qed.
 
-  Lemma meta_rules_sound Q R0 S0 :
+  Hypothesis meta_rules_sound : forall Q R0 S0,
     good_input_hyps Q ->
     prog_impl_implication p Q (meta_fact R0 S0) ->
     consistent p Q R0 S0.
-  Proof.
-    intros HQ H. remember (meta_fact R0 S0) as f eqn:E. revert R0 S0 E.
-    induction H; intros R0 S0 ?; subst.
-    - cbv [consistent]. cbv [good_input_hyps] in HQ. fwd. intros x.
-      rewrite <- HQp0 with (S' := S0); [|eassumption]. split.
-      2: { intros. apply partial_in. assumption. }
-      intros H'. invert H'; auto. exfalso. rename H0 into Hr.
-      apply Exists_exists in Hr. fwd. apply HQp1 in H. simpl in H.
-      apply no_learning_inputs' in Hrp1; [|eassumption]. simpl in Hrp1. congruence.
-    - apply Exists_exists in H. fwd.
-      rewrite Forall_forall in Hgmr. specialize (Hgmr _ ltac:(eassumption)).
-      cbv [good_meta_rule] in Hgmr.
-      cbv [consistent]. intros args. rewrite Hgmr.
-      2: { cbv [rule_impl_implication]. eexists. split; [eassumption|].
-           invert Hp1. apply Forall2_zip in H1; [|assumption].
-           apply Forall_zip. eapply Forall2_impl; [|exact H1].
-           simpl. auto. }
-      split; auto. intros [HQ'|?]; auto. exfalso.
-      apply HQ in HQ'. simpl in HQ'.
-      rewrite Forall_forall in Hp_inp. apply Hp_inp in Hp0.
-      invert Hp1. simpl in Hp0. congruence.
-  Qed.
+  (* Proof. *)
+  (*   intros HQ H. remember (meta_fact R0 S0) as f eqn:E. revert R0 S0 E. *)
+  (*   induction H; intros R0 S0 ?; subst. *)
+  (*   - cbv [consistent]. cbv [good_input_hyps] in HQ. fwd. intros x. *)
+  (*     rewrite <- HQp0 with (S' := S0); [|eassumption]. split. *)
+  (*     2: { intros. apply partial_in. assumption. } *)
+  (*     intros H'. invert H'; auto. exfalso. rename H0 into Hr. *)
+  (*     apply Exists_exists in Hr. fwd. apply HQp1 in H. simpl in H. *)
+  (*     apply no_learning_inputs' in Hrp1; [|eassumption]. simpl in Hrp1. congruence. *)
+  (*   - apply Exists_exists in H. fwd. *)
+  (*     rewrite Forall_forall in Hgmr. specialize (Hgmr _ ltac:(eassumption)). *)
+  (*     cbv [good_meta_rule] in Hgmr. *)
+  (*     cbv [consistent]. intros args. rewrite Hgmr. *)
+  (*     2: { cbv [rule_impl_implication]. eexists. split; [eassumption|]. *)
+  (*          invert Hp1. apply Forall2_zip in H1; [|assumption]. *)
+  (*          apply Forall_zip. eapply Forall2_impl; [|exact H1]. *)
+  (*          simpl. auto. } *)
+  (*     split; auto. intros [HQ'|?]; auto. exfalso. *)
+  (*     apply HQ in HQ'. simpl in HQ'. *)
+  (*     rewrite Forall_forall in Hp_inp. apply Hp_inp in Hp0. *)
+  (*     invert Hp1. simpl in Hp0. congruence. *)
+  (* Qed. *)
 
   Lemma hmfs_unique Q R S S' :
     good_input_hyps Q ->
@@ -1671,43 +1684,37 @@ Section DistributedDatalog.
 
   Print good_meta_rule.
 
-  Definition good_meta_rule' R Rs :=
-    forall Q args,
-      prog_impl_implication p Q (normal_fact R args) ->
-      Q (normal_fact R args) \/
-        prog_impl_implication p (fun f => prog_impl_implication p Q f /\ In (rel_of f) Rs) (normal_fact R args).
-
-  Lemma good_meta_rule_good_meta_rule' R f Rs :
-    good_meta_rule p (meta_rule R f Rs) ->
-    good_meta_rule' R Rs.
-  Proof.
-    cbv [good_meta_rule good_meta_rule']. intros H Q args Hargs.
-    pose proof H as H'.
-    specialize (H Q).
-    specialize (H' (fun f => prog_impl_implication p Q f /\ In (rel_of f) Rs)).
-    epose_dep H. specialize' H.
-    { clear H'. cbv [rule_impl_implication]. eexists. split.
-      - eapply meta_rule_impl with
-          (source_sets := map (fun R' args => prog_impl_implication p Q (normal_fact R' args)) Rs).
-        { rewrite length_map. reflexivity. }
-        reflexivity.
-      - apply Forall_zip. rewrite <- Forall2_map_r. apply Forall2_same.
-        apply Forall_forall. intros R' HR'. cbv [consistent]. reflexivity. }
-    epose_dep H'. specialize' H'.
-    { clear H. cbv [rule_impl_implication]. eexists. split.
-      - eapply meta_rule_impl with
-          (source_sets := map (fun R' args => prog_impl_implication p Q (normal_fact R' args)) Rs).
-        { rewrite length_map. reflexivity. }
-        reflexivity.
-      - apply Forall_zip. rewrite <- Forall2_map_r. apply Forall2_same.
-        apply Forall_forall. intros R' HR'. cbv [consistent].
-        intros args'. split; intros Hargs'.
-        + apply prog_impl_trans. eapply prog_impl_implication_weaken_hyp; [eassumption|].
-          simpl. intros. fwd. assumption.
-        + apply partial_in. auto. }
-    apply H in Hargs. clear H. destruct Hargs as [Hargs|Hargs]; [auto|].
-    right. apply H'. clear H'. right. exact Hargs.
-  Qed.
+  (* Lemma good_meta_rule_good_meta_rule' R f Rs : *)
+  (*   good_meta_rule p (meta_rule R f Rs) -> *)
+  (*   good_meta_rule' p R Rs. *)
+  (* Proof. *)
+  (*   cbv [good_meta_rule good_meta_rule']. intros H Q args Hargs. *)
+  (*   pose proof H as H'. *)
+  (*   specialize (H Q). *)
+  (*   specialize (H' (fun f => prog_impl_implication p Q f /\ In (rel_of f) Rs)). *)
+  (*   epose_dep H. specialize' H. *)
+  (*   { clear H'. cbv [rule_impl_implication]. eexists. split. *)
+  (*     - eapply meta_rule_impl with *)
+  (*         (source_sets := map (fun R' args => prog_impl_implication p Q (normal_fact R' args)) Rs). *)
+  (*       { rewrite length_map. reflexivity. } *)
+  (*       reflexivity. *)
+  (*     - apply Forall_zip. rewrite <- Forall2_map_r. apply Forall2_same. *)
+  (*       apply Forall_forall. intros R' HR'. cbv [consistent]. reflexivity. } *)
+  (*   epose_dep H'. specialize' H'. *)
+  (*   { clear H. cbv [rule_impl_implication]. eexists. split. *)
+  (*     - eapply meta_rule_impl with *)
+  (*         (source_sets := map (fun R' args => prog_impl_implication p Q (normal_fact R' args)) Rs). *)
+  (*       { rewrite length_map. reflexivity. } *)
+  (*       reflexivity. *)
+  (*     - apply Forall_zip. rewrite <- Forall2_map_r. apply Forall2_same. *)
+  (*       apply Forall_forall. intros R' HR'. cbv [consistent]. *)
+  (*       intros args'. split; intros Hargs'. *)
+  (*       + apply prog_impl_trans. eapply prog_impl_implication_weaken_hyp; [eassumption|]. *)
+  (*         simpl. intros. fwd. assumption. *)
+  (*       + apply partial_in. auto. } *)
+  (*   apply H in Hargs. clear H. destruct Hargs as [Hargs|Hargs]; [auto|]. *)
+  (*   right. apply H'. clear H'. right. exact Hargs. *)
+  (* Qed. *)
 
   Definition intersect {A} (eqb : A -> A -> bool) l1 l2 :=
     filter (fun x => existsb (eqb x) l2) l1.
@@ -1790,19 +1797,20 @@ Section DistributedDatalog.
 
   Lemma weaken_good_meta_rule' R Rs1 Rs2 :
     incl Rs1 Rs2 ->
-    good_meta_rule' R Rs1 ->
-    good_meta_rule' R Rs2.
+    good_meta_rule' p R Rs1 ->
+    good_meta_rule' p R Rs2.
   Proof.
     cbv [good_meta_rule']. intros Hincl H Q args Hargs.
     apply H in Hargs. destruct Hargs as [Hargs|Hargs]; auto.
-    right. eapply prog_impl_implication_weaken_hyp; [eassumption|].
-    simpl. intros. fwd. auto with incl.
+    right. eapply Exists_impl; [|eassumption]. simpl.
+    intros r Hr. cbv [rule_impl_implication] in Hr. fwd. eexists. split; [eassumption|].
+    eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto.
   Qed.
 
   Lemma pairwise_intersect_good_meta_rule' R Rs1 Rs2 :
-    good_meta_rule' R Rs1 ->
-    good_meta_rule' R Rs2 ->
-    good_meta_rule' R (intersect rel_eqb Rs1 Rs2).
+    good_meta_rule' p R Rs1 ->
+    good_meta_rule' p R Rs2 ->
+    good_meta_rule' p R (intersect rel_eqb Rs1 Rs2).
   Proof.
     cbv [good_meta_rule']. intros H1 H2 Q args Hargs.
     pose proof H1 as H1'. pose proof H2 as H2'.
