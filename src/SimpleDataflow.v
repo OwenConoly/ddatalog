@@ -85,10 +85,10 @@ Section DistributedDatalog.
     end.
 
   Definition good_meta_rule' (p : list rule) R Rs :=
-    forall Q args,
-      prog_impl_implication p Q (normal_fact R args) ->
-      Q (normal_fact R args) \/
-        Exists (fun r => rule_impl_implication r (fun f => prog_impl_implication p Q f /\ In (rel_of f) Rs) (normal_fact R args)) p.
+    forall r args hyps,
+      In r p ->
+      rule_impl r (normal_fact R args) hyps ->
+      Forall (fun f => In (rel_of f) Rs) hyps.
 
   Definition good_meta_rule (p : list rule) (r : rule) :=
     match r with
@@ -1800,11 +1800,8 @@ Section DistributedDatalog.
     good_meta_rule' p R Rs1 ->
     good_meta_rule' p R Rs2.
   Proof.
-    cbv [good_meta_rule']. intros Hincl H Q args Hargs.
-    apply H in Hargs. destruct Hargs as [Hargs|Hargs]; auto.
-    right. eapply Exists_impl; [|eassumption]. simpl.
-    intros r Hr. cbv [rule_impl_implication] in Hr. fwd. eexists. split; [eassumption|].
-    eapply Forall_impl; [|eassumption]. simpl. intros. fwd. auto.
+    cbv [good_meta_rule']. intros Hincl H r args hyps Hr Hhyps.
+    eapply Forall_impl; [|eauto]. simpl. auto.
   Qed.
 
   Lemma pairwise_intersect_good_meta_rule' R Rs1 Rs2 :
@@ -1812,112 +1809,11 @@ Section DistributedDatalog.
     good_meta_rule' p R Rs2 ->
     good_meta_rule' p R (intersect rel_eqb Rs1 Rs2).
   Proof.
-    cbv [good_meta_rule']. intros H1 H2 Q args Hargs.
-    pose proof H1 as H1'. pose proof H2 as H2'.
-    specialize (H1 _ _ Hargs). specialize (H2 _ _ Hargs).
-    destruct H1 as [H1|H1]; auto. destruct H2 as [H2|H2]; auto.
-    apply H1' in H2. apply H2' in H1.
-    right. destruct H1 as [H1|H1].
-    - destruct H2 as [H2|H2].
-      + fwd. apply partial_in. split; auto. apply intersect_spec; auto.
-      + clear H1 Hargs. eapply prog_impl_implication_weaken_hyp; [exact H2|].
-        simpl. intros.
-  Abort.
-
-  Lemma good_meta_rule'_good_meta_rule R f Rs :
-    good_meta_rule' R Rs ->
-    good_meta_rule p (meta_rule R f Rs).
-  Proof.
-    cbv [good_meta_rule' good_meta_rule]. intros H Q R0 S0 H0 args.
-    cbv [rule_impl_implication] in H0. fwd. invert H0p0.
-    apply Forall2_zip in H0p1; [|assumption].
-    split; intros Hargs.
-    - apply H in Hargs. destruct Hargs as [Hargs|Hargs]; [auto|]. admit.
-    - admit.
-  Abort.
-
-  Lemma intersect_meta_rules R f Rs f' Rs' :
-    good_meta_rule p (meta_rule R f Rs) ->
-    good_meta_rule p (meta_rule R f' Rs') ->
-    exists f0,
-      good_meta_rule p (meta_rule R f0 (filter (fun x => existsb (rel_eqb x) Rs') Rs)).
-  Proof.
-    intros H1 H2. set (Rs0 := @nil rel).
-    eassert (filter _ Rs = Rs0 ++ filter _ Rs) as -> by (subst Rs0; reflexivity).
-    revert H1.
-    assert (meta_rule R f Rs = meta_rule R f (Rs0 ++ Rs)) as -> by (subst Rs0; reflexivity).
-    clearbody Rs0. revert f Rs0. induction Rs as [|R0 Rs]; intros f Rs0 H1.
-    - exists f. simpl. assumption.
-    - simpl. destr (existsb (rel_eqb R0) Rs').
-      + specialize (IHRs f (Rs0 ++ [R0])). do 2 rewrite <- app_assoc in IHRs.
-        apply IHRs. assumption.
-      + Print good_meta_rule'.
-        eapply IHRs with
-          (f := fun l => f (firstn (length Rs0) l ++
-                           (fun args => prog_impl_implication p
-                                       (fun f' =>
-                                          match f' with
-                                          | normal_fact R' args' =>
-                                              exists S',
-                                              S' args' /\
-                                                In (R', S') (combine Rs0 l)
-                                          | meta_fact _ _ => False
-                                          end) (normal_fact R0 args))
-                           :: skipn (length Rs0) l)).
-        clear IHRs.
-        cbv [good_meta_rule]. intros Q R' S' H' args.
-        (*instantiate H1 with Q := prog_impl_implication Q \ R0.  instantiate H2 with Q := Q and Q := Q \ R0.*)
-        pose proof H2 as H2'. Print good_meta_rule.
-        specialize (H1 (fun f => prog_impl_implication p Q f /\ rel_of f <> R0)).
-        specialize (H2 Q).
-        specialize (H2' (fun f => prog_impl_implication p Q f /\ rel_of f <> R0)).
-        cbv [rule_impl_implication] in H'. fwd. invert H'p0. rewrite length_app in *.
-        rewrite <- (firstn_skipn (length Rs0) source_sets) in H'p1.
-        rewrite zip_app in H'p1.
-        2: { rewrite length_firstn. lia. }
-        apply Forall_app in H'p1. fwd.
-        apply Forall2_zip in H'p1p0.
-        2: { rewrite length_firstn. lia. }
-        apply Forall2_zip in H'p1p1.
-        2: { rewrite length_skipn. lia. }
-        epose_dep H1. specialize' H1.
-        { clear H2 H2'. eexists. split.
-          - econstructor. 2: eassumption. do 2 rewrite length_app. simpl.
-            rewrite length_firstn, length_skipn. lia.
-          - apply Forall_zip. apply Forall2_app.
-            { eapply Forall2_impl; [|eassumption].
-              simpl. cbv [consistent]. intros R'' S'' H''. intros args''.
-              rewrite <- H''. admit. (*true!  because '*) }
-            constructor. 2: admit.
-            cbv [consistent].
-
-              cbv [c
-            ; [assumption|].
-            constructor; [|assumption]. cbv [consistent]. admit. }
-
-
-            rewrite <- Forall2_map_r.
-            apply Forall2_same. apply Forall_forall. intros R'' HR''.
-            cbv [consistent]. intros. reflexivity. }
-        epose_dep H2'. specialize' H2'.
-        { clear H1 H2. eexists. split.
-          - eapply meta_rule_impl with
-              (source_sets := map (fun R'' args'' => prog_impl_implication p Q (normal_fact R'' args'')) Rs').
-            2: reflexivity.
-            rewrite length_map. reflexivity.
-          - apply Forall_zip. rewrite <- Forall2_map_r.
-            apply Forall2_same. apply Forall_forall. intros R'' HR''.
-            cbv [consistent]. intros. split.
-            + intros H''. apply prog_impl_trans.
-              eapply prog_impl_implication_weaken_hyp; [eassumption|].
-              simpl. intros. fwd. assumption.
-            + intros. apply partial_in. split; [assumption|].
-              rewrite Forall_forall in E. apply E in HR''. simpl.
-              destr (rel_eqb R0 R''); congruence. }
-        (*this seems true, but I think i am going about the proof not quite right*)
-        (*and i don't actually need this lemma; intersection property of
-          good_meta_rule' suffices*)
-  Abort.
+    cbv [good_meta_rule']. intros H1 H2 r args hyps Hr Hhyps.
+    eapply Forall_impl.
+    2: { apply Forall_and; [eapply H1; eassumption|eapply H2; eassumption]. }
+    simpl. intros. fwd. apply intersect_spec; auto.
+  Qed.
 
   Lemma use_meta_facts_correct R g :
     good_inputs g.(input_facts) ->
