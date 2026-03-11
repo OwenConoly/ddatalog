@@ -1839,18 +1839,16 @@ Section DistributedDatalog.
     - simpl. destr (existsb (rel_eqb R0) Rs').
       + specialize (IHRs f (Rs0 ++ [R0])). do 2 rewrite <- app_assoc in IHRs.
         apply IHRs. assumption.
-      + apply IHRs with
-          (f := fun l => f (firstn (length Rs0) l ++ (fun _ => False) :: skipn (length Rs0) l)).
+      + Print good_meta_rule'.
+        eapply IHRs with
+          (f := fun l => f (firstn (length Rs0) l ++ (fun f => prog_impl_implication p (fun f' => Exists (fun '(R', S') => ...)) :: skipn (length Rs0) l)).
         clear IHRs.
         cbv [good_meta_rule]. intros Q R' S' H' args.
         (*instantiate H1 with Q := prog_impl_implication Q \ R0.  instantiate H2 with Q := Q and Q := Q \ R0.*)
-        pose proof H2 as H2'.
+        pose proof H2 as H2'. Print good_meta_rule.
         specialize (H1 (fun f => prog_impl_implication p Q f /\ rel_of f <> R0)).
         specialize (H2 Q).
         specialize (H2' (fun f => prog_impl_implication p Q f /\ rel_of f <> R0)).
-        apply H2.
-        rewrite H2.
-        rewrite H2 with (S0 := S'). 2: admit.
         cbv [rule_impl_implication] in H'. fwd. invert H'p0. rewrite length_app in *.
         rewrite <- (firstn_skipn (length Rs0) source_sets) in H'p1.
         rewrite zip_app in H'p1.
@@ -1860,13 +1858,26 @@ Section DistributedDatalog.
         2: { rewrite length_firstn. lia. }
         apply Forall2_zip in H'p1p1.
         2: { rewrite length_skipn. lia. }
-        epose_dep H2. specialize' H2.
-        { clear H1 H2'. eexists. split.
+        epose_dep H1. specialize' H1.
+        { clear H2 H2'. eexists. split.
           - eapply meta_rule_impl with
-              (source_sets := map (fun R'' args'' => prog_impl_implication p Q (normal_fact R'' args'')) Rs').
-            2: reflexivity.
-            rewrite length_map. reflexivity.
-          - apply Forall_zip. rewrite <- Forall2_map_r.
+              (source_sets := (firstn (length Rs0) source_sets ++
+                                 (fun _ => True) :: skipn (length Rs0) source_sets)).
+            2: eassumption. do 2 rewrite length_app. simpl.
+            rewrite length_firstn, length_skipn. lia.
+          - apply Forall_zip. apply Forall2_app.
+            { eapply Forall2_impl; [|eassumption].
+              simpl. cbv [consistent]. intros R'' S'' H''. intros args''.
+              rewrite <- H''. admit. (*true!  because '*) }
+            constructor. 2: admit.
+            cbv [consistent].
+
+              cbv [c
+            ; [assumption|].
+            constructor; [|assumption]. cbv [consistent]. admit. }
+
+
+            rewrite <- Forall2_map_r.
             apply Forall2_same. apply Forall_forall. intros R'' HR''.
             cbv [consistent]. intros. reflexivity. }
         epose_dep H2'. specialize' H2'.
