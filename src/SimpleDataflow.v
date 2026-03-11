@@ -1622,16 +1622,20 @@ Section DistributedDatalog.
     simpl in Hinp. rewrite Hinp. eauto.
   Qed.
 
-  Lemma input_meta_facts_come_from_input Q source_rel S0 :
-    is_input source_rel = true ->
-    prog_impl_implication p Q (meta_fact source_rel S0) ->
-    Q (meta_fact source_rel S0).
+  Lemma input_facts_come_from_input Q f :
+    is_input (rel_of f) = true ->
+    prog_impl_implication p Q f ->
+    Q f.
   Proof.
     intros Hinp.
     invert 1; auto.
     rename H0 into Hr. apply Exists_exists in Hr. fwd.
     rewrite Forall_forall in Hp_inp. specialize (Hp_inp _ Hrp0).
-    invert Hrp1. simpl in Hp_inp. congruence.
+    invert Hrp1; simpl in Hp_inp, Hinp.
+    - apply Exists_exists in H. fwd. invert Hp1. rewrite Forall_forall in Hp_inp.
+      rewrite Hp_inp in Hinp; [congruence|]. apply in_map. assumption.
+    - congruence.
+    - congruence.
   Qed.
 
   (*TODO this does not belong here*)
@@ -1702,10 +1706,116 @@ Section DistributedDatalog.
     right. apply H'. clear H'. right. exact Hargs.
   Qed.
 
+  Definition intersect {A} (eqb : A -> A -> bool) l1 l2 :=
+    filter (fun x => existsb (eqb x) l2) l1.
+
+  Definition intersect_many {A} (eqb : A -> A -> bool) ls :=
+    match ls with
+    | [] => []
+    | l :: ls' => fold_right (intersect eqb) l ls'
+    end.
+
+  (*Gemini tries to help*)
+  Section Specifications.
+    Context {A : Type}.
+    Context (eqb : A -> A -> bool).
+
+    (* Assumption: eqb correctly reflects propositional equality *)
+    Context (eqb_eq : EqDecider eqb).
+
+    (** Helper Lemma: Connects existsb and In using our eqb_eq assumption.
+     **)
+    Lemma existsb_In : forall x l,
+        existsb (eqb x) l = true <-> In x l.
+    Proof.
+      intros x l. rewrite existsb_exists. split.
+      - intros [y [Hin Heqb]]. destr (eqb x y); congruence.
+      - intros Hin. exists x. split; auto. destr (eqb x x); congruence.
+    Qed.
+
+    (** Specification 1: intersect
+    An element is in the intersection if and only if it is in both lists.
+     **)
+    Lemma intersect_spec : forall x l1 l2,
+        In x (intersect eqb l1 l2) <-> In x l1 /\ In x l2.
+    Proof.
+      intros x l1 l2.
+      unfold intersect.
+      rewrite filter_In.
+      rewrite existsb_In.
+      reflexivity.
+    Qed.
+
+    (** Helper Lemma: Describes the behavior of fold_right over intersect.
+     **)
+    Lemma fold_right_intersect_spec : forall x l ls,
+        In x (fold_right (intersect eqb) l ls) <-> In x l /\ forall l', In l' ls -> In x l'.
+    Proof.
+      intros x l ls. induction ls as [|a ls IHls].
+      - simpl. split.
+        + intros H. split; auto. intros l' H'. contradiction.
+        + intros [H _]. exact H.
+      - simpl. rewrite intersect_spec. rewrite IHls. split.
+        + intros [Ha [Hl Hls]]. split; auto. intros l' [H_eq | H_in].
+          * subst. exact Ha.
+          * apply Hls. exact H_in.
+        + intros [Hl Hls]. split.
+          * apply Hls. left. reflexivity.
+          * split; auto.
+    Qed.
+
+    (** Specification 2: intersect_many
+    For a non-empty list of lists, an element is in the intersection
+    if and only if it is present in every list.
+    (Note: The specification inherently requires the list of lists to not be empty).
+     **)
+    Lemma intersect_many_spec : forall x ls,
+        ls <> [] ->
+        (In x (intersect_many eqb ls) <-> forall l, In l ls -> In x l).
+    Proof.
+      intros x ls Hneq. destruct ls as [|l ls].
+      - contradiction.
+      - simpl. rewrite fold_right_intersect_spec. split.
+        + intros [Hl Hls] l' [H_eq | H_in].
+          * subst. exact Hl.
+          * apply Hls. exact H_in.
+        + intros H. split.
+          * apply H. left. reflexivity.
+          * intros l' H_in. apply H. right. exact H_in.
+    Qed.
+  End Specifications.
+
+  Lemma weaken_good_meta_rule' R Rs1 Rs2 :
+    incl Rs1 Rs2 ->
+    good_meta_rule' R Rs1 ->
+    good_meta_rule' R Rs2.
+  Proof.
+    cbv [good_meta_rule']. intros Hincl H Q args Hargs.
+    apply H in Hargs. destruct Hargs as [Hargs|Hargs]; auto.
+    right. eapply prog_impl_implication_weaken_hyp; [eassumption|].
+    simpl. intros. fwd. auto with incl.
+  Qed.
+
+  Lemma pairwise_intersect_good_meta_rule' R Rs1 Rs2 :
+    good_meta_rule' R Rs1 ->
+    good_meta_rule' R Rs2 ->
+    good_meta_rule' R (intersect rel_eqb Rs1 Rs2).
+  Proof.
+    cbv [good_meta_rule']. intros H1 H2 Q args Hargs.
+    pose proof H1 as H1'. pose proof H2 as H2'.
+    specialize (H1 _ _ Hargs). specialize (H2 _ _ Hargs).
+    destruct H1 as [H1|H1]; auto. destruct H2 as [H2|H2]; auto.
+    apply H1' in H2. apply H2' in H1.
+    right. destruct H1 as [H1|H1].
+    - destruct H2 as [H2|H2].
+      + fwd. apply partial_in. split; auto. apply intersect_spec; auto.
+      + clear H1 Hargs. eapply prog_impl_implication_weaken_hyp; [exact H2|].
+  Abort.
+
   Lemma good_meta_rule'_good_meta_rule R f Rs :
     good_meta_rule' R Rs ->
     good_meta_rule p (meta_rule R f Rs).
-  Proof. Print good_meta_rule.
+  Proof.
     cbv [good_meta_rule' good_meta_rule]. intros H Q R0 S0 H0 args.
     cbv [rule_impl_implication] in H0. fwd. invert H0p0.
     apply Forall2_zip in H0p1; [|assumption].
@@ -1738,6 +1848,9 @@ Section DistributedDatalog.
         specialize (H1 (fun f => prog_impl_implication p Q f /\ rel_of f <> R0)).
         specialize (H2 Q).
         specialize (H2' (fun f => prog_impl_implication p Q f /\ rel_of f <> R0)).
+        apply H2.
+        rewrite H2.
+        rewrite H2 with (S0 := S'). 2: admit.
         cbv [rule_impl_implication] in H'. fwd. invert H'p0. rewrite length_app in *.
         rewrite <- (firstn_skipn (length Rs0) source_sets) in H'p1.
         rewrite zip_app in H'p1.
@@ -1791,6 +1904,33 @@ Section DistributedDatalog.
       knows_fact g (normal_dfact R args).
   Proof.
     intros Hinp Hsane Hmf HRs HR args Hargs.
+    simpl in HR. destruct (is_input R) eqn:E.
+    { apply input_facts_come_from_input in Hargs; [|assumption].
+      simpl in Hargs. auto. }
+    eassert (Hg: exists (Rss : list (list rel)),
+                Forall2
+                  (fun n Rs => exists f,
+                       In (meta_rule R f Rs) (rules n) /\
+                         (forall args,
+                             can_learn_normal_fact_at_node' (fun R' : rel => In R' Rs) (rules n)
+                               (node_states g n) R args ->
+                             In (normal_dfact R args) (known_facts (node_states g n))))
+                  all_nodes Rss).
+    { apply Forall_exists_r_Forall2.
+      apply Forall_forall. intros n _.
+      specialize (HR n). fwd. specialize (Hmf n).
+      cbv [meta_facts_correct_at_node] in Hmf. destruct Hsane as (_&HmfSome&_).
+      apply HmfSome in HR. apply Hmf in HR. fwd. eauto. }
+    fwd.
+
+  In (meta_rule R f Rs) rules /\
+
+      eexists f.
+      apply Hmf in HR.
+    -
+      2: { simpl. assumption
+      simpl in Hargs. Search fact_in_inputs. invert Hargs. fwd. destruct Hsane as (HmfNone&_). apply HmfNone in HRp0.
+      destruct Hinp as [_ Hinp]. apply Hinp in HRp0.
     cbv [good_meta_rule] in Hgmr.
     (*for every such R', every node knows every fact about it;
       and no node can deduce a new fact from these R's.
