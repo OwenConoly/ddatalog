@@ -61,6 +61,9 @@ Section DistributedDatalog.
     exists hyps,
       rule_impl r f hyps /\ Forall Q hyps.
 
+  (*this definition is no good.
+    with program [A(x) :- B(x); B(x) :- A(x); C(x) :- A(x)],
+    allows meta rule concluding C meta-facts from B meta-facts.*)
   Definition good_meta_rule (p : list rule) r :=
     forall Q R0 S0,
       rule_impl_implication r
@@ -1810,6 +1813,7 @@ Section DistributedDatalog.
     - destruct H2 as [H2|H2].
       + fwd. apply partial_in. split; auto. apply intersect_spec; auto.
       + clear H1 Hargs. eapply prog_impl_implication_weaken_hyp; [exact H2|].
+        simpl. intros.
   Abort.
 
   Lemma good_meta_rule'_good_meta_rule R f Rs :
@@ -1841,7 +1845,17 @@ Section DistributedDatalog.
         apply IHRs. assumption.
       + Print good_meta_rule'.
         eapply IHRs with
-          (f := fun l => f (firstn (length Rs0) l ++ (fun f => prog_impl_implication p (fun f' => Exists (fun '(R', S') => ...)) :: skipn (length Rs0) l)).
+          (f := fun l => f (firstn (length Rs0) l ++
+                           (fun args => prog_impl_implication p
+                                       (fun f' =>
+                                          match f' with
+                                          | normal_fact R' args' =>
+                                              exists S',
+                                              S' args' /\
+                                                In (R', S') (combine Rs0 l)
+                                          | meta_fact _ _ => False
+                                          end) (normal_fact R0 args))
+                           :: skipn (length Rs0) l)).
         clear IHRs.
         cbv [good_meta_rule]. intros Q R' S' H' args.
         (*instantiate H1 with Q := prog_impl_implication Q \ R0.  instantiate H2 with Q := Q and Q := Q \ R0.*)
@@ -1860,10 +1874,7 @@ Section DistributedDatalog.
         2: { rewrite length_skipn. lia. }
         epose_dep H1. specialize' H1.
         { clear H2 H2'. eexists. split.
-          - eapply meta_rule_impl with
-              (source_sets := (firstn (length Rs0) source_sets ++
-                                 (fun _ => True) :: skipn (length Rs0) source_sets)).
-            2: eassumption. do 2 rewrite length_app. simpl.
+          - econstructor. 2: eassumption. do 2 rewrite length_app. simpl.
             rewrite length_firstn, length_skipn. lia.
           - apply Forall_zip. apply Forall2_app.
             { eapply Forall2_impl; [|eassumption].
