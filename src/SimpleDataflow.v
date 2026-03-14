@@ -1815,15 +1815,41 @@ Section DistributedDatalog.
     simpl. intros. fwd. apply intersect_spec; auto.
   Qed.
 
+  Lemma intersect_many_good_meta_rule' R Rss :
+    Rss <> nil ->
+    Forall (good_meta_rule' p R) Rss ->
+    good_meta_rule' p R (intersect_many rel_eqb Rss).
+  Proof.
+    intros HRss H. cbv [good_meta_rule']. intros. apply Forall_forall. intros f Hf.
+    apply intersect_many_spec; try assumption. intros Rs HRs.
+    rewrite Forall_forall in H. apply H in HRs. cbv [good_meta_rule'] in HRs.
+    specialize (HRs _ _ _ ltac:(eassumption) ltac:(eassumption)).
+    rewrite Forall_forall in HRs. apply HRs. assumption.
+  Qed.
+
+  Lemma good_inputs_good_input_hyps g :
+    good_inputs g.(input_facts) ->
+    good_input_hyps (fact_in_inputs g.(input_facts)).
+  Proof.
+    intros [H1 H2]. cbv [good_input_hyps]. split.
+    { intros R' S' H' args. simpl in H'. fwd.
+      symmetry. simpl. apply H'p2. }
+    intros f Hf. rewrite Forall_forall in H1.
+    destruct f; simpl in Hf; simpl.
+    { apply H1 in Hf. simpl in Hf. assumption. }
+    fwd. apply H1 in Hfp0. simpl in Hfp0. exact Hfp0.
+  Qed.
+
   Lemma use_meta_facts_correct R g :
     good_inputs g.(input_facts) ->
     sane_graph g ->
-    (* In (meta_rule R S Rs) p -> *)
     meta_facts_correct rules g ->
+    (*this next hypothesis is a bit funny-looking, but we use this thm only in the case
+     where we have just learned the meat-fact about R, and we know (IH) that all otehr facts
+     are correct*)
     (forall R',
-        (forall f Rs, In (meta_rule R f Rs) p -> In R' Rs) ->
+        R' <> R ->
         graph_correct_for g R') ->
-    (* Forall (fun R' => graph_correct_for g R' /\ knows_datalog_fact g (meta_fact R' (fun _ => True))) Rs -> *)
     knows_datalog_fact g (meta_fact R (fun _ => True)) ->
     forall args,
       prog_impl_implication p (fact_in_inputs (input_facts g)) (normal_fact R args) ->
@@ -1837,6 +1863,12 @@ Section DistributedDatalog.
                 Forall2
                   (fun n Rs => exists f,
                        In (meta_rule R f Rs) (rules n) /\
+                         ~In R Rs /\
+                         Forall
+                           (fun R' : rel =>
+                              expect_num_R_facts R' (known_facts (node_states g n))
+                                (msgs_received (node_states g n) R'))
+                           Rs /\
                          (forall args,
                              can_learn_normal_fact_at_node' (fun R' : rel => In R' Rs) (rules n)
                                (node_states g n) R args ->
@@ -1846,118 +1878,70 @@ Section DistributedDatalog.
       apply Forall_forall. intros n _.
       specialize (HR n). fwd. specialize (Hmf n).
       cbv [meta_facts_correct_at_node] in Hmf. destruct Hsane as (_&HmfSome&_).
-      apply HmfSome in HR. apply Hmf in HR. fwd. eauto. }
+      apply HmfSome in HR. apply Hmf in HR. fwd. eauto 10. }
     fwd.
-
-  In (meta_rule R f Rs) rules /\
-
-      eexists f.
-      apply Hmf in HR.
-    -
-      2: { simpl. assumption
-      simpl in Hargs. Search fact_in_inputs. invert Hargs. fwd. destruct Hsane as (HmfNone&_). apply HmfNone in HRp0.
-      destruct Hinp as [_ Hinp]. apply Hinp in HRp0.
-    cbv [good_meta_rule] in Hgmr.
-    (*for every such R', every node knows every fact about it;
-      and no node can deduce a new fact from these R's.
-      So, ....
-     *)
-
-
-    cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
     invert Hargs.
-    - apply fact_in_inputs_knows_datalog_fact in H. 1: apply H. assumption.
-    - apply Exists_exists in H. fwd. Print meta_facts_correct_at_node.
-      move prog_good at bottom. cbv [good_prog] in prog_good.
-      specialize (prog_good _ _ _ ltac:(eassumption)).
-      move Hlayout at bottom. cbv [good_layout] in Hlayout.
-      invert Hp1.
-      + pose proof Hp0 as Hp0'.
-        destruct Hlayout as (Hhl&Hlh&Hm). apply Hhl in Hp0. clear Hhl.
-        fwd. move HR at bottom. simpl in HR.
-        eapply Hm in Hr. clear Hm.
-        pose proof rules_good as rules_good'.
-        specialize (rules_good' n).
-        rewrite Forall_forall in rules_good'. specialize (rules_good' _ Hr).
-        simpl in rules_good'. rewrite rules_good' in HR. specialize (HR n).
-        pose proof Hsane as Hsane'. fwd.
-        destruct Hsane as (_&HmfSome&_). apply HmfSome in HR. apply Hmf in HR.
-        fwd. right. eexists. apply HRp1.
-        cbv [can_learn_normal_fact_at_node]. eexists. split; [exact Hp0|]. simpl.
-        do 2 eexists. split; [eassumption|]. split; [eassumption|].
-        intros R0 args0 Hargs0.
-        apply expect_num_R_facts_knows_everything; try assumption.
-        -- rewrite Forall_forall in HRp0. specialize (HRp0 _ Hp0). simpl in HRp0.
-           specialize' HRp0.
-           { apply in_map_iff. apply Exists_exists in H3. fwd. invert H3p1. eauto. }
-           rewrite Lists.List.Forall_map in HRp0. rewrite Forall_forall in HRp0.
-           apply Forall2_forget_l in H5. rewrite Forall_forall in H5.
-           specialize (H5 _ Hargs0). fwd. invert H5p1. apply HRp0. assumption.
-        -- rewrite Forall_forall in HRs. move HRs at bottom. specialize (HRs R0).
-           specialize' HRs.
-           { destruct prog_good as (Hp_1&_). eapply Hp_1; try eassumption.
-             --- apply in_map_iff. apply Exists_exists in H3. fwd. invert H3p1. eauto.
-             --- apply Forall2_forget_l in H5. rewrite Forall_forall in H5.
-                 specialize (H5 _ Hargs0). fwd. invert H5p1. apply in_map_iff. eauto. }
-           fwd. cbv [graph_correct_for] in HRsp0.
-           epose proof (HRsp0 (meta_fact _ _) eq_refl) as HRsp0. specialize' HRsp0.
-           { split.
-             { simpl. exact HRsp1. }
-             simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
-           move Hgmr at bottom. cbv [good_meta_rules] in Hgmr.
-           eapply Hgmr in HRsp0.
-           2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
-           destruct HRsp0 as [HRsp0|HRsp0].
-           { simpl in HRsp0. eauto. }
-           apply HRsp0. rewrite Forall_forall in H0. apply H0. apply in_map_iff.
-           eexists (_, _). eauto.
-      + pose proof Hp0 as Hp0'.
-        destruct Hlayout as (Hhl&Hlh&Hm). apply Hhl in Hp0. clear Hhl.
-        fwd. move HR at bottom. simpl in HR.
-        eapply Hm in Hr. clear Hm.
-        pose proof rules_good as rules_good'.
-        specialize (rules_good' n).
-        rewrite Forall_forall in rules_good'. specialize (rules_good' _ Hr).
-        simpl in rules_good'. rewrite rules_good' in HR. specialize (HR n).
-        pose proof Hsane as Hsane'. fwd.
-        destruct Hsane as (_&HmfSome&_). apply HmfSome in HR. apply Hmf in HR.
-        fwd. right. eexists. apply HRp1.
-        cbv [can_learn_normal_fact_at_node]. eexists. split; [exact Hp0|]. simpl.
-        rewrite Forall_forall in HRp0. specialize (HRp0 _ Hp0). simpl in HRp0.
-        specialize (HRp0 eq_refl).
-        split; [assumption|]. eexists. split; [|eauto].
-        move H4 at bottom. destruct H4 as (H4p0&H4p1). split; [|assumption].
-        intros x. rewrite <- H4p0. move Hgmr at bottom. cbv [good_meta_rules] in Hgmr.
-        move H0p0 at bottom. pose proof H0p0 as H0p0'. eapply Hgmr in H0p0.
-        2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
-        move HRs at bottom. rewrite Forall_forall in HRs.
-        specialize (HRs source_rel). specialize' HRs.
-        { destruct prog_good as (_&Hp_2). eapply Hp_2. eassumption. }
-        fwd. cbv [graph_correct_for] in HRsp0.
-        destruct H0p0 as [H0p0|H0p0].
-        { split; intros _; cycle 1.
-          { simpl in HRsp0. eapply expect_num_R_facts_knows_everything; eauto. }
-          Search fact_in_inputs. Print good_inputs.
-          simpl in H0p0.
-          move Hinp at bottom. cbv [good_inputs] in Hinp. destruct Hinp as (Hinp&_).
-          rewrite Forall_forall in Hinp. specialize (Hinp _ H0p0). simpl in Hinp.
-          apply input_meta_facts_come_from_input in H0p0'; [|assumption].
-          simpl in H0p0'. fwd. apply H0p0'p2. assumption. }
-        rewrite <- H0p0. split; intros H'.
-        -- apply HRsp0.
-           ++ reflexivity.
-           ++ simpl. eauto.
-        -- epose proof (HRsp0 (meta_fact _ _) eq_refl) as HRsp0. specialize' HRsp0.
-           { split.
-             { simpl. exact HRsp1. }
-             simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
-           eapply hmfs_unique in HRsp0. 3: exact H0p0'.
-           2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
-           apply H0p0 in H'. destruct HRsp0 as [HRsp0|HRsp0].
-           { simpl in HRsp0. eapply expect_num_R_facts_knows_everything; try assumption.
-             eauto. }
-           apply HRsp0 in H'.
-           eapply expect_num_R_facts_knows_everything; assumption.
+    { simpl in H. destruct Hinp as [Hinp _]. rewrite Forall_forall in Hinp.
+      apply Hinp in H. simpl in H. congruence. }
+    fold (prog_impl_implication p) in *.
+    rename H into Hr. rename l into hyps. rename H0 into Hhyps.
+    apply Exists_exists in Hr. fwd.
+    destruct Hlayout as [Hl1 [Hl2 _]]. specialize (Hl1 _ Hrp0). fwd.
+    apply Forall2_forget_r in Hg. rewrite Forall_forall in Hg.
+    specialize (Hg n). specialize' Hg.
+    { destruct Hall_nodes as [Ha _]. apply Ha. constructor. }
+    fwd. right. eexists. apply Hgp1p3. cbv [can_learn_normal_fact_at_node'].
+    assert (Hrels: Forall (fun f => In (rel_of f) y) hyps).
+    { rewrite Forall_forall in Hgmr.
+      apply Hl2 in Hgp1p0. apply Hgmr in Hgp1p0. eapply Hgp1p0; eassumption. }
+    eexists. split; [eassumption|]. invert Hrp1.
+    - do 2 eexists. split; [eassumption|]. split; [eassumption|].
+      Fail rewrite Lists.List.Forall_map in Hrels.
+      epose proof (Lists.List.Forall_map _ _ _) as Hrels'.
+      destruct Hrels' as [Hrels' _]. apply Hrels' in Hrels. clear Hrels'.
+      simpl in Hrels. rewrite Forall_forall in Hrels. intros R' args' H'.
+      specialize (Hrels _ H'). simpl in Hrels. split; [assumption|].
+      move HRs at bottom. cbv [graph_correct_for] in HRs.
+      specialize (HRs R'). specialize' HRs.
+      { intro. subst. auto. }
+      rewrite Forall_forall in Hgp1p2. specialize (Hgp1p2 _ ltac:(eassumption)).
+      move Hgp1p2 at bottom. Search expect_num_R_facts knows_datalog_fact.
+      pose proof Hgp1p2 as Hgp1p2'.
+      eapply something_about_expect_num_R_facts in Hgp1p2; [|assumption|assumption].
+      epose_dep HRs. specialize' HRs; [|specialize' HRs].
+      2: { split; [eassumption|]. simpl. intros. instantiate (1 := fun _ => _).
+           simpl. reflexivity. }
+      { reflexivity. }
+      rewrite Lists.List.Forall_map in Hhyps.
+      rewrite Forall_forall in Hhyps. specialize (Hhyps _ ltac:(eassumption)).
+      simpl in Hhyps. apply meta_rules_sound in HRs.
+      2: { apply good_inputs_good_input_hyps. assumption. }
+      cbv [consistent] in HRs.
+      eapply expect_num_R_facts_knows_everything; try assumption.
+      apply HRs. apply Hhyps.
+    - invert Hrels. rename H1 into Hsr. clear H2. simpl in Hsr.
+      split; [assumption|]. rewrite Forall_forall in Hgp1p2.
+      split; [apply Hgp1p2; assumption|]. eexists. split; [|eauto].
+      eapply is_list_set_ext; [eassumption|]. intros x. simpl.
+      invert Hhyps. rename H1 into HS. clear H2.
+      apply meta_rules_sound in HS.
+      2: { apply good_inputs_good_input_hyps. assumption. }
+      cbv [consistent] in HS. move HRs at bottom. cbv [graph_correct_for] in HRs.
+      specialize (HRs source_rel). specialize' HRs.
+      { intro. subst. eauto. }
+      specialize (Hgp1p2 _ ltac:(eassumption)).
+      pose proof Hgp1p2 as Hgp1p2'.
+      eapply something_about_expect_num_R_facts in Hgp1p2; [|assumption|assumption].
+      epose_dep HRs. specialize' HRs; [|specialize' HRs].
+      2: { split; [eassumption|]. simpl. intros. instantiate (1 := fun _ => _).
+           simpl. reflexivity. }
+      { reflexivity. }
+      rewrite <- HS. apply meta_rules_sound in HRs.
+      2: { apply good_inputs_good_input_hyps. assumption. }
+      cbv [consistent] in HRs. rewrite HRs.
+      split; eauto.
+      intros.
+      eapply expect_num_R_facts_knows_everything; assumption.
   Qed.
 
   Lemma list_em U (l : list U) P Q :
