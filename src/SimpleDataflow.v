@@ -2009,7 +2009,8 @@ Section DistributedDatalog.
       + apply only_one_fact_learned in Hf1. destruct Hf1; eauto. subst.
         simpl in H. destruct H as (_&H).
         (*maybe should proe some lemma about can_learn_normal_fact_at_node..*)
-        cbv [can_learn_normal_fact_at_node] in H. fwd. destruct r; fwd.
+        cbv [can_learn_normal_fact_at_node can_learn_normal_fact_at_node'] in H.
+        fwd. destruct r; fwd.
         -- apply Exists_exists in Hp1p0. destruct Hp1p0 as (r&Hr1&Hr2).
            eapply prog_impl_step.
            ++ apply Exists_exists. eexists. split.
@@ -2018,7 +2019,7 @@ Section DistributedDatalog.
               --- apply Exists_exists. eauto.
               --- eassumption.
            ++ apply Forall_map. apply Forall_forall. intros [R' args'] H'.
-              apply Hsound. simpl. eauto 6.
+              apply Hsound. simpl. apply Hp1p2 in H'. fwd. eauto 6.
         -- eapply prog_impl_step.
            ++ apply Exists_exists. eexists. split.
               { destruct Hlayout as (_&Hlh&_). eapply Hlh. eassumption. }
@@ -2029,7 +2030,7 @@ Section DistributedDatalog.
                   +++ simpl. intros. split; eauto. intros Hargs.
                       apply expect_num_R_facts_knows_everything; assumption.
               --- apply Forall_map. apply Forall_forall. intros x Hx.
-                  destruct Hp1p1p0 as (H'&_). apply H' in Hx.
+                  destruct Hp1p2p0 as (H'&_). apply H' in Hx.
                   apply Hsound. simpl. eauto.
         -- contradiction.
       + destruct (is_input mf_rel) eqn:E.
@@ -2073,51 +2074,46 @@ Section DistributedDatalog.
                   2: { eapply meta_rule_impl with (source_sets := map (fun R args => knows_fact g (normal_dfact R args)) source_rels).
                      { rewrite length_map. reflexivity. }
                      intros. reflexivity. }
-                  pose proof Hgmr as Hgmr'.
-                  cbv [good_meta_rules] in Hgmr'.
+                  move meta_rules_sound at bottom.
                   intros args. rewrite <- Hf2.
-                  eenough _ as H'1; [eenough _ as H'2; [epose proof (Hgmr' _ H'1 _ _ H'2 _) as Hgmr'; clear H'1 H'2|clear H'1]|].
-                  2: { eapply prog_impl_step.
-                       { apply Exists_exists. eexists.
-                         split; [eassumption|]. eassumption. }
-                       apply Forall_zip. apply Forall2_map_r. apply Forall2_same.
-                       apply Forall_forall. intros R' HR'.
-                       apply Hsound. split.
-                       { eapply something_about_expect_num_R_facts; eauto. }
-                       simpl. reflexivity. }
-                  2: { simpl. intros R' S' H'' x0. fwd.
-                       intros. symmetry. apply H''p2. }
-                  destruct Hgmr' as [Hgmr'|Hgmr'].
-                  { exfalso. move E at bottom.
-                    simpl in Hgmr'. move Hinp at bottom. destruct Hinp as [Hinp _].
-                    rewrite Forall_forall in Hinp. apply Hinp in Hgmr'. simpl in Hgmr'.
-                    congruence. }
-                  rewrite <- Hgmr'.
+                  eassert (Hpii: prog_impl_implication _ _ _).
+                  { eapply prog_impl_step.
+                    { apply Exists_exists. eexists.
+                      split; [eassumption|]. eassumption. }
+                    apply Forall_zip. apply Forall2_map_r. apply Forall2_same.
+                    apply Forall_forall. intros R' HR'.
+                    apply Hsound. split.
+                    { eapply something_about_expect_num_R_facts; eauto. }
+                    simpl. reflexivity. }
+                  apply meta_rules_sound in Hpii.
+                  2: { apply good_inputs_good_input_hyps. assumption. }
+                  cbv [consistent] in Hpii. rewrite <- Hpii. clear Hpii.
                   split; intros Hargs.
                   +++ move Hlayout at bottom. destruct Hlayout as (_&Hlh'&_).
                       apply Hlh' in Hp1p0.
                       eapply use_meta_facts_correct.
                       ---- simpl. assumption.
                       ---- eauto using step_preserves_sanity.
-                      ---- eassumption.
                       ---- eauto using step_preserves_mf_correct.
-                      ---- apply Forall_forall. intros R HR. split.
-                           ++++ eapply graph_correct_for_preserved; try eassumption.
-                                ----- intros f ? Hf. subst.
-                                apply only_one_fact_learned in Hf.
-                                destruct Hf; auto. subst. simpl in HR.
-                                apply Hp1p1p1 in HR. cbv [expect_num_R_facts] in HR.
-                                rewrite E in HR. fwd. eapply Forall2_forget_r in HRp0.
-                                rewrite Forall_forall in HRp0.
-                                specialize (HRp0 n). specialize' HRp0.
-                                { destruct Hall_nodes as [H'' _]. apply H''. constructor. }
-                                destruct Hsane as (_&_&_&Hsent&_).
-                                fwd. pose proof HRp0p1. apply Hsent in HRp0p1.
-                                subst. eauto.
-                                ----- cbv [graph_correct_for]. intros.
-                                apply Hsound. assumption.
-                           ++++ eapply comp_step_preserves_datalog_facts; [|eassumption].
-                                eapply something_about_expect_num_R_facts; eauto.
+                      ---- intros R HR. cbv [graph_correct_for]. simpl.
+                           intros f' ? [Hf'1 Hf'2]. subst.
+                           apply Hsound. destruct f'; simpl in *.
+                           ++++ apply only_one_fact_learned with (f0 := meta_dfact _ _ _) in Hf'1.
+                                destruct Hf'1; [|discriminate]. auto.
+                           ++++ split.
+                                2: { intros args'. rewrite <- Hf'2.
+                                     split; eauto. intros Hf'.
+                                     apply only_one_fact_learned with (f0 := meta_dfact _ _ _) in Hf'.
+                                     destruct Hf'; [auto|discriminate]. }
+                                destruct (is_input mf_rel0).
+                                ----- fwd. apply only_one_fact_learned with (f0 := meta_dfact _ _ _) in Hf'1p0.
+                                destruct Hf'1p0 as [Hf'|Hf']; [|discriminate].
+                                eauto.
+                                ----- intros n'. specialize (Hf'1 n').
+                                fwd. apply only_one_fact_learned with (f0 := meta_dfact _ _ _) in Hf'1.
+                                destruct Hf'1 as [Hf'|Hf'].
+                                2: { invert Hf'. exfalso. auto. }
+                                eauto.
                       ---- simpl. rewrite E. assumption.
                       ---- simpl. assumption.
                   +++ apply Hsound. simpl. split; [|constructor].
@@ -2129,7 +2125,7 @@ Section DistributedDatalog.
                   +++ eapply something_about_expect_num_R_facts; try eassumption. auto.
                   +++ simpl. intros. reflexivity.
   Qed.
-
+ _
   Lemma good_layout_sound g g' :
     sane_graph g ->
     good_inputs g.(input_facts) ->
