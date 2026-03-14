@@ -2218,7 +2218,7 @@ Section DistributedDatalog.
       intros R' args' H'. pose proof H' as H''.
       rewrite Lists.List.Forall_map in Hhypsg1.
       rewrite Forall_forall in Hhypsg1. apply Hhypsg1 in H'. split; [|eassumption].
-      Search In map fst. eapply in_fst. eassumption.
+      eapply in_fst. eassumption.
     - cbv [good_layout] in Hgood. destruct Hlayout as (Hhl&Hlh&Hm).
       apply Hhl in Hr. clear Hgood.
       destruct Hr as (n&Hr).
@@ -2252,7 +2252,7 @@ Section DistributedDatalog.
 
       eassert (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g3 n) _ _).
       { cbv [can_learn_normal_fact_at_node].
-        eexists. split; [eassumption|]. simpl.
+        eexists. split; [eassumption|]. simpl. split; [constructor|].
         split.
         { rewrite <- Hnum' in *. eapply expect_num_R_facts_incl; [eassumption|].
           eapply steps_preserves_known_facts. eassumption. }
