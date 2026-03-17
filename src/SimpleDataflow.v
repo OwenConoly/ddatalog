@@ -2271,28 +2271,18 @@ Section DistributedDatalog.
               - eapply comp_steps_preserves_datalog_facts.
                 1: eassumption. eauto using crt1n_transitive.
               - eapply consistent_preserved; try eassumption. eauto using crt1n_transitive. }
-            (*should follow from Hrels plus Hrels'*)
-            pose proof Hgmr as Hgmr'.
-            apply Hp0. cbv [good_meta_rules] in Hgmr'.
-            eenough _ as H'1; [eenough _ as H'2; [epose proof (Hgmr' _ H'1 _ _ H'2 _) as Hgmr'; clear H'1 H'2|clear H'1]|].
-            2: eassumption.
-            2: { simpl. intros R' S' H' x0. fwd. intros. symmetry. apply H'p2. }
-            destruct Hgmr' as [Hgmr'|Hgmr'].
-            { move Hinp at bottom.
-              assert (g3.(input_facts) = g.(input_facts)) as Hif.
-              { repeat erewrite comp_steps_pres_inputs by eassumption. reflexivity. }
-              rewrite Hif in *. clear Hif.
-              cbv [good_inputs] in Hinp. destruct Hinp as (Hinp&_).
-              rewrite Forall_forall in Hinp. specialize (Hinp _ Hgmr'). simpl in Hinp.
-              simpl in Hgmr'.
-              apply input_meta_facts_come_from_input in Hsound'; [|assumption].
-              simpl in Hsound'. fwd. apply Hsound'p2. eassumption. }
-            apply Hgmr'. assumption.
+            apply Hp0.
+            apply meta_rules_sound in Hsound'.
+            2: { apply good_inputs_good_input_hyps.
+                 repeat erewrite comp_steps_pres_inputs by eauto.
+                 assumption. }
+            cbv [consistent] in Hsound'. apply Hsound'. apply Hsound.
           + apply Lists.List.Forall_map in Hhyps1. rewrite Forall_forall in Hhyps1.
             specialize (Hhyps1 _ Hx).
             eapply steps_preserves_known_facts. 2: eassumption.
             eauto using crt1n_transitive. }
         split; reflexivity. }
+      (*TODO: here we should use a lemma saying that can_learn_normal_fact_at_node implies we can step to a state wheere the node knows it*)
       epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
       destruct Hor as [Hor|Hor].
       { fwd. exists g3.
