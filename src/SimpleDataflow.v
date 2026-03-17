@@ -1397,19 +1397,20 @@ Section DistributedDatalog.
         comp_step^* g g' ->
         knows_fact g' (normal_dfact R args) ->
         In args l) ->
-    exists g',
-      comp_step^* g g' /\
-        (forall args,
-            can_learn_normal_fact_at_node (rules n) (node_states g' n) R args ->
-            In (normal_dfact R args) (known_facts (node_states g' n))) /\
+    (exists num, knows_fact g (meta_dfact R (Some n) num)) \/
+      exists g',
+        comp_step^* g g' /\
+          (forall args,
+              can_learn_normal_fact_at_node (rules n) (node_states g' n) R args ->
+              In (normal_dfact R args) (known_facts (node_states g' n))) /\
         same_msgs_received g g'.
   Proof.
     intros Hsane Hinp Hmf Hl.
     assert (Hor : (fun P => P \/ ~P) (exists num, In (meta_dfact R (Some n) num) (known_facts (node_states g n)))).
     { apply Classical_Prop.classic. }
     simpl in Hor. destruct Hor as [Hor|Hor].
-    { admit. } (* fwd. intros. exists g. split; [auto|]. split; [|cbv [same_msgs_received]; auto]. *)
-      (* intros. Print meta_facts_correct_at_node. apply Hmf in Hor. fwd. Print good_meta_rules. capply Horp3auto. destruct Hor as [_ Hor]. apply Hor. assumption. } *)
+    { fwd. Fail solve [eauto]. left. eauto. }
+    right.
     assert (Hl0: forall args g',
                comp_step^* g g' ->
                knows_fact g' (normal_dfact R args) ->
@@ -1456,7 +1457,7 @@ Section DistributedDatalog.
         specialize' Hl.
         { right. simpl. exists n. destr (node_eqb n n); [|congruence]. simpl. auto. }
         destruct Hl; [assumption|]. exfalso. rewrite Exists_exists in Hor'. eauto.
-  Abort.
+  Qed.
 
   Lemma receive_fact_at_node_impl ns f f0 :
     In f0 (receive_fact_at_node ns f).(known_facts) ->
@@ -2250,7 +2251,7 @@ Section DistributedDatalog.
       { eapply steps_preserves_knows_there_are_num_R_facts; eauto using crt1n_transitive. }
       specialize (Hrcv Hnum). destruct Hrcv as (g3&Hg3&Hnum').
 
-      eassert (Hcan: can_learn_normal_fact_at_node (rules n) (node_states g3 n) _ _).
+      eassert (Hcan: can_learn_normal_fact_at_node' (eq source_rel) (rules n) (node_states g3 n) _ _).
       { cbv [can_learn_normal_fact_at_node].
         eexists. split; [eassumption|]. simpl. split; [constructor|].
         split.
@@ -2282,22 +2283,30 @@ Section DistributedDatalog.
             eapply steps_preserves_known_facts. 2: eassumption.
             eauto using crt1n_transitive. }
         split; reflexivity. }
-      (*TODO: here we should use a lemma saying that can_learn_normal_fact_at_node implies we can step to a state wheere the node knows it*)
-      epose proof (Classical_Prop.classic (exists num, In (meta_dfact _ (Some n) num) (known_facts (node_states g3 n)))) as Hor.
+      (*TODO: here we should use a lemma saying that can_learn_normal_fact_at_node implies we can step to a state wheere the node knows it?  a bit more complicated that that, since want to sue can_learn_normal_fact_at_node'..*)
+      epose proof (Classical_Prop.classic (exists num, In (meta_dfact target_rel (Some n) num) (known_facts (node_states g3 n)))) as Hor.
       destruct Hor as [Hor|Hor].
-      { fwd. exists g3.
-        split; [eauto using crt1n_transitive|]. simpl. cbv [knows_fact].
-        eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf.
+      { exists g3. split; [eauto using crt1n_transitive|].
+        simpl. cbv [knows_fact].
+        eapply steps_preserves_meta_facts_correct with (g' := g3) in Hmf; cycle -1.
+        { eauto using crt1n_transitive. }
         all: try eassumption.
-        2: { eauto using crt1n_transitive. }
         cbv [meta_facts_correct meta_facts_correct_at_node] in Hmf.
-        move Hmf at bottom. epose_dep Hmf. specialize (Hmf Hor).
-        right. eexists. eapply Hmf. assumption. }
+        fwd. specialize Hmf with (1 := Hor). fwd. right. eexists.
+        apply Hmfp3. eapply can_learn_normal_fact_at_node'_weaken; [eassumption|].
+        simpl. intros R' HR'. subst.
+        move Hgmr at bottom. rewrite Forall_forall in Hgmr.
+        destruct Hlayout as [_ [Hl _]].  apply Hl in Hmfp0. apply Hgmr in Hmfp0.
+        simpl in Hmfp0. cbv [good_meta_rule'] in Hmfp0.
+        epose_dep Hmfp0. specialize Hmfp0 with (2 := Himpl'). specialize' Hmfp0.
+        { eapply Hl. eassumption. }
+        invert Hmfp0. simpl in *. assumption. }
       eassert (Hlast_step: comp_step g3 _).
       { eapply LearnFact with (n := n) (f := normal_dfact _ _).
         simpl. split.
         { eauto. }
-        eassumption. }
+        eapply can_learn_normal_fact_at_node'_weaken; [eassumption|].
+        auto. }
       fwd. eexists. split.
       { (*first, step to a state where node n knows all the hypotheses;
             then, one final step where n deduces the conclusion*)
@@ -2323,11 +2332,8 @@ Section DistributedDatalog.
       { specialize (H' (length all_nodes)). rewrite firstn_all in H'.
         fwd. eexists. split; eauto.
         destruct (is_input target_rel) eqn:E.
-        { cbv [good_rules] in rules_good.
-          specialize (rules_good a_node).
-          specialize (Hml a_node).
-          rewrite Forall_forall in rules_good. apply rules_good in Hml.
-          simpl in Hml. congruence. }
+        { pose proof Hp_inp as Hp_inp'. rewrite Forall_forall in Hp_inp'.
+          specialize (Hp_inp' _ ltac:(eassumption)). simpl in Hp_inp'. congruence. }
         intros n0. apply H'p1. destruct Hall_nodes as [H' ?]. apply H'. auto. }
       intros len. induction len.
       { exists g. split; [apply rt1n_refl|]. simpl. contradiction. }
@@ -2355,6 +2361,8 @@ Section DistributedDatalog.
       { eapply Forall_impl; [|eassumption].
         intros. eapply comp_steps_preserves_datalog_facts; eassumption. }
       destruct Hg2 as (g2&Hg2&Hhypsg2).
+      move Hr at bottom. pose proof Hgmr as Hgmr'. rewrite Forall_forall in Hgmr'.
+      specialize (Hgmr' _ Hr). simpl in Hgmr'.
 
       pose proof node_can_find_all_conclusions as Hg3.
 
@@ -2369,24 +2377,23 @@ Section DistributedDatalog.
       { intros args g' Hsteps Hargs.
         apply Hfin.
         move Hgmr at bottom. move Hpii at bottom.
-        cbv [good_meta_rules] in Hgmr. eapply Hgmr in Hpii.
-        2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
+        apply meta_rules_sound in Hpii.
+        2: { apply good_inputs_good_input_hyps. assumption. }
+        cbv [consistent] in Hpii. apply Hpii.
+        move Hcor at bottom.
+        Search graph_correct.
         pose proof good_layout_sound as Hsound.
         specialize (Hsound g g' ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(assumption) ltac:(eauto using crt1n_transitive)).
-        destruct Hpii as [Hpii|Hpii].
-        { exfalso. move Hr at bottom.
-          move rules_good at bottom. cbv [good_rules] in rules_good.
-          move Hlayout at bottom. destruct Hlayout as [Hlayout' _].
-          apply Hlayout' in Hr. fwd.
-          epose_dep rules_good. rewrite Forall_forall in rules_good.
-          apply rules_good in Hr. simpl in Hr.
-          move Hinp at bottom. destruct Hinp as [Hinp _].
-          rewrite Forall_forall in Hinp. simpl in Hpii.
-          apply Hinp in Hpii. simpl in Hpii.
-          congruence. }
-        apply Hpii.
-        erewrite <- comp_steps_pres_inputs with (g' := g') by eauto using crt1n_transitive.
+        repeat erewrite <- comp_steps_pres_inputs by eassumption.
         apply Hsound. simpl. auto. }
+      destruct Hg3 as [Hg3|Hg3].
+      { fwd. exists g2. split; [eauto using crt1n_transitive|].
+        intros n' Hn'. rewrite Hn in Hn'. rewrite in_app_iff in Hn'.
+        destruct Hn' as [Hn'|Hn'].
+        { apply Hhypsg1 in Hn'. fwd. eexists.
+          eapply steps_preserves_facts; [eassumption|]. eauto. }
+        destruct Hn' as [Hn'|Hn']; [|contradiction]. subst. eauto. }
+
       destruct Hg3 as (g3&Hg3&Hhyps3a&Hhyps3b).
 
       eexists.
@@ -2459,7 +2466,7 @@ Section DistributedDatalog.
     graph_correct_for g (rel_of f) ->
     prog_impl_implication p (fact_in_inputs g.(input_facts)) f ->
     knows_datalog_fact g f ->
-    consistent g f.
+    mf_consistent g f.
   Proof.
     intros Hinp Hsound Himpl Hf.
     pose proof Hsound as Hsound'.
@@ -2472,15 +2479,11 @@ Section DistributedDatalog.
       - simpl. intros. instantiate (1 := fun _ => _). simpl. reflexivity. }
     intros.
     destruct (is_input mf_rel) eqn:E.
-    { apply input_meta_facts_come_from_input in Himpl, Hsound; try assumption.
+    { apply input_facts_come_from_input in Himpl, Hsound; try assumption.
       simpl in Himpl, Hsound. fwd. rewrite Himplp2. rewrite Hsoundp2. reflexivity. }
     eapply hmfs_unique in Hsound. 3: exact Himpl.
-    2: { simpl. intros R' S' H'' x0. fwd. intros. symmetry. apply H''p2. }
-    destruct Hsound as [Hsound|Hsound].
-    { destruct Hinp as [Hinp _].
-      rewrite Forall_forall in Hinp. specialize (Hinp _ Hsound).
-      simpl in Hinp. congruence. }
-    rewrite <- Hsound. reflexivity.
+    2: { apply good_inputs_good_input_hyps. assumption. }
+    symmetry in Hsound. exact Hsound.
   Qed.
 
   Definition finite {T} (S0 : T -> _) :=
@@ -2578,4 +2581,3 @@ Section DistributedDatalog.
       assumption.
   Qed.
 End DistributedDatalog.
-Check good_layout_sound. Print good_meta_rules. Print good_prog.
