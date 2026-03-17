@@ -53,8 +53,6 @@ Proof. constructor.
       pose proof (ltb_total0 x2 y2 Hxy Hyz). subst. auto.
 Qed.
       
-
-
 Definition Build_parameters T := SortedList.parameters.Build_parameters (p1 * p2) T pair_order.
 Definition map T := SortedList.map (Build_parameters T) pair_strict_order.
 Lemma ok T: map.ok (map T).
