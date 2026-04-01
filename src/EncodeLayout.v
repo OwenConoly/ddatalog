@@ -1,7 +1,7 @@
 From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
-From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Dataflow.
+From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Graph.
 
 Import ListNotations.
 Open Scope bool_scope.
@@ -23,6 +23,11 @@ Definition edge_id := (nat * nat)%type.
 Definition fn_id := nat.
 Definition node_id := (nat * nat)%type.
 Definition clause_id := nat.
+
+(* Probably need to do some refactors for this stuff*)
+
+Definition node_id_eqb (n1 n2 : node_id) : bool :=
+  Nat.eqb (fst n1) (fst n2) && Nat.eqb (snd n1) (snd n2).
 
 (* TODO make rel_eqbs and other stuff instead of just using Nat.eqb to keep the types well contained.*)
 
@@ -109,7 +114,7 @@ Definition rule_layout := list (node_id * list rule).
 
 Definition lowered_rule_layout := list (node_id * list lowered_rule).
 
-Definition topology := Dataflow.Graph (Node := Node).
+Definition topology := Graph (Node := Node).
 
 Record global_context := {
   fn_map : fn_id_map;
@@ -347,12 +352,12 @@ Definition var_edge := (var * var)%type.
 Definition verticies := var_set.
 Context {var_edge_map : map.map var (var_set)}.
 
-Record graph := {
+Record var_graph := {
   vertices : verticies;
   edges : var_edge_map;
 }.
 
-Fixpoint add_arg_edges (arg : lowered_expr) (dep_graph : graph) (clause_vars : var_set) : graph :=
+Fixpoint add_arg_edges (arg : lowered_expr) (dep_graph : var_graph) (clause_vars : var_set) : var_graph :=
   match arg with
   | LVar v => 
     let new_edges := match map.get dep_graph.(edges) v with
@@ -367,7 +372,7 @@ Fixpoint add_arg_edges (arg : lowered_expr) (dep_graph : graph) (clause_vars : v
     fold_left (fun acc arg => add_arg_edges arg acc clause_vars) args dep_graph
   end.
 
-Fixpoint add_args_edges (args : list lowered_expr) (dep_graph : graph) (seen : var_set) : graph :=
+Fixpoint add_args_edges (args : list lowered_expr) (dep_graph : var_graph) (seen : var_set) : var_graph :=
   match args with
   | [] => dep_graph
   | arg :: rest =>
@@ -379,16 +384,16 @@ Fixpoint add_args_edges (args : list lowered_expr) (dep_graph : graph) (seen : v
     add_args_edges rest dep_graph' seen
   end.
 
-Definition add_hyp_edges (hyp : lowered_fact) (dep_graph : graph) : graph :=
+Definition add_hyp_edges (hyp : lowered_fact) (dep_graph : var_graph) : var_graph :=
   add_args_edges hyp.(lf_args) dep_graph (map.empty).
 
-Definition create_dependency_graph (hyps : list lowered_fact) : graph :=
+Definition create_dependency_graph (hyps : list lowered_fact) : var_graph :=
   fold_left (fun acc hyp => add_hyp_edges hyp acc) hyps {|
     vertices := map.empty;
     edges := map.empty
   |}.
 
-Definition neighbors (g : graph) (v : var) : verticies :=
+Definition neighbors (g : var_graph) (v : var) : verticies :=
   match map.get g.(edges) v with
   | Some neighbors => neighbors
   | None => map.empty
@@ -398,15 +403,15 @@ Definition neighbors (g : graph) (v : var) : verticies :=
 Definition add_to_visited (visited : verticies) (v : var) : verticies :=
   map.put visited v tt.
 
-Definition compute_degree (dep_graph : graph) (var : var) : nat :=
+Definition compute_degree (dep_graph : var_graph) (var : var) : nat :=
   let neighbors := neighbors dep_graph var in
   map.fold (fun acc _ _ => S acc) 0 neighbors.
 
-Definition compute_degree_to_visited_set (dep_graph : graph) (visited : verticies) (var : var) : nat := 
+Definition compute_degree_to_visited_set (dep_graph : var_graph) (visited : verticies) (var : var) : nat := 
   let neighbors := neighbors dep_graph var in
   map.fold (fun acc neighbor _ => if map.get visited neighbor then S acc else acc) 0 neighbors.
 
-Definition compute_max_degree_var_to_visited_set (dep_graph : graph) (visited : verticies) : option (var * nat):=
+Definition compute_max_degree_var_to_visited_set (dep_graph : var_graph) (visited : verticies) : option (var * nat):=
   map.fold (fun acc var _ => 
              let degree := compute_degree_to_visited_set dep_graph visited var in
              match acc with
@@ -414,7 +419,7 @@ Definition compute_max_degree_var_to_visited_set (dep_graph : graph) (visited : 
              | Some (_, max_degree) => if Nat.ltb max_degree degree then Some (var, degree) else acc
              end) None dep_graph.(vertices).
 
-Definition compute_max_degree_var (dep_graph : graph) : option (var * nat) :=
+Definition compute_max_degree_var (dep_graph : var_graph) : option (var * nat) :=
   map.fold (fun acc var _ => 
              let degree := compute_degree dep_graph var in
              match acc with
@@ -422,7 +427,7 @@ Definition compute_max_degree_var (dep_graph : graph) : option (var * nat) :=
              | Some (_, max_degree) => if Nat.ltb max_degree degree then Some (var, degree) else acc
              end) None dep_graph.(vertices).
 
-Definition remove_edge_from_graph (dep_graph : graph) (v1 : var) (v2 : var) : graph := 
+Definition remove_edge_from_graph (dep_graph : var_graph) (v1 : var) (v2 : var) : var_graph := 
   let new_edges_v1 := match map.get dep_graph.(edges) v1 with
                       | Some neighbors => map.remove neighbors v2
                       | None => map.empty
@@ -436,12 +441,12 @@ Definition remove_edge_from_graph (dep_graph : graph) (v1 : var) (v2 : var) : gr
     edges :=  map.put (map.put dep_graph.(edges) v1 new_edges_v1) v2 new_edges_v2
   |}.
 
-Definition remove_edges_touching_var (dep_graph : graph) (var : var) : graph :=
+Definition remove_edges_touching_var (dep_graph : var_graph) (var : var) : var_graph :=
   let neighbors := neighbors dep_graph var in
   map.fold (fun acc neighbor _ => remove_edge_from_graph acc var neighbor) dep_graph neighbors.
 
 Record ordering_context := {
-  dep_graph : graph;
+  dep_graph : var_graph;
   order : list var;
   visited : verticies;
 }.
@@ -453,7 +458,7 @@ Definition visit_node (var : var) (ordering_ctx : ordering_context) : ordering_c
     visited := add_to_visited ordering_ctx.(visited) var
   |}.
 
-Definition inital_ordering_context (dep_graph : graph) : ordering_context :=
+Definition inital_ordering_context (dep_graph : var_graph) : ordering_context :=
   {|
     dep_graph := dep_graph;
     order := [];
@@ -480,14 +485,14 @@ Fixpoint compute_variable_ordering_h (ordering_ctx : ordering_context) (fuel : n
       end
   end.
 
-Definition initial_ordering_context (dep_graph : graph) : ordering_context :=
+Definition initial_ordering_context (dep_graph : var_graph) : ordering_context :=
   {|
     dep_graph := dep_graph;
     order := [];
     visited := map.empty
   |}.
 
-Definition compute_variable_ordering (dep_graph : graph) : list var :=
+Definition compute_variable_ordering (dep_graph : var_graph) : list var :=
   let ordering_ctx := compute_variable_ordering_h (initial_ordering_context dep_graph) (List.length (map.keys dep_graph.(vertices))) in
   ordering_ctx.(order).
 
@@ -600,13 +605,39 @@ Fixpoint var_in_arg (v : var) (arg : lowered_expr) : bool :=
   | LFun _ args => List.existsb (var_in_arg v) args
   end.
 
-(* TODO *)
-Definition generate_join (tries_by_hyp : list trie) (var : var) (hyps : list lowered_fact) : join := 
-{|
-  tries := [];
-  trie_levels := [];
-  clauses := []
-|}.
+Fixpoint get_hyp_arg_indices (args : list lowered_expr) (v : var) (i : nat) : list nat :=
+  match args with
+  | [] => []
+  | arg :: rest =>
+      let acc := get_hyp_arg_indices rest v (S i) in
+      match arg with
+      | LVar v' => if var_eqb v v' then i :: acc else acc
+      | LFun _ _ => acc (* TODO deal with functions still*)
+      end
+  end.
+
+Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lowered_fact) : join :=
+  let '(ts, levels, cs, _) :=
+    List.fold_left
+      (fun acc pair =>
+        let '(ts, levels, cs, clause) := acc in
+        let '(t, hyp) := pair in
+        let indices := get_hyp_arg_indices hyp.(lf_args) v 0 in
+        let '(ts', levels', cs') :=
+          List.fold_left
+            (fun inner_acc arg_idx =>
+              let '(ts', levels', cs') := inner_acc in
+              let trie_level := List.nth arg_idx t.(tperm) 0 in
+              (t.(tid) :: ts', trie_level :: levels', clause :: cs'))
+            indices
+            (ts, levels, cs)
+        in
+        (ts', levels', cs', S clause))
+      (List.combine tries_by_hyp hyps)
+      ([], [], [], 0)
+  in
+  {| tries := ts; trie_levels := levels; clauses := cs |}.
+
 
 Definition generate_query (tries : list trie) (rule_var_order : list var) (hyps : list lowered_fact) : query :=
   List.map (fun var => generate_join tries var hyps) rule_var_order.
@@ -649,12 +680,148 @@ Definition compile_rule (rule : lowered_rule) (gcontext : global_context) (node_
   |}.
 
 
-(*----Graph Stuff For ----*)
+(*----Graph Stuff For Doing BFS Process ----*)
 
-(* TODO make a proper graph library for this cuz I need to stop making rando graphs*)
+(* TODO make a proper graph library for this cuz I need to stop making rando graph things here *)
+Context {node_id_set : map.map node_id unit}.
+Context {node_id_edge_map : map.map node_id (list node_id)}.
 
+Record node_graph := {
+  nnodes : node_id_set;
+  nedges : node_id_edge_map;
+}.
 
+Record bfs_state := {
+  bs_queue : list (node_id * list node_id);
+  bs_visited : node_id_set;
+}.
 
+Definition bfs_initial (start : node_id) : bfs_state := {|
+  bs_queue := [(start, [start])];
+  bs_visited := map.put map.empty start tt;
+|}.
+
+Definition node_neighbors (g : node_graph) (n : node_id) : list node_id :=
+  match map.get g.(nedges) n with
+  | Some neighbors => neighbors
+  | None => []
+  end.
+
+Definition bfs_step (g : node_graph) (target : node_id) (state : bfs_state) : bfs_state + list node_id :=
+  match state.(bs_queue) with
+  | [] => inl state
+  | (node, path) :: rest =>
+      if node_id_eqb node target then inr (List.rev path)
+      else
+        let neighbors := node_neighbors g node in
+        let unvisited := List.filter (fun n => 
+          match map.get state.(bs_visited) n with
+          | Some _ => false
+          | None => true
+          end) neighbors in
+        let new_visited := List.fold_left (fun acc n => 
+          map.put acc n tt) unvisited state.(bs_visited) in
+        let new_entries := List.map (fun n => (n, n :: path)) unvisited in
+        inl {|
+          bs_queue := rest ++ new_entries;
+          bs_visited := new_visited;
+        |}
+  end.
+
+Fixpoint bfs_aux (g : node_graph) (target : node_id) (state : bfs_state) (fuel : nat) 
+    : option (list node_id) :=
+  match fuel with
+  | O => None
+  | S fuel' =>
+      match bfs_step g target state with
+      | inr path => Some path
+      | inl state' => 
+          match state'.(bs_queue) with
+          | [] => None
+          | _ => bfs_aux g target state' fuel'
+          end
+      end
+  end.
+
+Definition bfs (g : node_graph) (start target : node_id) (fuel : nat) : option (list node_id) :=
+  bfs_aux g target (bfs_initial start) fuel.
+
+Context {node_ftable_map : map.map node_id forwarding_table}.
+
+Definition get_path (g : node_graph) (nstart nend : node_id) (fuel : nat) : option (list node_id) :=
+  bfs g nstart nend fuel.
+
+Definition get_node_ftable (node : node_id) (ftables : node_ftable_map) : forwarding_table :=
+  match map.get ftables node with
+  | Some ft => ft
+  | None => map.empty
+  end.
+
+Definition get_rel_destinations (rel : rel_id) (ft : forwarding_table) : list destination :=
+  match map.get ft rel with
+  | Some dst => [dst]
+  | None => []
+  end.
+
+Definition add_trie_dest_to_forwarding_table 
+    (node : node_id) (rel : rel_id) 
+    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
+  let ft := get_node_ftable node ftables in
+  let matching_tries :=
+    match List.find (fun n => node_id_eqb n.(nid) node) ninfos with
+    | None => []
+    | Some ninfo => List.filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
+    end in
+  let updated_ft :=
+    List.fold_left (fun ft t =>
+      map.put ft rel (DestTrie t.(tid))
+    ) matching_tries ft in
+  map.put ftables node updated_ft.
+
+Fixpoint add_path_to_forwarding_table
+    (rel : rel_id) (path : list node_id)
+    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
+  match path with
+  | [] => ftables
+  | [node] =>
+      add_trie_dest_to_forwarding_table node rel ftables ninfos
+  | node :: ((next :: _) as rest) =>
+      let ft := get_node_ftable node ftables in
+      let ft' := map.put ft rel (DestEdge next) in
+      let ftables' := map.put ftables node ft' in
+      add_path_to_forwarding_table rel rest ftables' ninfos
+  end.
+
+Definition update_forwarding_table_for_rel
+    (rel : rel_id) (gcontext : global_context)
+    (ninfos : list node_info) (ftables : node_ftable_map) (fuel : nat)
+    (g : node_graph) : node_ftable_map :=
+  let producers := match map.get gcontext.(rel_node_producers) rel with
+                   | Some ps => ps
+                   | None => []
+                   end in
+  let consumers := match map.get gcontext.(rel_node_consumers) rel with
+                   | Some cs => cs
+                   | None => []
+                   end in
+  List.fold_left (fun ftables producer =>
+    List.fold_left (fun ftables consumer =>
+      if node_id_eqb producer consumer then ftables
+      else
+        match get_path g producer consumer fuel with
+        | None => ftables
+        | Some path => add_path_to_forwarding_table rel path ftables ninfos
+        end
+    ) consumers ftables
+  ) producers ftables.
+
+Definition generate_forwarding_table
+    (gcontext : global_context) (ninfos : list node_info)
+    (g : node_graph) (fuel : nat) : node_ftable_map :=
+  let rel_ids := get_rel_ids gcontext in
+  List.fold_left (fun ftables rel =>
+    update_forwarding_table_for_rel rel gcontext ninfos ftables fuel g
+  ) rel_ids map.empty.
 
 (*----Final Compilation Stuff----*)
 
@@ -668,20 +835,68 @@ Definition initial_global_context : global_context :=
   {|
     fn_map := map.empty;
     rel_map := map.empty;
-    topo := {| Dataflow.nodes := fun _ => False; Dataflow.edge := fun _ _ => False |};
+    topo := {| Graph.nodes := fun _ => False; Graph.edge := fun _ _ => False |};
     rel_node_consumers := map.empty;
     rel_node_producers := map.empty;
     last_fn_id := 0;
     last_rel_id := 0
   |}.
 
-Definition compile (layout : layout_map) : node_info_map :=
-  let ginfo := collect_global_names_layout layout initial_global_context in
-  let llayout := global_rename_rule_layout layout ginfo in
-  map.empty. (* TODO *)
+Definition compile_node (node : node_id) (program : lowered_program) 
+    (gcontext : global_context) : node_info :=
+  let compiled_rules := List.map (fun rule => compile_rule rule gcontext node) program in
+  let ncontext := List.fold_left (fun acc rule =>
+    {| ncid := acc.(ncid);
+       nctries := acc.(nctries);
+       last_trie_id := acc.(last_trie_id) |}
+  ) compiled_rules (initial_node_context node) in
+  {|
+    nid := node;
+    nprogram := compiled_rules;
+    nforwarding := map.empty;
+    ntries := ncontext.(nctries);
+  |}.
+
+Definition compile_all_nodes (llayout : lowered_layout_map) 
+    (gcontext : global_context) : list node_info :=
+  map.fold (fun acc node program =>
+    compile_node node program gcontext :: acc
+  ) [] llayout.
+
+Definition attach_forwarding_tables 
+    (ninfos : list node_info) (ftables : node_ftable_map) : list node_info :=
+  List.map (fun ninfo =>
+    let ft := match map.get ftables ninfo.(nid) with
+              | Some ft => ft
+              | None => map.empty
+              end in
+    {| nid := ninfo.(nid);
+       nprogram := ninfo.(nprogram);
+       nforwarding := ft;
+       ntries := ninfo.(ntries) |}
+  ) ninfos.
+
+Definition compile (layout : layout_map) (g : node_graph) (fuel : nat) : list node_info :=
+  let gcontext := collect_global_names_layout layout initial_global_context in
+  let llayout := global_rename_rule_layout layout gcontext in
+  let gcontext := collect_global_dependencies llayout gcontext in
+  let ninfos := compile_all_nodes llayout gcontext in
+  let ftables := generate_forwarding_table gcontext ninfos g fuel in
+  attach_forwarding_tables ninfos ftables.
 
 End EncodeLayout.
 
 (* Just testing out some stuff*)
 Existing Instance SortedListNat.map.
 Compute compute_permutation (var := nat) (var_eqb := Nat.eqb) [2;3;1;1] [1;2;3].
+Compute generate_join
+  (var := nat) (var_eqb := Nat.eqb)
+  (* tries_by_hyp *)
+  [ {| tid := 0; trel := 0; tperm := [0; 1] |} ;   (* trie for edge(x,y) *)
+    {| tid := 1; trel := 0; tperm := [1; 0] |} ]   (* trie for edge(y,z) *)
+  (* v = y, which is nat 1 *)
+  1
+  (* hyps *)
+  [ {| lf_R := 0; lf_args := [LVar 0; LVar 1] |} ;  (* edge(x,y) *)
+    {| lf_R := 0; lf_args := [LVar 1; LVar 2] |} ]  (* edge(y,z) *)
+  .
