@@ -1,6 +1,6 @@
 From Stdlib Require Import List Bool Lia.
 From Datalog Require Import Datalog.
-From DatalogRocq Require Import Dataflow GridGraph.
+From DatalogRocq Require Import Dataflow Graph GridGraph.
 From coqutil Require Import Map.Interface.
 Import ListNotations.
 
@@ -20,7 +20,7 @@ Section GridLayout.
   Context {rule_eqb_spec : forall r1 r2 : rule,
                             BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2)}.
 
-  Definition mk_grid_graph (dims : list nat) : Dataflow.Graph := GridGraph dims.
+  Definition mk_grid_graph (dims : list nat) : Graph := GridGraph dims.
 
   Definition mk_layout_from_indexed_layout (dims : list nat) (indexed_layout : list (Node * list nat)) (program : list rule) (n : Node) : list rule :=
       if check_node_in_bounds dims n then

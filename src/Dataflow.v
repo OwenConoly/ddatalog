@@ -1,6 +1,7 @@
 From Stdlib Require Import List Bool.
 From Datalog Require Import Datalog.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
+From DatalogRocq Require Import Graph.
 
 Import ListNotations.
 
@@ -18,26 +19,6 @@ Section DistributedDatalog.
   Definition fact := Datalog.fact rel var fn.
   Definition rule := Datalog.rule rel var fn aggregator.
 
-  Record Graph := {
-    nodes : Node -> Prop;
-    edge : Node -> Node -> Prop
-  }.
-
-  Definition good_graph (g : Graph) := 
-   forall n1 n2, edge g n1 n2 -> nodes g n1 /\ nodes g n2.
-
-  Inductive path (g : Graph) : Node -> Node -> Prop :=
-    | path_nil n :
-        g.(nodes) n ->
-        path g n n 
-    | path_cons n1 n2 n3 :
-        g.(edge) n1 n2 ->
-        path g n2 n3 ->
-        path g n1 n3.
-  
-  Definition strongly_connected (g : Graph) : Prop :=
-    forall n1 n2, g.(nodes) n1 -> g.(nodes) n2 -> path g n1 n2.
-
   Definition ForwardingTable := rel * list T -> list Node.
   Definition ForwardingFn := Node -> ForwardingTable.
   Definition InputFn := Node -> rel * list T -> Prop.
@@ -45,7 +26,7 @@ Section DistributedDatalog.
   Definition Layout := Node -> list rule.
 
   Record DataflowNetwork := {
-    graph : Graph;
+    graph : Graph (Node := Node);
     forward : ForwardingFn;
     input :  InputFn;
     output : OutputFn;

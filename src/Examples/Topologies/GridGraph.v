@@ -1,5 +1,5 @@
 From Stdlib Require Import List Bool ZArith.Znat Lia.
-From DatalogRocq Require Import Dataflow.
+From DatalogRocq Require Import Graph.
 From coqutil Require Import Datatypes.List.
 Import ListNotations.
 
@@ -161,15 +161,15 @@ Section GridGraph.
   Qed.
 
   (* The actual graph *)
-  Definition GridGraph : Dataflow.Graph :=
+  Definition GridGraph : Graph.Graph :=
     {|
       nodes := is_graph_node dims;
       edge  := is_graph_edge dims
     |}.
 
-  Theorem good_graph : Dataflow.good_graph GridGraph.
+  Theorem good_graph : Graph.good_graph GridGraph.
   Proof.
-    unfold Dataflow.good_graph.
+    unfold Graph.good_graph.
     intros n1 n2 Hedge.
     split; inversion Hedge; assumption.
   Qed.
