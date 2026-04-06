@@ -1,0 +1,59 @@
+rule 1.
+A(x) :- B(x)
+// more complex: A(i, x) :- B(i, x)
+
+rule 2.
+A'() :- B'()
+
+// more complex: |A|(i) :- |B|(i)
+
+|A|(the set of all A-facts that can be deduced (via no more than one rule application) from the set S of B-facts) :- |B|(S)
+
+rule 3.
+D :- \sum A
+
+// S a set of numbers
+D(\sum l) :- |A|(S), Forall A l, length(l) = |S|, no-duplicates l
+
+|
+|
+v
+
+- Every learned fact is broadcast to every node (including the sender).
+- The exception is starred relations (which are mutable), which are internal to the node and are not broadcast anywhere.
+
+rule 1.
+// Pick any node, and put the following rule on it.
+A(x) :- B(x)
+
+rule 2.
+// Let N be the number of nodes in the network.
+// (for each i) On node i, put the following rules.
+// |A|_i(s) means that the number of A-messages that node i will ever send is equal to s.
+
+|A|_i(s) :- |B|_i*(r, N), i-have-received-exactly-this-many-B-messages(r), i-have-sent-exactly-this-many-A-messages(s), i-cannot-deduce-any-more-A-facts()
+
+R*(x_1, ..., x_n, y_1, ..., y_m)
+
+U*(x, y)
+U(3, 15)
+U(2, 5)
+// x_i's are "functional inputs", y_i's are "functional outputs"
+// for each j:
+|B|_i*(x, 1) :- |B|_j(x)
+
+rule 3.
+// D* is a mutable relation.
+// merge operation is addition, i.e. D*(x1, n1) + D*(x2, n2) = D*(x1 + x2, n1 + n2).
+// in D*(x, n), the argument x is partial sum, n is number of elements summed so far.
+// in |B|_i*(x, n), the argument x is partial sum (number of B-messages i should receive), and n is number of senders taken into account so far
+
+// Pick any node, and put the following rules on it.
+D*(x, 1) :- A(x)
+
+D(x) :- D*(x, n), |A|(n)
+
+|A|(m) :- |A|*(x, N), i-know-exactly-this-many-A-facts(m), i-have-received-exactly-this-many-A-messages(x)
+
+// for each i:
+|A|*(x, 1) :- |A|_i(x)
