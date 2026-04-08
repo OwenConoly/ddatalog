@@ -125,4 +125,63 @@ Proof.
     split; assumption.
 Qed.
 
+Definition cg_neighbors (g : ComputableGraph) (n : Node) : node_set :=
+  match map.get g.(edges) n with
+  | Some ns => ns
+  | None => map.empty
+  end.
+
+Record bfs_state := {
+  bs_queue : list (Node * list Node);
+  bs_visited : node_set;
+}.
+
+Definition bfs_initial (start : Node) : bfs_state :=
+  {|
+    bs_queue := [(start, [start])];
+    bs_visited := map.put map.empty start tt;
+  |}.
+
+Definition bfs_step (g : ComputableGraph) (target : Node) (state : bfs_state) 
+    : bfs_state + list Node :=
+  match state.(bs_queue) with
+  | [] => inl state
+  | (node, path) :: rest =>
+    if node_eqb node target then inr (List.rev path)
+    else
+      let neighbor_set := cg_neighbors g node in
+      let '(unvisited, new_visited) :=
+        map.fold (fun '(uvs, vis) n _ =>
+          match map.get vis n with
+          | Some _ => (uvs, vis)
+          | None => (n :: uvs, map.put vis n tt)
+          end) ([], state.(bs_visited)) neighbor_set in
+      let new_entries := List.map (fun n => (n, n :: path)) unvisited in
+      inl {|
+        bs_queue := rest ++ new_entries;
+        bs_visited := new_visited;
+      |}
+  end.
+
+Fixpoint bfs_aux (g : ComputableGraph) (target : Node) (state : bfs_state) (fuel : nat) 
+    : option (list Node) :=
+  match fuel with
+  | O => None
+  | S fuel' =>
+    match bfs_step g target state with
+    | inr path => Some path
+    | inl state' =>
+      match state'.(bs_queue) with
+      | [] => None
+      | _ => bfs_aux g target state' fuel'
+      end
+    end
+  end.
+
+Definition bfs (g : ComputableGraph) (start target : Node) (fuel : nat) : option (list Node) :=
+  bfs_aux g target (bfs_initial start) fuel.
+
+Definition get_path (g : ComputableGraph) (nstart nend : Node) (fuel : nat) : option (list Node) :=
+  bfs g nstart nend fuel.
+
 End ComputableGraph.
