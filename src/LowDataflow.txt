@@ -5,15 +5,8 @@ A(x) :- B(x)
 rule 2.
 A'() :- B'()
 
-// more complex: |A|(i) :- |B|(i)
-
-|A|(the set of all A-facts that can be deduced (via no more than one rule application) from the set S of B-facts) :- |B|(S)
-
 rule 3.
 D :- \sum A
-
-// S a set of numbers
-D(\sum l) :- |A|(S), Forall A l, length(l) = |S|, no-duplicates l
 
 |
 |
@@ -31,14 +24,11 @@ rule 2.
 // (for each i) On node i, put the following rules.
 // |A|_i(s) means that the number of A-messages that node i will ever send is equal to s.
 
-|A|_i(s) :- |B|_i*(r, N), i-have-received-exactly-this-many-B-messages(r), i-have-sent-exactly-this-many-A-messages(s), i-cannot-deduce-any-more-A-facts()
+// this rule should be executed with a one-round delay, to ensure that all deducible A-facts have been sent already
+// one-round delay means that if we learn a fact in round n, we cannot use it to fire this rule until round n + 2
+// alternatively, could have some dummy auxiliary relation to enforce the delay.
+|A|_i(s) :- |B|_i*(r, N), received(B)(r), sent(A)(s)
 
-R*(x_1, ..., x_n, y_1, ..., y_m)
-
-U*(x, y)
-U(3, 15)
-U(2, 5)
-// x_i's are "functional inputs", y_i's are "functional outputs"
 // for each j:
 |B|_i*(x, 1) :- |B|_j(x)
 
@@ -49,11 +39,16 @@ rule 3.
 // in |B|_i*(x, n), the argument x is partial sum (number of B-messages i should receive), and n is number of senders taken into account so far
 
 // Pick any node, and put the following rules on it.
-D*(x, 1) :- A(x)
+D*(x) :- A(x)
 
-D(x) :- D*(x, n), |A|(n)
-
-|A|(m) :- |A|*(x, N), i-know-exactly-this-many-A-facts(m), i-have-received-exactly-this-many-A-messages(x)
+// to make sure D* is up-to-date with received A-facts, this rule gets a one-round delay.
+D(x) :- D*(x), |A|*(x, N), received(A)(x)
 
 // for each i:
 |A|*(x, 1) :- |A|_i(x)
+
+*********************
+
+Extra features needed.
+* one-round delay.  possible naive implementation: when adding new fact to trie, set some "old" bit to zero, then re-add fact to list of new facts for next round, when adding it in next round set old bit to 1.  alternative: keep track of whether we are on odd or even rounds, for each fact keep track of whether it was added on odd or even round.
+* program stored on hardware may contain (in addition to normal relations), some list of data (sent|received) * relname * list (option nat), where the natural numbers should count upward from 1.  each element of the list gets a trie.  for instance, sent(R)(_, 1) means: before sending any R-message, look in the trie and increment the appropriate counter.  more comprehensible example: program above would have [(sent, A, nil), (received, B, nil)] on nodes executing rule 2, [(received, A, nil)] on nodes executing rule 3.
