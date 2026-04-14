@@ -1,10 +1,14 @@
 From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith.
-From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
-From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Graph ComputableGraph EqbSpec ResultMonad.
+From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result.
+From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Graph ComputableGraph EqbSpec.
 
-Import ListNotations.
+Open Scope result_monad_scope.
+Open Scope error_scope.
 Open Scope bool_scope.
+Import ListNotations.
+
+Module Import RM := ResultMonadNotations.
 
 Section EncodeLayout.
 
@@ -93,8 +97,24 @@ Inductive destination :=
 | DestEdge (e : edge_id)
 | DestTrie (t : trie_id).
 
-Context {forwarding_table : map.map rel_id destination}.
-Context {rel_dependency_map : map.map rel_id (list node_id)}.
+Definition destination_eqb (d1 d2 : destination) : bool :=
+  match d1, d2 with
+  | DestEdge e1, DestEdge e2 => pair_eqb Nat.eqb Nat.eqb e1 e2
+  | DestTrie t1, DestTrie t2 => Nat.eqb t1 t2
+  | _, _ => false
+  end.
+
+Lemma destination_eqb_spec : forall x y : destination, BoolSpec (x = y) (x <> y) (destination_eqb x y).
+Proof.
+  intros x y. destruct x, y; try (constructor; congruence).
+  - destruct e, e0. admit.
+  - admit.
+Admitted.
+
+Context {node_id_set : map.map node_id unit}.
+Context {destination_set : map.map destination unit}.
+Context {forwarding_table : map.map rel_id (list destination)}.
+Context {rel_dependency_map : map.map rel_id (node_id_set)}.
 Context {fn_id_map : map.map fn fn_id}.
 Context {rel_relid_map : map.map rel rel_id}.
 Context {relid_rel_map : map.map rel_id rel}.
@@ -145,12 +165,11 @@ Context {var_edge_set_ok : map.ok var_edge_set}.
 Definition var_graph := @ComputableGraph var var_node_set var_edge_set.
 
 (*---- node_graph as ComputableGraph over node_id ----*)
-Context {node_id_node_set : map.map node_id unit}.
-Context {node_id_node_set_ok : map.ok node_id_node_set}.
-Context {node_id_edge_set : map.map node_id node_id_node_set}.
+Context {node_id_set_ok : map.ok node_id_set}.
+Context {node_id_edge_set : map.map node_id node_id_set}.
 Context {node_id_edge_set_ok : map.ok node_id_edge_set}.
 
-Definition node_graph := @ComputableGraph node_id node_id_node_set node_id_edge_set.
+Definition node_graph := @ComputableGraph node_id node_id_set node_id_edge_set.
 
 (*----Collecting Global Info----*)
 
@@ -211,63 +230,62 @@ Definition collect_global_names_layout (layout : layout_map) (gcontext : global_
 Definition rename_fn (f : fn) (gcontext : global_context) : result fn_id :=
   match map.get gcontext.(fn_map) f with
   | Some id => Success id
-  | None => Failure "rename_fn: function not found in global context"
+  | None => error:("rename_fn: function not found in global context")
   end.
 
 Fixpoint global_rename_expr (e : expr) (gcontext : global_context) : result lowered_expr :=
   match e with
   | var_expr v => Success (LVar v)
   | fun_expr f args =>
-    rename_fn f gcontext >>= fun f_id =>
-    (* fold over args collecting results *)
-    fold_left (fun acc arg =>
-      acc >>= fun rargs =>
-      global_rename_expr arg gcontext >>= fun rarg =>
-      Success (rargs ++ [rarg])%list
-    ) args (Success []) >>= fun rargs =>
+    f_id <- rename_fn f gcontext ;;
+    rargs <- fold_left (fun acc arg =>
+      rargs <- acc ;;
+      rarg <- global_rename_expr arg gcontext ;;
+      Success (rarg :: rargs)%list
+    ) args (Success []) ;;
     Success (LFun f_id rargs)
   end.
 
 Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_id :=
   match map.get gcontext.(rel_map) r with
   | Some id => Success id
-  | None => Failure "global_rename_rel: relation not found in global context"
+  | None => error:("global_rename_rel: relation not found in global context")
   end.
 
 Definition global_rename_fact (f : fact) (gcontext : global_context) : result lowered_fact :=
-  global_rename_rel f.(fact_R) gcontext >>= fun r_id =>
-  fold_left (fun acc arg =>
-    acc >>= fun rargs =>
-    global_rename_expr arg gcontext >>= fun rarg =>
-    Success (rargs ++ [rarg])%list
-  ) f.(fact_args) (Success []) >>= fun rargs =>
+  r_id <- global_rename_rel f.(fact_R) gcontext ;;
+  rargs <- fold_left (fun acc arg =>
+    rargs <- acc ;;
+    rarg <- global_rename_expr arg gcontext ;;
+    Success (rarg :: rargs)
+  ) f.(fact_args) (Success []) ;;
   Success {| lf_R := r_id; lf_args := rargs |}.
 
 Definition global_rename_rule (r : rule) (gcontext : global_context) : result lowered_rule :=
-  fold_left (fun acc f =>
-    acc >>= fun rfs =>
-    global_rename_fact f gcontext >>= fun rf =>
-    Success (rfs ++ [rf])%list
-  ) r.(rule_hyps) (Success []) >>= fun hyps =>
-  fold_left (fun acc f =>
-    acc >>= fun rfs =>
-    global_rename_fact f gcontext >>= fun rf =>
-    Success (rfs ++ [rf])%list
-  ) r.(rule_concls) (Success []) >>= fun concls =>
+  hyps <- fold_left (fun acc f =>
+    rfs <- acc ;;
+    rf <- global_rename_fact f gcontext ;;
+    Success (rf :: rfs)
+  ) r.(rule_hyps) (Success []) ;;
+  concls <- fold_left (fun acc f =>
+    rfs <- acc ;;
+    rf <- global_rename_fact f gcontext ;;
+    Success (rf :: rfs)
+  ) r.(rule_concls) (Success []) ;;
   Success {| lhyps := hyps; lconcls := concls |}.
 
 Definition global_rename_program (p : program) (gcontext : global_context) : result lowered_program :=
   fold_left (fun acc r =>
-    acc >>= fun rs =>
-    global_rename_rule r gcontext >>= fun lr =>
-    Success (rs ++ [lr])%list
+    rs <- acc ;;
+    lr <- global_rename_rule r gcontext ;;
+    Success (lr :: rs)
   ) p (Success []).
 
 Definition global_rename_rule_layout (layout : layout_map) (gcontext : global_context)
     : result lowered_layout_map :=
   map.fold (fun acc node program =>
-    acc >>= fun llayout =>
-    global_rename_program program gcontext >>= fun lp =>
+    llayout <- acc ;;
+    lp <- global_rename_program program gcontext ;;
     Success (map.put llayout node lp)
   ) (Success map.empty) layout.
 
@@ -314,16 +332,18 @@ Definition add_producer_to_context (r_id : rel_id) (producer : node_id)
     (gcontext : global_context) : global_context :=
   let rel_node_producers :=
     match map.get gcontext.(rel_node_producers) r_id with
-    | Some producers => map.put gcontext.(rel_node_producers) r_id (producer :: producers)
-    | None => map.put gcontext.(rel_node_producers) r_id [producer]
+    | Some producers => map.put gcontext.(rel_node_producers) r_id (map.put producers producer tt)
+    | None => map.put gcontext.(rel_node_producers) r_id (map.put map.empty producer tt)
     end in
-  {| fn_map := gcontext.(fn_map);
-     rel_map := gcontext.(rel_map);
-     topo := gcontext.(topo);
-     rel_node_consumers := gcontext.(rel_node_consumers);
-     rel_node_producers := rel_node_producers;
-     last_fn_id := gcontext.(last_fn_id);
-     last_rel_id := gcontext.(last_rel_id) |}.
+  {|
+    fn_map := gcontext.(fn_map);
+    rel_map := gcontext.(rel_map);
+    topo := gcontext.(topo);
+    rel_node_consumers := gcontext.(rel_node_consumers);
+    rel_node_producers := rel_node_producers;
+    last_fn_id := gcontext.(last_fn_id);
+    last_rel_id := gcontext.(last_rel_id)
+  |}.
 
 Definition add_producers_to_context (r_id : rel_id) (producers : list node_id)
     (gcontext : global_context) : global_context :=
@@ -333,16 +353,18 @@ Definition add_consumer_to_context (r_id : rel_id) (consumer : node_id)
     (gcontext : global_context) : global_context :=
   let rel_node_consumers :=
     match map.get gcontext.(rel_node_consumers) r_id with
-    | Some consumers => map.put gcontext.(rel_node_consumers) r_id (consumer :: consumers)
-    | None => map.put gcontext.(rel_node_consumers) r_id [consumer]
+    | Some consumers => map.put gcontext.(rel_node_consumers) r_id (map.put consumers consumer tt)
+    | None => map.put gcontext.(rel_node_consumers) r_id (map.put map.empty consumer tt)
     end in
-  {| fn_map := gcontext.(fn_map);
-     rel_map := gcontext.(rel_map);
-     topo := gcontext.(topo);
-     rel_node_consumers := rel_node_consumers;
-     rel_node_producers := gcontext.(rel_node_producers);
-     last_fn_id := gcontext.(last_fn_id);
-     last_rel_id := gcontext.(last_rel_id) |}.
+  {|
+    fn_map := gcontext.(fn_map);
+    rel_map := gcontext.(rel_map);
+    topo := gcontext.(topo);
+    rel_node_consumers := rel_node_consumers;
+    rel_node_producers := gcontext.(rel_node_producers);
+    last_fn_id := gcontext.(last_fn_id);
+    last_rel_id := gcontext.(last_rel_id)
+  |}.
 
 Definition add_consumers_to_context (r_id : rel_id) (consumers : list node_id)
     (gcontext : global_context) : global_context :=
@@ -374,7 +396,7 @@ Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_n
   match arg with
   | LVar v =>
     let new_neighbors := map.putmany (vg_neighbors g v) clause_vars in
-    {| nodes := map.put g.(nodes) v tt;  (* ← add this *)
+    {| nodes := map.put g.(nodes) v tt;
        edges := map.put g.(edges) v new_neighbors |}
   | LFun _ args =>
     fold_left (fun acc arg => add_arg_edges arg acc clause_vars) args g
@@ -445,7 +467,7 @@ Record ordering_context := {
 Definition visit_node (v : var) (ctx : ordering_context) : ordering_context :=
   {| dep_graph := {| nodes := map.remove ctx.(dep_graph).(nodes) v;
                      edges := (remove_edges_touching_var ctx.(dep_graph) v).(edges) |};
-     order := ctx.(order) ++ [v];
+     order := v :: ctx.(order);
      visited := map.put ctx.(visited) v tt |}.
 
 Definition initial_ordering_context (g : var_graph) : ordering_context :=
@@ -548,24 +570,13 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
   | Some t => (t, ncontext)
   | None =>
     let new_trie := {| tid := ncontext.(last_trie_id); trel := rel_id; tperm := perm |} in
-    (new_trie, update_node_context_with_trie new_trie ncontext)
+(new_trie, update_node_context_with_trie new_trie ncontext)
   end.
-
-(* Context {var_to_string : var -> string}. *)
-(* get_rule_var_index now returns result *)
-(* Definition fmt_rule_var_err (v : var) (rule_var_order : list var) : string :=
-  "get_rule_var_index: variable '" ++ var_to_string v ++
-  "' not found in rule_var_order: [" ++
-  String.concat ", " (List.map var_to_string rule_var_order) ++ "]". *)
-
-
-Definition fmt_rule_var_err (v : var) (rule_var_order : list var) : string :=
-  "get_rule_var_index: variable not found in rule_var_order".
 
 Definition get_rule_var_index (rule_var_order : list var) (v : var) : result nat :=
   match index_of_var v rule_var_order with
   | Some idx => Success idx
-  | None => Failure (fmt_rule_var_err v rule_var_order)
+  | None => error:("get_rule_var_index: variable not found in rule_var_order")
   end.
 
 Fixpoint get_hyp_arg_indices (args : list lowered_expr) (v : var) (i : nat) : list nat :=
@@ -611,34 +622,33 @@ Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
 Definition initial_node_context (nid : node_id) : node_context :=
   {| ncid := nid; nctries := []; last_trie_id := 0 |}.
 
-(* compile_concl now propagates errors from get_rule_var_index *)
 Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
     (rule_var_order : list var) : result join_output :=
-  fold_left (fun acc arg =>
-    acc >>= fun idxs =>
+  var_indices <- fold_left (fun acc arg =>
+    idxs <- acc ;;
     match arg with
     | LVar v =>
-      get_rule_var_index rule_var_order v >>= fun idx =>
-      Success (idxs ++ [idx])%list
-    | LFun _ _ => Success (idxs ++ [0])%list
+      idx <- get_rule_var_index rule_var_order v ;;
+      Success (idx :: idxs)
+    | LFun _ _ => Success (0 :: idxs)
     end
-  ) concl.(lf_args) (Success []) >>= fun var_indices =>
+  ) concl.(lf_args) (Success []) ;;
   Success {| output_rel := concl.(lf_R); output_var_indices := var_indices |}.
 
 Definition compile_concls (concls : list lowered_fact) (gcontext : global_context)
     (rule_var_order : list var) : result (list join_output) :=
   fold_left (fun acc concl =>
-    acc >>= fun jos =>
-    compile_concl concl gcontext rule_var_order >>= fun jo =>
-    Success (jos ++ [jo])%list
+    jos <- acc ;;
+    jo <- compile_concl concl gcontext rule_var_order ;;
+    Success (jo :: jos)
   ) concls (Success []).
 
 Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
     (ncontext : node_context) : result (hardware_rule * node_context) :=
   let rule_var_order := compute_variable_ordering (create_dependency_graph rule.(lhyps)) in
   let '(query, ncontext) :=
-  compile_hyps rule.(lhyps) rule_var_order ncontext.(nctries) gcontext ncontext in
-  compile_concls rule.(lconcls) gcontext rule_var_order >>= fun concls =>
+    compile_hyps rule.(lhyps) rule_var_order ncontext.(nctries) gcontext ncontext in
+  concls <- compile_concls rule.(lconcls) gcontext rule_var_order ;;
   Success ({| hhyps := query; hconcls := concls |}, ncontext).
 
 (*----Forwarding Tables----*)
@@ -659,8 +669,10 @@ Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     | None => []
     | Some ninfo => List.filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
     end in
+  let existing := match map.get ft rel with
+                  | Some ds => ds | None => [] end in
   let updated_ft :=
-    fold_left (fun ft t => map.put ft rel (DestTrie t.(tid))) matching_tries ft in
+    map.put ft rel (fold_left (fun acc t => DestTrie t.(tid) :: acc) matching_tries existing) in
   map.put ftables node updated_ft.
 
 Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
@@ -669,31 +681,40 @@ Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
   | [] => ftables
   | [node] => add_trie_dest_to_forwarding_table node rel ftables ninfos
   | node :: ((next :: _) as rest) =>
-    let ft' := map.put (get_node_ftable node ftables) rel (DestEdge next) in
+    let ft := get_node_ftable node ftables in
+    let existing := match map.get ft rel with
+                    | Some ds => ds | None => [] end in
+    let ft' := map.put ft rel (DestEdge next :: existing) in
     add_path_to_forwarding_table rel rest (map.put ftables node ft') ninfos
   end.
 
 Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_context)
     (ninfos : list node_info) (ftables : node_ftable_map) (fuel : nat)
     (g : node_graph) : node_ftable_map :=
-  let producers := match map.get gcontext.(rel_node_producers) rel with
-                     | Some ps => ps | None => [] end in
-  let consumers := match map.get gcontext.(rel_node_consumers) rel with
-                     | Some cs => cs | None => [] end in
-  fold_left (fun ftables producer =>
-    fold_left (fun ftables consumer =>
+  let producers :=
+    match map.get gcontext.(rel_node_producers) rel with
+    | Some ps => ps
+    | None => map.empty
+    end in
+  let consumers :=
+    match map.get gcontext.(rel_node_consumers) rel with
+    | Some cs => cs
+    | None => map.empty
+    end in
+  map.fold (fun ftables producer _ =>
+    map.fold (fun ftables consumer _ =>
       if node_id_eqb producer consumer then
         add_trie_dest_to_forwarding_table consumer rel ftables ninfos
       else
         match get_path (node_eqb := node_id_eqb)
-                       (node_set := node_id_node_set)
+                       (node_set := node_id_set)
                        (edge_set := node_id_edge_set)
                        g producer consumer fuel with
         | None => ftables
         | Some path => add_path_to_forwarding_table rel path ftables ninfos
         end
-    ) consumers ftables
-  ) producers ftables.
+    ) ftables consumers
+  ) ftables producers.
 
 Definition generate_forwarding_table (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) (fuel : nat) : node_ftable_map :=
@@ -714,21 +735,22 @@ Definition initial_global_context : global_context :=
 
 Definition compile_node (node : node_id) (program : lowered_program)
     (gcontext : global_context) : result node_info :=
-  fold_left (fun acc rule =>
-    acc >>= fun '(rules, ncontext) =>
-    compile_rule rule gcontext ncontext >>= fun '(hr, ncontext) =>
-    Success (rules ++ [hr], ncontext)%list
-  ) program (Success ([], initial_node_context node)) >>= fun '(compiled_rules, ncontext) =>
+  '(compiled_rules, ncontext) <-
+    fold_left (fun acc rule =>
+      '(rules, ncontext) <- acc ;;
+      '(hr, ncontext) <- compile_rule rule gcontext ncontext ;;
+      Success (hr :: rules, ncontext)%list
+    ) program (Success ([], initial_node_context node)) ;;
   Success {| nid := node;
              nprogram := compiled_rules;
              nforwarding := map.empty;
-             ntries := ncontext.(nctries) |}.
+             ntries := List.rev ncontext.(nctries) |}.
 
 Definition compile_all_nodes (llayout : lowered_layout_map)
     (gcontext : global_context) : result (list node_info) :=
   map.fold (fun acc node program =>
-    acc >>= fun ninfos =>
-    compile_node node program gcontext >>= fun ninfo =>
+    ninfos <- acc ;;
+    ninfo <- compile_node node program gcontext ;;
     Success (ninfo :: ninfos)
   ) (Success []) llayout.
 
@@ -743,13 +765,12 @@ Definition attach_forwarding_tables (ninfos : list node_info)
        ntries := ninfo.(ntries) |}
   ) ninfos.
 
-(* Top-level compile now returns result *)
 Definition compile (layout : layout_map) (g : node_graph) (fuel : nat)
     : result (list node_info) :=
   let gcontext := collect_global_names_layout layout initial_global_context in
-  global_rename_rule_layout layout gcontext >>= fun llayout =>
+  llayout <- global_rename_rule_layout layout gcontext ;;
   let gcontext := collect_global_dependencies llayout gcontext in
-  compile_all_nodes llayout gcontext >>= fun ninfos =>
+  ninfos <- compile_all_nodes llayout gcontext ;;
   let ftables := generate_forwarding_table gcontext ninfos g fuel in
   Success (attach_forwarding_tables ninfos ftables).
 
