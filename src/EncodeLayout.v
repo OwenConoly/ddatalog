@@ -106,10 +106,13 @@ Definition destination_eqb (d1 d2 : destination) : bool :=
 
 Lemma destination_eqb_spec : forall x y : destination, BoolSpec (x = y) (x <> y) (destination_eqb x y).
 Proof.
-  intros x y. destruct x, y; try (constructor; congruence).
-  - destruct e, e0. admit.
-  - admit.
-Admitted.
+  intros x y. destruct x, y; simpl; try (constructor; congruence).
+  - destruct e as [a b], e0 as [c d].
+    unfold destination_eqb, pair_eqb.
+    destruct (Nat.eqb_spec a c); destruct (Nat.eqb_spec b d);
+      subst; constructor; congruence.
+  - destruct (Nat.eqb_spec t t0); subst; constructor; congruence.
+Qed.
 
 Context {node_id_set : map.map node_id unit}.
 Context {destination_set : map.map destination unit}.
@@ -243,7 +246,7 @@ Fixpoint global_rename_expr (e : expr) (gcontext : global_context) : result lowe
       rarg <- global_rename_expr arg gcontext ;;
       Success (rarg :: rargs)%list
     ) args (Success []) ;;
-    Success (LFun f_id rargs)
+    Success (LFun f_id (List.rev rargs))
   end.
 
 Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_id :=
@@ -259,7 +262,7 @@ Definition global_rename_fact (f : fact) (gcontext : global_context) : result lo
     rarg <- global_rename_expr arg gcontext ;;
     Success (rarg :: rargs)
   ) f.(fact_args) (Success []) ;;
-  Success {| lf_R := r_id; lf_args := rargs |}.
+  Success {| lf_R := r_id; lf_args := List.rev rargs |}.
 
 Definition global_rename_rule (r : rule) (gcontext : global_context) : result lowered_rule :=
   hyps <- fold_left (fun acc f =>
@@ -272,14 +275,16 @@ Definition global_rename_rule (r : rule) (gcontext : global_context) : result lo
     rf <- global_rename_fact f gcontext ;;
     Success (rf :: rfs)
   ) r.(rule_concls) (Success []) ;;
-  Success {| lhyps := hyps; lconcls := concls |}.
+  Success {| lhyps := List.rev hyps;
+             lconcls := List.rev concls |}.
 
 Definition global_rename_program (p : program) (gcontext : global_context) : result lowered_program :=
-  fold_left (fun acc r =>
+  rs <- fold_left (fun acc r =>
     rs <- acc ;;
     lr <- global_rename_rule r gcontext ;;
     Success (lr :: rs)
-  ) p (Success []).
+  ) p (Success []) ;;
+  Success (List.rev rs).
 
 Definition global_rename_rule_layout (layout : layout_map) (gcontext : global_context)
     : result lowered_layout_map :=
@@ -382,6 +387,35 @@ Definition collect_global_dependencies (llayout : lowered_layout_map)
       (add_producers_to_context rel_id producers acc)
   ) (get_rel_ids gcontext) gcontext.
 
+(*----Stuff to keep default ordering (if desired) ----*)
+
+(* Collect vars in order of first appearance in hypotheses *)
+Fixpoint collect_vars_expr (e : lowered_expr) : list var :=
+  match e with
+  | LVar v => [v]
+  | LFun _ args => List.flat_map collect_vars_expr args
+  end.
+
+Definition collect_vars_fact (f : lowered_fact) : list var :=
+  List.flat_map collect_vars_expr f.(lf_args).
+
+Definition collect_vars_hyps (hyps : list lowered_fact) : list var :=
+  List.flat_map collect_vars_fact hyps.
+
+(* Deduplicate keeping first occurrence *)
+Fixpoint dedup (seen : var_node_set) (l : list var) : list var :=
+  match l with
+  | [] => []
+  | v :: rest =>
+    match map.get seen v with
+    | Some _ => dedup seen rest
+    | None => v :: dedup (map.put seen v tt) rest
+    end
+  end.
+
+Definition hyp_var_order (hyps : list lowered_fact) : list var :=
+  dedup map.empty (collect_vars_hyps hyps).
+
 (*----Variable ordering----*)
 
 Context {var_set : map.map var unit}.
@@ -396,8 +430,13 @@ Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_n
   match arg with
   | LVar v =>
     let new_neighbors := map.putmany (vg_neighbors g v) clause_vars in
-    {| nodes := map.put g.(nodes) v tt;
-       edges := map.put g.(edges) v new_neighbors |}
+    let g' := {| nodes := map.put g.(nodes) v tt;
+                 edges := map.put g.(edges) v new_neighbors |} in
+    (* Add reverse edges: for each u in clause_vars, add edge u -> v *)
+    map.fold (fun acc u _ =>
+      {| nodes := acc.(nodes);
+         edges := map.put acc.(edges) u (map.put (vg_neighbors acc u) v tt) |})
+      g' clause_vars
   | LFun _ args =>
     fold_left (fun acc arg => add_arg_edges arg acc clause_vars) args g
   end.
@@ -450,6 +489,37 @@ Definition compute_max_degree_var (g : var_graph) : option (var * nat) :=
     | Some (_, max_degree) => if Nat.ltb max_degree degree then Some (v, degree) else acc
     end) None g.(nodes).
 
+(* If we want to enforce a specific order for tie breaks *)
+Definition compute_max_degree_var_to_visited_set_ordered
+    (g : var_graph) (visited : var_node_set) (candidates : list var)
+    : option (var * nat) :=
+  fold_left (fun acc v =>
+    (* Only consider vars still in the dep_graph *)
+    match map.get g.(nodes) v with
+    | None => acc
+    | Some _ =>
+      let degree := compute_degree_to_visited_set g visited v in
+      match acc with
+      | None => Some (v, degree)
+      | Some (_, max_degree) =>
+        if Nat.ltb max_degree degree then Some (v, degree) else acc
+      end
+    end) candidates None.
+
+Definition compute_max_degree_var_ordered
+    (g : var_graph) (candidates : list var) : option (var * nat) :=
+  fold_left (fun acc v =>
+    match map.get g.(nodes) v with
+    | None => acc
+    | Some _ =>
+      let degree := compute_degree g v in
+      match acc with
+      | None => Some (v, degree)
+      | Some (_, max_degree) =>
+        if Nat.ltb max_degree degree then Some (v, degree) else acc
+      end
+    end) candidates None.
+
 Definition remove_edge_from_graph (g : var_graph) (v1 v2 : var) : var_graph :=
   {| nodes := g.(nodes);
      edges := map.put (map.put g.(edges) v1 (map.remove (vg_neighbors g v1) v2))
@@ -483,6 +553,16 @@ Definition choose_next_var (ctx : ordering_context) : option var :=
     end
   end.
 
+Definition choose_next_var_ordered (ctx : ordering_context) (candidates : list var) : option var :=
+  match compute_max_degree_var_to_visited_set_ordered ctx.(dep_graph) ctx.(visited) candidates with
+  | Some (v, _) => Some v
+  | None =>
+    match compute_max_degree_var_ordered ctx.(dep_graph) candidates with
+    | Some (v, _) => Some v
+    | None => None
+    end
+  end.
+
 Fixpoint compute_variable_ordering_h (ctx : ordering_context) (fuel : nat) : ordering_context :=
   match fuel with
   | O => ctx
@@ -493,9 +573,27 @@ Fixpoint compute_variable_ordering_h (ctx : ordering_context) (fuel : nat) : ord
     end
   end.
 
+Fixpoint compute_variable_ordering_ordered_h (ctx : ordering_context)
+  (candidates : list var) (fuel : nat) : ordering_context :=
+  match fuel with
+  | O => ctx
+  | S fuel' =>
+    match choose_next_var_ordered ctx candidates with
+    | Some v => compute_variable_ordering_ordered_h (visit_node v ctx) candidates fuel'
+    | None => ctx
+    end
+  end.
+
 Definition compute_variable_ordering (g : var_graph) : list var :=
-  (compute_variable_ordering_h (initial_ordering_context g)
-     (List.length (map.keys g.(nodes)))).(order).
+  List.rev
+    (compute_variable_ordering_h (initial_ordering_context g)
+       (List.length (map.keys g.(nodes)))).(order).
+
+Definition compute_variable_ordering_ordered (g : var_graph) (hyps : list lowered_fact) : list var :=
+  let candidates := hyp_var_order hyps in
+  List.rev
+    (compute_variable_ordering_ordered_h (initial_ordering_context g)
+       candidates (List.length candidates)).(order).
 
 (*----Trie Allocation----*)
 
@@ -570,7 +668,7 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
   | Some t => (t, ncontext)
   | None =>
     let new_trie := {| tid := ncontext.(last_trie_id); trel := rel_id; tperm := perm |} in
-(new_trie, update_node_context_with_trie new_trie ncontext)
+    (new_trie, update_node_context_with_trie new_trie ncontext)
   end.
 
 Definition get_rule_var_index (rule_var_order : list var) (v : var) : result nat :=
@@ -604,7 +702,9 @@ Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lower
       (ts', levels', cs', S clause))
       (List.combine tries_by_hyp hyps) ([], [], [], 0)
   in
-  {| tries := ts; trie_levels := levels; clauses := cs |}.
+  {| tries := List.rev ts;
+     trie_levels := List.rev levels;
+     clauses := List.rev cs |}.
 
 Definition generate_query (tries : list trie) (rule_var_order : list var)
     (hyps : list lowered_fact) : query :=
@@ -633,23 +733,36 @@ Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
     | LFun _ _ => Success (0 :: idxs)
     end
   ) concl.(lf_args) (Success []) ;;
-  Success {| output_rel := concl.(lf_R); output_var_indices := var_indices |}.
+  Success {| output_rel := concl.(lf_R);
+             output_var_indices := List.rev var_indices |}.
 
 Definition compile_concls (concls : list lowered_fact) (gcontext : global_context)
     (rule_var_order : list var) : result (list join_output) :=
-  fold_left (fun acc concl =>
+  jos <- fold_left (fun acc concl =>
     jos <- acc ;;
     jo <- compile_concl concl gcontext rule_var_order ;;
     Success (jo :: jos)
-  ) concls (Success []).
+  ) concls (Success []) ;;
+  Success (List.rev jos).
 
+(* Version that tries to keep original ordering *)
 Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
+    (ncontext : node_context) : result (hardware_rule * node_context) :=
+  let dep_g := create_dependency_graph rule.(lhyps) in
+  let rule_var_order := compute_variable_ordering_ordered dep_g rule.(lhyps) in  (* pass hyps for ordering *)
+  let '(query, ncontext) :=
+    compile_hyps rule.(lhyps) rule_var_order ncontext.(nctries) gcontext ncontext in
+  concls <- compile_concls rule.(lconcls) gcontext rule_var_order ;;
+  Success ({| hhyps := query; hconcls := concls |}, ncontext).
+
+
+(* Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
     (ncontext : node_context) : result (hardware_rule * node_context) :=
   let rule_var_order := compute_variable_ordering (create_dependency_graph rule.(lhyps)) in
   let '(query, ncontext) :=
     compile_hyps rule.(lhyps) rule_var_order ncontext.(nctries) gcontext ncontext in
   concls <- compile_concls rule.(lconcls) gcontext rule_var_order ;;
-  Success ({| hhyps := query; hconcls := concls |}, ncontext).
+  Success ({| hhyps := query; hconcls := concls |}, ncontext). *)
 
 (*----Forwarding Tables----*)
 
@@ -661,6 +774,9 @@ Definition get_node_ftable (node : node_id) (ftables : node_ftable_map) : forwar
   | None => map.empty
   end.
 
+Definition add_dest_if_absent (d : destination) (ds : list destination) : list destination :=
+  if List.existsb (destination_eqb d) ds then ds else d :: ds.
+
 Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
   let ft := get_node_ftable node ftables in
@@ -669,12 +785,14 @@ Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     | None => []
     | Some ninfo => List.filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
     end in
-  let existing := match map.get ft rel with
-                  | Some ds => ds | None => [] end in
+  let existing := match map.get ft rel with Some ds => ds | None => [] end in
   let updated_ft :=
-    map.put ft rel (fold_left (fun acc t => DestTrie t.(tid) :: acc) matching_tries existing) in
+    map.put ft rel
+      (fold_left (fun acc t => add_dest_if_absent (DestTrie t.(tid)) acc)
+        matching_tries existing) in
   map.put ftables node updated_ft.
 
+(* TODO later maybe do edges by which node it connects to instead of direction? *)
 Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
   match path with
@@ -742,17 +860,18 @@ Definition compile_node (node : node_id) (program : lowered_program)
       Success (hr :: rules, ncontext)%list
     ) program (Success ([], initial_node_context node)) ;;
   Success {| nid := node;
-             nprogram := compiled_rules;
+             nprogram := List.rev compiled_rules;
              nforwarding := map.empty;
              ntries := List.rev ncontext.(nctries) |}.
 
 Definition compile_all_nodes (llayout : lowered_layout_map)
     (gcontext : global_context) : result (list node_info) :=
-  map.fold (fun acc node program =>
+  ninfos <- map.fold (fun acc node program =>
     ninfos <- acc ;;
     ninfo <- compile_node node program gcontext ;;
     Success (ninfo :: ninfos)
-  ) (Success []) llayout.
+  ) (Success []) llayout ;;
+  Success (ninfos).
 
 Definition attach_forwarding_tables (ninfos : list node_info)
     (ftables : node_ftable_map) : list node_info :=
