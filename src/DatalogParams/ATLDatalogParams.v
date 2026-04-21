@@ -106,6 +106,7 @@ Definition Rfn_eqb (f1 f2 : Rfn) : bool :=
   | _, _ => false
   end.
 
+(* This is currently not possible but it should be going away eventually *)
 Lemma Rfn_eqb_spec :
   forall f1 f2,
     BoolSpec (f1 = f2) (f1 <> f2) (Rfn_eqb f1 f2).
@@ -133,7 +134,8 @@ Definition expr_compatible (e1 e2 : expr) : bool :=
   match e1, e2 with
   | Datalog.var_expr _, Datalog.var_expr _ =>
       true
-      (* XXX: need to handle alpha equivalence here? *)
+      (* XXX: need to handle alpha equivalence here? Right now we're just going to handle using the same 
+         relations without worrying about extra constraints. *)
   | Datalog.var_expr _, Datalog.fun_expr _ [] =>
       true
   | Datalog.fun_expr _ [], Datalog.var_expr _ =>

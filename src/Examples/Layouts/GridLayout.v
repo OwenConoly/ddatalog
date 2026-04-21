@@ -38,7 +38,7 @@ Section GridLayout.
     else [].
 
   (* Just putting in some dummy values for now *)
-  Definition mk_always_forward_table (dims : list nat) (n : Node) : rel * (list T) -> list Node :=
+  Definition mk_always_forward_table (dims : list nat) (n : Node) : rel -> list Node :=
     fun f => filter (GridGraph.is_neighbor dims n) (all_nodes_h dims).
 
   Definition mk_no_input_fn (n : Node) (f : rel * (list T)) : Prop := False.
@@ -122,6 +122,78 @@ Proof.
         * discriminate H_r_eq.
 Qed.
 
+(* If n2 is a neighbor of n1, then forwarding reaches n2 in one step *)
+Lemma grid_forward_step :
+  forall dims n1 n2 r,
+    GridGraph.is_graph_node dims n1 ->
+    GridGraph.is_graph_node dims n2 ->
+    GridGraph.is_neighbor dims n1 n2 = true ->
+    forwarding_reachable (mk_always_forward_table dims) r n1 n2.
+Proof.
+  intros. apply fwd_step.
+  unfold mk_always_forward_table.
+  apply filter_In. split.
+  - apply all_nodes_correct. exact H0.
+  - exact H1.
+Qed.
+
+(* forwarding reachable is transitive *)
+Lemma forwarding_reachable_trans :
+  forall (fwd : ForwardingFn) (r : rel) (n1 n2 n3 : Node),
+    forwarding_reachable fwd r n1 n2 ->
+    forwarding_reachable fwd r n2 n3 ->
+    forwarding_reachable fwd r n1 n3.
+Proof.
+  intros fwd r n1 n2 n3 H12 H23.
+  induction H12.
+  - eapply fwd_trans; eauto.
+  - eapply fwd_trans; eauto.
+Qed.
+
+(* In GridLayout section, convert grid_reachable to forwarding_reachable *)
+Lemma grid_reachable_to_forwarding :
+  forall dims0 r n1 n2,
+    GridGraph.grid_reachable dims0 n1 n2 ->
+    n1 = n2 \/ forwarding_reachable (mk_always_forward_table dims0) r n1 n2.
+Proof.
+  intros dims0 r n1 n2 Hreach.
+  induction Hreach.
+  - left. reflexivity.
+  - right.
+    destruct IHHreach as [-> | Hfwd].
+    + (* n2 = n3, just one forwarding step *)
+      apply fwd_step.
+      unfold mk_always_forward_table.
+      apply filter_In. split.
+      * apply GridGraph.all_nodes_h_correct. inversion H; auto.
+      * apply GridGraph.is_neighbor_correct. exact H.
+    + (* n2 reaches n3, and n1 reaches n2 *)
+      eapply fwd_trans.
+      * unfold mk_always_forward_table.
+        apply filter_In. split.
+        -- apply GridGraph.all_nodes_h_correct. inversion H; eauto.
+        -- apply GridGraph.is_neighbor_correct. exact H.
+      * exact Hfwd.
+Qed.
+
+Lemma good_forwarding_complete_grid :
+  forall dims0 indexed_layout program,
+    check_layout dims0 (mk_layout_from_indexed_layout dims0 indexed_layout program) program = true ->
+    good_forwarding_complete (mk_dataflow_network dims0 indexed_layout program).
+Proof.
+  intros dims0 indexed_layout program Hcheck.
+  unfold good_forwarding_complete, good_forwarding_for_rel.
+  simpl. intros rel0 n_prod n_cons Hprod Hcons.
+  assert (Hn_prod : GridGraph.is_graph_node dims0 n_prod).
+  { destruct Hprod as [r [concl [Hin_layout [_ _]]]].
+    eapply layout_nonempty_only_valid_nodes; eauto. }
+  assert (Hn_cons : GridGraph.is_graph_node dims0 n_cons).
+  { destruct Hcons as [r [Hin_layout _]].
+    eapply layout_nonempty_only_valid_nodes; eauto. }
+  eapply grid_reachable_to_forwarding.
+  apply GridGraph.grid_connected; auto.
+Qed.
+
 Lemma good_network :
   forall dims indexed_layout program,
   check_layout dims (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
@@ -134,11 +206,14 @@ Proof.
   - split. 
     + apply good_layout. assumption.
     + split.
-      * simpl. unfold good_forwarding. intros. unfold mk_always_forward_table in H.
+      * simpl. unfold good_forwarding. unfold good_forwarding_sound.
+        split.
+        ** intros. unfold mk_always_forward_table in H.
         apply filter_In in H.
         destruct H as [Hneighbor Hin].
         apply GridGraph.is_neighbor_correct in Hin.
         split; try inversion Hin; auto.
+        ** apply good_forwarding_complete_grid; auto.
       * simpl. unfold good_input. intros. inversion H.
 Qed.
 
@@ -151,6 +226,18 @@ Theorem soundness :
 Proof.
   intros dims indexed_layout program Hcheck f Hnetwork.
   apply (Dataflow.soundness (mk_dataflow_network dims indexed_layout program) program); auto.
+  apply good_network; auto.
+Qed.
+
+Theorem completeness :
+    forall dims indexed_layout program,
+    check_layout dims (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
+    forall f,
+    prog_impl_fact program f ->
+    network_prog_impl_fact (mk_dataflow_network dims indexed_layout program) f.
+Proof.
+  intros dims indexed_layout program Hcheck f Hprog.
+  apply (Dataflow.completeness (mk_dataflow_network dims indexed_layout program) program); auto.
   apply good_network; auto.
 Qed.
 

@@ -101,7 +101,6 @@ Section GridGraph.
    check_node_in_bounds n2 &&
    is_mth_neighbor n1 n2 1.
 
-
   Lemma abs_same : forall n, abs n n = 0.
   Proof. 
     induction n; auto. 
@@ -256,6 +255,213 @@ Section GridGraph.
           intros. apply H. right. assumption.
   Qed.
 
+(* Reachability via edges *)
+  Inductive grid_reachable : Dimensions -> Node -> Node -> Prop :=
+  | reach_refl : forall dims0 n,
+      is_graph_node dims0 n ->
+      grid_reachable dims0 n n
+  | reach_step : forall dims0 n1 n2 n3,
+      is_graph_edge dims0 n1 n2 ->
+      grid_reachable dims0 n2 n3 ->
+      grid_reachable dims0 n1 n3.
+
+  Lemma grid_reachable_trans :
+    forall dims0 n1 n2 n3,
+      grid_reachable dims0 n1 n2 ->
+      grid_reachable dims0 n2 n3 ->
+      grid_reachable dims0 n1 n3.
+  Proof.
+    intros dims0 n1 n2 n3 H12 H23.
+    induction H12.
+    - exact H23.
+    - eapply reach_step; eauto.
+  Qed.
+
+  (* abs properties *)
+  Lemma abs_comm : forall a b, abs a b = abs b a.
+  Proof.
+    unfold abs. intros. lia.
+  Qed.
+
+  Lemma abs_succ : forall a b,
+      a < b -> abs a b = S (abs (S a) b).
+  Proof.
+    unfold abs. intros. lia.
+  Qed.
+
+  Lemma abs_pred : forall a b,
+      a > b -> abs a b = S (abs (a - 1) b).
+  Proof.
+    unfold abs. intros. lia.
+  Qed.
+
+  Lemma abs_adjacent_l : forall a b,
+      a < b -> abs a (S a) = 1.
+  Proof.
+    unfold abs. intros. lia.
+  Qed.
+
+  Lemma abs_n_Sn : forall n, abs n (S n) = 1.
+  Proof.
+    unfold abs. intros. lia.
+  Qed.
+
+  Lemma abs_Sn_n : forall n, abs (S n) n = 1.
+  Proof.
+    unfold abs. intros. lia.
+  Qed.
+
+  (* Manhattan distance for nodes that share a tail *)
+  Lemma manhattan_distance_cons_same :
+    forall c rest,
+      manhattan_distance 0 rest rest ->
+      manhattan_distance 0 (c :: rest) (c :: rest).
+  Proof.
+    intros.
+    replace 0 with (0 + 0) by lia.
+    econstructor; eauto.
+  Qed.
+
+  Lemma manhattan_distance_cons_diff :
+    forall c1 c2 rest,
+      manhattan_distance 0 rest rest ->
+      manhattan_distance (abs c1 c2) (c1 :: rest) (c2 :: rest).
+  Proof.
+    intros.
+    replace (abs c1 c2) with (0 + abs c1 c2) by lia.
+    econstructor; eauto.
+  Qed.
+
+  Lemma manhattan_distance_refl :
+    forall n, manhattan_distance 0 n n.
+  Proof.
+    induction n.
+    - constructor.
+    - replace 0 with (0 + 0) by lia.
+      econstructor; eauto.
+  Qed.
+
+  (* Two nodes differing by 1 in the first coordinate are neighbors *)
+  Lemma edge_step_first_coord :
+    forall d ds c rest,
+      c + 1 < d ->
+      is_graph_node ds rest ->
+      is_graph_edge (d :: ds) (c :: rest) (S c :: rest).
+  Proof.
+    intros.
+    econstructor.
+    - constructor; [lia | assumption].
+    - constructor; [lia | assumption].
+    - replace 1 with (0 + abs c (S c)) by (rewrite abs_n_Sn; lia).
+      econstructor; eauto.
+      apply manhattan_distance_refl.
+  Qed.
+
+  Lemma edge_step_first_coord_down :
+    forall d ds c rest,
+      c > 0 ->
+      c < d ->
+      (c - 1) < d ->
+      is_graph_node ds rest ->
+      is_graph_edge (d :: ds) (c :: rest) ((c - 1) :: rest).
+  Proof.
+    intros.
+    econstructor.
+    - constructor; [lia | assumption].
+    - constructor; [lia | assumption].
+    - replace 1 with (0 + abs c (c - 1)).
+      + econstructor; eauto; try apply manhattan_distance_refl. unfold abs.
+        lia.
+      + unfold abs. lia.
+  Qed.
+
+  (* Walking along the first coordinate *)
+  Lemma walk_first_coord :
+    forall d ds c1 c2 rest,
+      c1 < d ->
+      c2 < d ->
+      is_graph_node ds rest ->
+      grid_reachable (d :: ds) (c1 :: rest) (c2 :: rest).
+  Proof.
+    intros d ds c1 c2 rest Hc1 Hc2 Hrest.
+    destruct (Nat.eq_dec c1 c2) as [-> | Hneq].
+    - apply reach_refl. constructor; auto.
+    - destruct (Nat.lt_ge_cases c1 c2) as [Hlt | Hge].
+      + (* c1 < c2: walk up *)
+        induction c2 as [| c2' IH].
+        * lia.
+        * destruct (Nat.eq_dec c1 c2') as [-> | Hneq'].
+          -- (* one step *)
+            eapply reach_step.
+            ++ apply edge_step_first_coord; auto. lia.
+            ++ apply reach_refl. constructor; auto.
+          -- (* IH then one more step *)
+            assert (c1 < c2') by lia.
+            eapply grid_reachable_trans.
+            ++ apply IH; lia.
+            ++ eapply reach_step.
+               ** apply edge_step_first_coord; auto. lia.
+               ** apply reach_refl. constructor; auto.
+      + (* c1 >= c2: walk down *)
+        induction c1 as [| c1' IH].
+        * lia.
+        * destruct (Nat.eq_dec c1' c2) as [-> | Hneq'].
+          -- (* one step *)
+            eapply reach_step.
+            ++ apply edge_step_first_coord_down; auto; lia.
+            ++ simpl. replace (c2 - 0) with c2 by lia. apply reach_refl. constructor; auto.
+          -- (* one step then IH *)
+            assert (c1' >= c2) by lia.
+            eapply reach_step.
+            ++ apply edge_step_first_coord_down; auto; lia.
+            ++ simpl. replace (c1' - 0) with c1' by lia. apply IH; lia.
+  Qed.
+
+  (* Walking across all dimensions: change one coordinate at a time *)
+  Lemma grid_connected_h :
+    forall dims0 n1 n2,
+      is_graph_node dims0 n1 ->
+      is_graph_node dims0 n2 ->
+      grid_reachable dims0 n1 n2.
+  Proof.
+    induction dims0 as [| d ds IH]; intros n1 n2 Hn1 Hn2.
+    - inversion Hn1; subst. inversion Hn2; subst.
+      apply reach_refl. constructor.
+    - inversion Hn1; subst. inversion Hn2; subst.
+      (* n1 = coord :: rest, n2 = coord0 :: rest0 *)
+      (* Strategy: first walk from (coord :: rest) to (coord :: rest0)
+         using IH on the tail, then walk from (coord :: rest0) to (coord0 :: rest0)
+         along the first coordinate *)
+      eapply grid_reachable_trans.
+      + (* Walk the tail: (coord :: rest) -> (coord :: rest0) *)
+        assert (Htail : grid_reachable ds rest rest0) by (apply IH; auto).
+        clear -Htail H1 H5.
+        induction Htail.
+        * apply reach_refl. constructor; auto.
+        * inversion H; subst.
+          eapply reach_step.
+          -- apply (valid_edge (d :: dims0) (coord :: n1) (coord :: n2)).
+             ++ constructor; eauto.
+             ++ constructor; eauto.
+             ++ replace 1 with (1 + 0) by lia.
+                apply (neighbor_steps 1 0 n1 n2 coord coord).
+                ** exact H6.
+                ** apply abs_same.
+          -- apply IHHtail; auto.
+             constructor; auto.
+      + (* Walk the head: (coord :: rest0) -> (coord0 :: rest0) *)
+        apply walk_first_coord; auto.
+  Qed.
+
+  Theorem grid_connected :
+    forall n1 n2,
+      is_graph_node dims n1 ->
+      is_graph_node dims n2 ->
+      grid_reachable dims n1 n2.
+  Proof.
+    apply grid_connected_h.
+  Qed.
+  
   (* Fixpoint all_edges_h (dims : list nat) : list (Node * Node) :=
     match dims with
     | [] => []
