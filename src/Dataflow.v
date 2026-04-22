@@ -22,7 +22,7 @@ Section DistributedDatalog.
   Definition ForwardingTable := rel -> list Node.
   Definition ForwardingFn := Node -> ForwardingTable.
   Definition InputFn := Node -> rel * list T -> Prop.
-  Definition OutputFn := Node -> rel * list T -> Prop.
+  Definition OutputFn := Node -> rel -> Prop.
   Definition Layout := Node -> list rule.
 
   Record DataflowNetwork := {
@@ -55,19 +55,19 @@ Inductive network_step (net : DataflowNetwork) : network_prop -> list (network_p
       network_step net (FactOnNode n f) (hyps)
   | Forward n n' f :
       In n' (net.(forward) n (fst f)) ->
-      network_step net (FactOnNode n' f) [FactOnNode n f].
-  (* | OutputStep n f :
-      net.(output) n f ->
-      network_step net (Output n f) [FactOnNode n f]. *)
+      network_step net (FactOnNode n' f) [FactOnNode n f]
+  | OutputStep n f :
+      net.(output) n (fst f) ->
+      network_step net (Output n f) [FactOnNode n f].
 
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps).
 
-(* Definition network_prog_impl_fact (net : DataflowNetwork) : rel * list T -> Prop :=
-  fun f => exists n, network_pftree net (Output n f). *)
-
 Definition network_prog_impl_fact (net : DataflowNetwork) : rel * list T -> Prop :=
-  fun f => exists n, network_pftree net (FactOnNode n f).
+  fun f => exists n, network_pftree net (Output n f).
+
+(* Definition network_prog_impl_fact (net : DataflowNetwork) : rel * list T -> Prop :=
+  fun f => exists n, network_pftree net (FactOnNode n f). *)
 
 (* A good layout has every program rule on a node somewhere AND only assigns rules from 
    the program to nodes *)
@@ -91,7 +91,7 @@ Definition node_consumes (layout : Layout) (n : Node) (rel : rel) : Prop :=
      (exists agg_expr v,
         rule.(rule_agg) = Some (v, agg_expr) /\
         exists hyp, In hyp (agg_expr.(agg_hyps)) /\ hyp.(fact_R) = rel)).
-  
+
 (* There exists a forwarding path for relation r from n1 to n2 *)
 Definition forwards_rel (forward : ForwardingFn) (n1 n2 : Node) (r : rel) : Prop :=
   In n2 (forward n1 r).
@@ -108,15 +108,23 @@ Inductive forwarding_reachable (forward : ForwardingFn) (r : rel) : Node -> Node
 
 (* The forwarding table is good for a relation r if for every producer,
    there is a path to every consumer *)
-Definition good_forwarding_for_rel (net : DataflowNetwork) (r : rel) : Prop :=
+Definition good_forwarding_prod_cons (net : DataflowNetwork) (r : rel) : Prop :=
   forall n_prod n_cons,
     node_produces net.(layout) n_prod r ->
     node_consumes net.(layout) n_cons r ->
-    n_prod = n_cons \/ forwarding_reachable net.(forward) r n_prod n_cons.
+    n_prod = n_cons \/
+    forwarding_reachable net.(forward) r n_prod n_cons.
+
+Definition good_forwarding_output_nodes (net : DataflowNetwork) (r : rel) : Prop :=
+  forall n_prod,
+    node_produces (layout net) n_prod r ->
+    exists n_out,
+      output net n_out r /\
+      (n_prod = n_out \/ forwarding_reachable (forward net) r n_prod n_out).
 
 (* Apply it to all relations *)
 Definition good_forwarding_complete (net : DataflowNetwork) : Prop :=
-  forall rel, good_forwarding_for_rel net rel.
+  forall rel, good_forwarding_prod_cons net rel /\ good_forwarding_output_nodes net rel.
 
 (* A good forwarding function should only be able to forward things along the 
    edges *)
@@ -134,11 +142,20 @@ Definition good_input (input : InputFn) (program : list rule) : Prop :=
   forall n f, input n f ->
     exists r, In r program /\ rule_impl r f [].
 
+Definition good_output (net : DataflowNetwork) : Prop :=
+  forall (n : Node) (f : rel * list T),
+    node_produces (layout net) n (fst f) ->
+    exists n_out, net.(graph).(nodes) n_out /\ net.(output) n_out (fst f).
+
+(* We need to make sure that every producer has a corresponding node that will output it, 
+   and that it gets forwarded there? *)
+
 Definition good_network (net : DataflowNetwork) (program : list rule) : Prop :=
   good_graph net.(graph) /\
   good_layout net.(layout) net.(graph).(nodes) program /\
   good_forwarding net.(forward) net /\
-  good_input net.(input) program.
+  good_input net.(input) program /\
+  good_output net.
 
 Lemma Forall_get_facts_on_node :
   forall (l : list network_prop)
@@ -222,11 +239,10 @@ Proof.
   destruct H0.
   unfold network_prog_impl_fact in H0.
   inversion H0.
-  eapply soundness'; eauto.
-  (* inversion H1.
+  inversion H1.
   subst.
   inversion H2.
-  eapply soundness'; eauto. *)
+  eapply soundness'; eauto.
 Qed.
 
 Lemma In_singular : forall {A} (x y : A) (l : list A), In x (y :: l) -> x = y \/ In x l.
@@ -420,8 +436,10 @@ Lemma fact_at_consumer :
     network_pftree net (FactOnNode n_cons f).
 Proof.
   intros net f n_prod n_cons Hfwdc Hpf Hprod Hcons.
-  unfold good_forwarding_complete, good_forwarding_for_rel in Hfwdc.
-  destruct (Hfwdc (fst f) n_prod n_cons Hprod Hcons) as [Heq | Hreach].
+  unfold good_forwarding_complete in Hfwdc.
+  specialize (Hfwdc (fst f)) as [Hprod_cons Houtput].
+  unfold good_forwarding_prod_cons in Hprod_cons.
+  destruct (Hprod_cons n_prod n_cons Hprod Hcons) as [Heq | Hreach].
   - subst. exact Hpf.
   - eapply forwarding_lifts; eauto.
 Qed.
@@ -430,7 +448,6 @@ Qed.
 Lemma completeness_with_producer (net : DataflowNetwork) (program : list rule) :
   forall f,
     good_network net program ->
-    (* good_forwarding_complete net -> *)
     prog_impl_fact program f ->
     exists n, network_pftree net (FactOnNode n f) /\
               node_produces (layout net) n (fst f).
@@ -481,8 +498,18 @@ Theorem completeness (net : DataflowNetwork) (program : list rule) :
     network_prog_impl_fact net f.
 Proof.
   intros f Hnet Hprog.
-  destruct (completeness_with_producer net program f Hnet Hprog) as [n [Hpf _]].
-  exists n. exact Hpf.
+  destruct (completeness_with_producer net program f Hnet Hprog) as [n [Hpf Hprod]].
+  destruct Hnet as [Hgraph [Hlayout [[Hfwds Hfwdc] [Hinput Hgoodout]]]].
+  destruct (Hfwdc (fst f)) as [_ Houtputnodes].
+  unfold good_forwarding_output_nodes in Houtputnodes.
+  destruct (Houtputnodes n Hprod) as [n_out [Houtput Hreach]].
+  exists n_out.
+  apply mkpftree with (l := [FactOnNode n_out f]).
+  - apply OutputStep. exact Houtput.
+  - constructor; [| constructor].
+    destruct Hreach as [-> | Hfwd].
+    + exact Hpf.
+    + eapply forwarding_lifts; [exact Hpf | exact Hfwd].
 Qed.
 
 End DistributedDatalog.

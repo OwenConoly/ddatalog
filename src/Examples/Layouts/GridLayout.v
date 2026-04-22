@@ -43,7 +43,8 @@ Section GridLayout.
 
   Definition mk_no_input_fn (n : Node) (f : rel * (list T)) : Prop := False.
 
-  Definition mk_all_output_fn (n : Node) (f : rel * (list T)) : Prop := True.
+  Definition mk_all_output_fn (n : Node) (f : rel) : Prop := True.
+
 
   Definition mk_dataflow_network
              (dims : list nat)
@@ -182,16 +183,21 @@ Lemma good_forwarding_complete_grid :
     good_forwarding_complete (mk_dataflow_network dims0 indexed_layout program).
 Proof.
   intros dims0 indexed_layout program Hcheck.
-  unfold good_forwarding_complete, good_forwarding_for_rel.
-  simpl. intros rel0 n_prod n_cons Hprod Hcons.
+  unfold good_forwarding_complete.
+  simpl. intros rel0.
+  split.
+  - intros n_prod n_cons Hprod Hcons.
   assert (Hn_prod : GridGraph.is_graph_node dims0 n_prod).
   { destruct Hprod as [r [concl [Hin_layout [_ _]]]].
-    eapply layout_nonempty_only_valid_nodes; eauto. }
+    eapply layout_nonempty_only_valid_nodes; apply Hin_layout. }
   assert (Hn_cons : GridGraph.is_graph_node dims0 n_cons).
   { destruct Hcons as [r [Hin_layout _]].
-    eapply layout_nonempty_only_valid_nodes; eauto. }
+    eapply layout_nonempty_only_valid_nodes; apply Hin_layout. }
   eapply grid_reachable_to_forwarding.
   apply GridGraph.grid_connected; auto.
+  - intros n_prod Hprod. exists n_prod. split.
+    + simpl. unfold mk_all_output_fn. auto.
+    + left; auto.
 Qed.
 
 Lemma good_network :
@@ -214,7 +220,13 @@ Proof.
         apply GridGraph.is_neighbor_correct in Hin.
         split; try inversion Hin; auto.
         ** apply good_forwarding_complete_grid; auto.
-      * simpl. unfold good_input. intros. inversion H.
+      * split.
+        ** simpl. unfold good_input. intros. inversion H.
+        ** simpl. unfold good_output. intros. exists n. split.
+            --- destruct H as [r [concl [Hin_layout _]]].
+             apply layout_nonempty_only_valid_nodes in Hin_layout.
+             exact Hin_layout.
+           --- simpl. unfold mk_all_output_fn. trivial.
 Qed.
 
 Theorem soundness :
