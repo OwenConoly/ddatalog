@@ -27,7 +27,7 @@ Context {forwarding_table : map.map rel_id (list destination)}
 Context {node_ftable_map : map.map node_id forwarding_table}
         {node_ftable_map_ok : map.ok node_ftable_map}.
 
-Notation node_info := (@EncodeLayout.node_info node_id forwarding_table).
+Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation get_node_ftable := (@EncodeLayout.get_node_ftable node_id forwarding_table node_ftable_map).
 Notation add_dest_if_absent := (@EncodeLayout.add_dest_if_absent node_id node_id_eqb).
 Notation add_trie_dest := (@EncodeLayout.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).

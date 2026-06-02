@@ -2073,7 +2073,7 @@ Notation global_context :=
 Notation node_context := (@EncodeLayout.node_context node_id).
 Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
-Notation node_info := (@EncodeLayout.node_info node_id forwarding_table).
+Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation compile_rule :=
   (@EncodeLayout.compile_rule rel var fn aggregator var_eqb Node node_id node_id_set rel_dependency_map
      fn_id_map rel_relid_map var_node_set var_edge_set var_idx_map).
@@ -2150,7 +2150,7 @@ Proof.
     by (split; [intros t [] | constructor]).
   destruct (compile_node_fold_wf gc prog [] (EncodeLayout.initial_node_context node) rules nc1
               Hfold Hwf0) as [[_ Hnd] _].
-  cbn [EncodeLayout.ntries]. rewrite map_rev. apply NoDup_rev. exact Hnd.
+  cbn [DistributedHardwareProgram.ntries]. rewrite map_rev. apply NoDup_rev. exact Hnd.
 Qed.
 
 End RegisterNode.
@@ -2187,7 +2187,7 @@ Notation global_context :=
 Notation node_context := (@EncodeLayout.node_context node_id).
 Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
-Notation node_info := (@EncodeLayout.node_info node_id forwarding_table).
+Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation lowered_fact := (@HardwareProgram.lowered_fact var).
 Notation compile_rule :=
   (@EncodeLayout.compile_rule rel var fn aggregator var_eqb Node node_id node_id_set rel_dependency_map
@@ -2316,8 +2316,8 @@ Proof.
     by (split; [intros t [] | constructor]).
   assert (Hincl : incl nc_final.(nctries) (rev nc_final.(nctries)))
     by (intros t Ht; rewrite <- in_rev; exact Ht).
-  cbn [EncodeLayout.ntries] in Hndt, Hincl |- *.
-  cbn [EncodeLayout.nprogram].
+  cbn [DistributedHardwareProgram.ntries] in Hndt, Hincl |- *.
+  cbn [DistributedHardwareProgram.nprogram].
   destruct (compile_node_fold_matches gc (rev nc_final.(nctries)) prog env []
               (EncodeLayout.initial_node_context node) compiled_rev nc_final
               Hfold Hbare Hwf0 Hincl Hndt) as [hrs [Hcomp HF]].
@@ -2372,7 +2372,7 @@ Context {rel_relid_map : map.map rel rel_id}.
 Notation global_context :=
   (@EncodeLayout.global_context rel fn Node node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
-Notation node_info := (@EncodeLayout.node_info node_id forwarding_table).
+Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation compile_node :=
   (@EncodeLayout.compile_node rel var fn aggregator var_eqb Node node_id node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map var_node_set var_edge_set var_idx_map).
@@ -2456,7 +2456,7 @@ Context {node_ftable_map : map.map node_id forwarding_table}.
 
 Notation program := (@HardwareProgram.program rel var fn aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
-Notation node_info := (@EncodeLayout.node_info node_id forwarding_table).
+Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation global_context :=
   (@EncodeLayout.global_context rel fn Node node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
 Notation compile_node :=
