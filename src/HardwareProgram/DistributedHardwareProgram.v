@@ -28,4 +28,17 @@ Proof.
   - destruct (Nat.eqb_spec t t0); subst; constructor; congruence.
 Qed.
 
+(* The forwarding table routes each relation's facts to a set of destinations (edges/tries). *)
+Context {forwarding_table : map.map rel_id (list destination)}.
+
+(* A compiled node's program: its trie-join rules ([nprogram]), the tries they read ([ntries]),
+   and the forwarding table ([nforwarding]).  This is the per-node piece of the *distributed*
+   hardware program; the compiler ([EncodeLayout]) is what produces it. *)
+Record node_info := {
+  nid : node_id;
+  nprogram : hardware_program;
+  nforwarding : forwarding_table;
+  ntries : list trie;
+}.
+
 End DistributedHardwareProgram.

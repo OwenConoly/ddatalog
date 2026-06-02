@@ -7,7 +7,7 @@ From DatalogRocq Require Import CompiledFamily CompiledBasicProgram CompiledGrap
 
 Notation node_id := GridTopology.node_id.
 Notation destination := (@DistributedHardwareProgram.destination node_id).
-Notation node_info := (@EncodeLayout.node_info node_id (SortedListNat.map (list destination))).
+Notation node_info := (@DistributedHardwareProgram.node_info node_id (SortedListNat.map (list destination))).
 
 Definition nat_to_string (n : nat) : string :=
   NilZero.string_of_uint (Nat.to_uint n).
