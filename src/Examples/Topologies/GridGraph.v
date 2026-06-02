@@ -462,29 +462,25 @@ Section GridGraph.
     apply grid_connected_h.
   Qed.
   
-  (* Fixpoint all_edges_h (dims : list nat) : list (Node * Node) :=
-    match dims with
-    | [] => []
-    | d :: ds =>
-        let rest_nodes := all_nodes_h ds in
-        let lower_dim_edges := all_edges_h ds in
-        let edges_in_current_dim :=
-          flat_map (fun c =>
-            flat_map (fun n =>
-              match n with
-              | [] => []
-              | _ :: _ =>
-                  let u := c :: n in
-                  let v := (c + 1) :: n in
-                  if (c + 1 <? d)
-                  then [(u, v); (v, u)]
-                  else []
-              end) rest_nodes) (seq 0 d) in
-        edges_in_current_dim ++ lower_dim_edges
-    end. *)
-
-  (* Definition visit_graph_nodes (f : Node -> unit) : unit :=
-  List.iter (fun n => if check_node_in_bounds n then f n else tt) (all_nodes dims).
- *)
+  Definition all_edges : list (Node * Node) :=
+      filter (fun '(n1, n2) => is_neighbor n1 n2)
+        (list_prod all_nodes all_nodes).
+ 
+  Lemma all_edges_correct : forall n1 n2,
+    is_graph_edge dims n1 n2 <-> In (n1, n2) all_edges.
+  Proof.
+    intros n1 n2.
+    unfold all_edges.
+    rewrite filter_In.
+    rewrite in_prod_iff.
+    repeat (rewrite <- all_nodes_correct).
+    rewrite is_neighbor_correct.
+    split.
+    - intros Hedge.
+      inversion Hedge; subst.
+      auto.
+    - intros [[Hn1 Hn2] Hedge].
+      exact Hedge.
+  Qed.
 
 End GridGraph.

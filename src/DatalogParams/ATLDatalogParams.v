@@ -1,4 +1,6 @@
-From Datalog Require Import Datalog ATLToDatalog.
+(* ATL to Datalog broken so we're skipping for now *)
+
+(* From Datalog Require Import Datalog ATLToDatalog.
 From DatalogRocq Require Import EqbSpec.
 From Stdlib Require Import List String Bool ZArith.
 Import ListNotations.
@@ -142,4 +144,4 @@ Definition expr_compatible (e1 e2 : expr) : bool :=
       true
   | Datalog.fun_expr f1 _, Datalog.fun_expr f2 _ => true (* For now we don't think about function equality *)
   | _, _ => false
-  end.
+  end. *)

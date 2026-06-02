@@ -22,9 +22,10 @@ Context {aggregator_eqb : aggregator -> aggregator -> bool}
         {aggregator_eqb_spec : forall x0 y0 : aggregator, BoolSpec (x0 = y0) (x0 <> y0) (aggregator_eqb x0 y0)}.
 
 Definition expr := Datalog.expr var fn.
-Definition fact := Datalog.fact rel var fn.
+(* an atom in a rule is a [clause]; a rule is the [normal_rule | meta_rule | agg_rule]
+   inductive.  The compiler only builds/reads [normal_rule]s (the bare fragment). *)
+Definition fact := Datalog.clause rel var fn.
 Definition rule := Datalog.rule rel var fn aggregator.
-Definition agg_expr := Datalog.agg_expr rel var fn aggregator.
 Definition program := list rule.
 
 Context {expr_compatible : expr -> expr -> bool}.
@@ -112,8 +113,8 @@ Proof.
 Qed.
 
 Definition fact_eqb (f1 f2 : fact) : bool :=
-  rel_eqb (fact_R f1) (fact_R f2) &&
-  list_eqb expr_eqb (fact_args f1) (fact_args f2).
+  rel_eqb (Datalog.clause_rel f1) (Datalog.clause_rel f2) &&
+  list_eqb expr_eqb (Datalog.clause_args f1) (Datalog.clause_args f2).
 
 Lemma fact_eqb_spec :
   forall f1 f2,
@@ -124,77 +125,56 @@ Proof.
   destruct (@list_eqb_spec _ expr_eqb expr_eqb_spec args1 args2); subst; simpl; try (constructor; congruence).
 Qed.
 
-Definition agg_expr_eqb (ae1 ae2 : agg_expr) : bool :=
-  aggregator_eqb (Datalog.agg_agg ae1) (Datalog.agg_agg ae2) &&
-  var_eqb (Datalog.agg_i ae1) (Datalog.agg_i ae2) &&
-  list_eqb var_eqb (Datalog.agg_vs ae1) (Datalog.agg_vs ae2) &&
-  expr_eqb (Datalog.agg_s ae1) (Datalog.agg_s ae2) &&
-  expr_eqb (Datalog.agg_body ae1) (Datalog.agg_body ae2) &&
-  list_eqb fact_eqb (Datalog.agg_hyps ae1) (Datalog.agg_hyps ae2).
+(* equality on meta-clauses (used only to give [rule_eqb] a total, spec-correct
+   definition over all three rule constructors; the bare fragment only uses [normal_rule]) *)
+Definition meta_clause_eqb (m1 m2 : Datalog.meta_clause rel var fn) : bool :=
+  rel_eqb (Datalog.meta_clause_rel m1) (Datalog.meta_clause_rel m2) &&
+  list_eqb (option_eqb expr_eqb) (Datalog.meta_clause_args m1) (Datalog.meta_clause_args m2).
 
-Lemma agg_expr_eqb_spec :
-  forall ae1 ae2,
-    BoolSpec (ae1 = ae2) (ae1 <> ae2) (agg_expr_eqb ae1 ae2).
+Lemma meta_clause_eqb_spec :
+  forall m1 m2,
+    BoolSpec (m1 = m2) (m1 <> m2) (meta_clause_eqb m1 m2).
 Proof.
-  intros [agg1 i1 vs1 s1 body1 hyps1] [agg2 i2 vs2 s2 body2 hyps2]; unfold agg_expr_eqb; simpl.
-  destruct (aggregator_eqb_spec agg1 agg2); subst; simpl; try (constructor; congruence).
-  destruct (var_eqb_spec i1 i2); subst; simpl; try (constructor; congruence).
-  destruct (@list_eqb_spec _ var_eqb var_eqb_spec vs1 vs2); subst; simpl; try (constructor; congruence).
-  destruct (expr_eqb_spec s1 s2); subst; simpl; try (constructor; congruence).
-  destruct (expr_eqb_spec body1 body2); subst; simpl; try (constructor; congruence).
-  destruct (@list_eqb_spec _ fact_eqb fact_eqb_spec hyps1 hyps2); subst; simpl; try (constructor; congruence).
-Qed.
-
-Definition rule_agg_eqb
-  (ra1 ra2 : option (var * agg_expr)) : bool :=
-  option_eqb (pair_eqb var_eqb agg_expr_eqb) ra1 ra2.
-
-Lemma rule_agg_eqb_spec :
-  forall ra1 ra2,
-    BoolSpec (ra1 = ra2) (ra1 <> ra2) (rule_agg_eqb ra1 ra2).
-Proof.
-  intros ra1 ra2. unfold rule_agg_eqb.
-  apply (option_eqb_spec
-           (pair_eqb var_eqb agg_expr_eqb)
-           (pair_eqb_spec var_eqb agg_expr_eqb
-              var_eqb_spec agg_expr_eqb_spec)
-           ra1 ra2).
-Qed.
-
-Definition rule_set_hyps_eqb
-  (rh1 rh2 : list (expr * expr)) : bool :=
-  list_eqb (pair_eqb expr_eqb expr_eqb) rh1 rh2.
-
-Lemma rule_set_hyps_eqb_spec :
-  forall rh1 rh2,
-    BoolSpec (rh1 = rh2) (rh1 <> rh2) (rule_set_hyps_eqb rh1 rh2).
-Proof.
-  intros rh1 rh2; unfold rule_set_hyps_eqb; simpl.
-  apply (@list_eqb_spec (expr * expr)
-         (pair_eqb expr_eqb expr_eqb)
-         (pair_eqb_spec expr_eqb expr_eqb expr_eqb_spec expr_eqb_spec)).
+  intros [R1 args1] [R2 args2]; unfold meta_clause_eqb; simpl.
+  destruct (rel_eqb_spec R1 R2); subst; simpl; try (constructor; congruence).
+  destruct (@list_eqb_spec _ (option_eqb expr_eqb)
+              (option_eqb_spec expr_eqb expr_eqb_spec) args1 args2);
+    subst; simpl; try (constructor; congruence).
 Qed.
 
 Definition rule_eqb (r1 r2 : rule) : bool :=
-  rule_agg_eqb (Datalog.rule_agg r1) (Datalog.rule_agg r2) &&
-  list_eqb fact_eqb (Datalog.rule_concls r1) (Datalog.rule_concls r2) &&
-  list_eqb fact_eqb (Datalog.rule_hyps r1) (Datalog.rule_hyps r2) &&
-  rule_set_hyps_eqb (Datalog.rule_set_hyps r1) (Datalog.rule_set_hyps r2).
+  match r1, r2 with
+  | Datalog.normal_rule c1 h1, Datalog.normal_rule c2 h2 =>
+      list_eqb fact_eqb c1 c2 && list_eqb fact_eqb h1 h2
+  | Datalog.meta_rule c1 h1, Datalog.meta_rule c2 h2 =>
+      list_eqb meta_clause_eqb c1 c2 && list_eqb meta_clause_eqb h1 h2
+  | Datalog.agg_rule cr1 a1 hr1, Datalog.agg_rule cr2 a2 hr2 =>
+      rel_eqb cr1 cr2 && aggregator_eqb a1 a2 && rel_eqb hr1 hr2
+  | _, _ => false
+  end.
 
 Definition rule_eqb_spec :
   forall r1 r2,
     BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2).
 Proof.
-  intros [agg1 concls1 hyps1 set_hyps1] [agg2 concls2 hyps2 set_hyps2]; unfold rule_eqb; simpl.
-  destruct (rule_agg_eqb_spec agg1 agg2); simpl; try (constructor; congruence).
-  destruct (@list_eqb_spec _ fact_eqb fact_eqb_spec concls1 concls2); simpl; try (constructor; congruence).
-  destruct (@list_eqb_spec _ fact_eqb fact_eqb_spec hyps1 hyps2); simpl; try (constructor; congruence).
-  destruct (rule_set_hyps_eqb_spec set_hyps1 set_hyps2); simpl; try (constructor; congruence).
+  intros [c1 h1 | c1 h1 | cr1 a1 hr1] [c2 h2 | c2 h2 | cr2 a2 hr2]; simpl;
+    try (constructor; congruence).
+  - destruct (@list_eqb_spec _ fact_eqb fact_eqb_spec c1 c2); simpl; try (constructor; congruence).
+    destruct (@list_eqb_spec _ fact_eqb fact_eqb_spec h1 h2); simpl; try (constructor; congruence).
+  - destruct (@list_eqb_spec _ meta_clause_eqb meta_clause_eqb_spec c1 c2); simpl; try (constructor; congruence).
+    destruct (@list_eqb_spec _ meta_clause_eqb meta_clause_eqb_spec h1 h2); simpl; try (constructor; congruence).
+  - destruct (rel_eqb_spec cr1 cr2); subst; simpl; try (constructor; congruence).
+    destruct (aggregator_eqb_spec a1 a2); subst; simpl; try (constructor; congruence).
+    destruct (rel_eqb_spec hr1 hr2); subst; simpl; try (constructor; congruence).
 Qed.
 
-(* Pruning *)
+(* Pruning.  The compiler only ever produces [normal_rule]s (the bare fragment),
+   so concls/hyps are read by matching that constructor directly. *)
 Definition prune_empty_concl_rules (p : program) : program :=
-  filter (fun r => negb (list_eqb fact_eqb (Datalog.rule_concls r) [])) p.
+  filter (fun r => match r with
+                   | Datalog.normal_rule concls _ => negb (list_eqb fact_eqb concls [])
+                   | _ => false
+                   end) p.
 
 (* Collect *)
 Fixpoint collect_vars (e : expr) : list var :=
@@ -222,77 +202,71 @@ Fixpoint collect_funs (e : expr) : list fn :=
 (* Collect Fact *)
 
 Definition collect_vars_from_fact (f : fact) : list var :=
-  flat_map collect_vars (Datalog.fact_args f).
+  flat_map collect_vars (Datalog.clause_args f).
 
 Definition collect_consts_from_fact (f : fact) : list fn :=
-  flat_map collect_consts (Datalog.fact_args f).
+  flat_map collect_consts (Datalog.clause_args f).
 
 Definition collect_funs_from_fact (f : fact) : list fn :=
-  flat_map collect_funs (Datalog.fact_args f).
+  flat_map collect_funs (Datalog.clause_args f).
 
 Definition is_abstract (f : fact) : bool :=
-  forallb is_var (Datalog.fact_args f).
+  forallb is_var (Datalog.clause_args f).
 
 Definition is_grounded_fact (f : fact) : bool :=
-  forallb is_const (Datalog.fact_args f).
+  forallb is_const (Datalog.clause_args f).
 
-(* Collect for Rules *)
+(* Collect for Rules.  Only [normal_rule]s arise in the bare fragment, so we
+   match that constructor directly (meta/agg rules contribute nothing here). *)
 
 Definition collect_vars_from_hyps (r : rule) : list var :=
-  flat_map collect_vars_from_fact (Datalog.rule_hyps r).
+  match r with Datalog.normal_rule _ hyps => flat_map collect_vars_from_fact hyps | _ => [] end.
 
 Definition collect_vars_from_concls (r : rule) : list var :=
-  flat_map collect_vars_from_fact (Datalog.rule_concls r).
+  match r with Datalog.normal_rule concls _ => flat_map collect_vars_from_fact concls | _ => [] end.
 
 Definition collect_vars_from_rule (r : rule) : list var :=
   collect_vars_from_hyps r ++ collect_vars_from_concls r.
 
 Definition collect_consts_from_hyps (r : rule) : list fn :=
-  flat_map collect_consts_from_fact (Datalog.rule_hyps r).
+  match r with Datalog.normal_rule _ hyps => flat_map collect_consts_from_fact hyps | _ => [] end.
 
 Definition collect_consts_from_concls (r : rule) : list fn :=
-  flat_map collect_consts_from_fact (Datalog.rule_concls r).
+  match r with Datalog.normal_rule concls _ => flat_map collect_consts_from_fact concls | _ => [] end.
 
 Definition collect_consts_from_rule (r : rule) : list fn :=
   collect_consts_from_hyps r ++ collect_consts_from_concls r.
 
 Definition collect_funs_from_hyps (r : rule) : list fn :=
-  flat_map collect_funs_from_fact (Datalog.rule_hyps r).
+  match r with Datalog.normal_rule _ hyps => flat_map collect_funs_from_fact hyps | _ => [] end.
 
 Definition collect_funs_from_concls (r : rule) : list fn :=
-  flat_map collect_funs_from_fact (Datalog.rule_concls r).
+  match r with Datalog.normal_rule concls _ => flat_map collect_funs_from_fact concls | _ => [] end.
 
 Definition collect_funs_from_rule (r : rule) : list fn :=
   collect_funs_from_hyps r ++ collect_funs_from_concls r.
 
-Definition get_rule_concls_rels (r : rule) : list rel :=
-  map (fun fact => Datalog.fact_R fact) (Datalog.rule_concls r).
+Definition get_rule_concls_rels (r : rule) : list rel := Datalog.concl_rels r.
 
-Definition get_rule_hyps_rels (r : rule) : list rel :=
-  map (fun fact => Datalog.fact_R fact) (Datalog.rule_hyps r).
+Definition get_rule_hyps_rels (r : rule) : list rel := Datalog.hyp_rels r.
 
-(* Pattern Matching *)
-
-Definition get_agg_hyps (r : rule) : list fact :=
-  match Datalog.rule_agg r with
-  | None => []
-  | Some (_, ae) => Datalog.agg_hyps ae
-  end.
+(* Pattern Matching.  No aggregation: a rule's hypotheses are just its
+   [normal_rule] hyps (no agg hyps to append). *)
 
 Definition get_all_hyps (r : rule) : list fact :=
-  Datalog.rule_hyps r ++ get_agg_hyps r.
+  match r with Datalog.normal_rule _ hyps => hyps | _ => [] end.
 
 Definition facts_compatible (f1 f2 : fact) : bool :=
-  rel_eqb (Datalog.fact_R f1) (Datalog.fact_R f2) &&
-  list_eqb expr_compatible (Datalog.fact_args f1) (Datalog.fact_args f2).
+  rel_eqb (Datalog.clause_rel f1) (Datalog.clause_rel f2) &&
+  list_eqb expr_compatible (Datalog.clause_args f1) (Datalog.clause_args f2).
 
 Definition conc_matches_hyp (conc hyp : fact) : bool :=
   facts_compatible conc hyp.
 
 Definition rule_concls_match_hyps (r1 r2 : rule) : bool :=
-  existsb (fun conc => 
+  existsb (fun conc =>
     existsb (fun hyp => conc_matches_hyp conc hyp) (get_all_hyps r2)
-  ) (Datalog.rule_concls r1).
+  ) (match r1 with Datalog.normal_rule concls _ => concls | _ => [] end).
 
 Definition rule_depends_on (r1 r2 : rule) : bool :=
   rule_concls_match_hyps r1 r2.
@@ -304,10 +278,12 @@ Definition get_rules_dependent_on (p : program) (r : rule) : program :=
   filter (fun r' => rule_depends_on r r') p.
 
 Definition rel_appears_in_hyps (R : rel) (r : rule) : bool :=
-  existsb (fun f => rel_eqb (Datalog.fact_R f) R) (Datalog.rule_hyps r).
+  existsb (fun f => rel_eqb (Datalog.clause_rel f) R)
+    (match r with Datalog.normal_rule _ hyps => hyps | _ => [] end).
 
 Definition rel_appears_in_concls (R : rel) (r : rule) : bool :=
-  existsb (fun f => rel_eqb (Datalog.fact_R f) R) (Datalog.rule_concls r).
+  existsb (fun f => rel_eqb (Datalog.clause_rel f) R)
+    (match r with Datalog.normal_rule concls _ => concls | _ => [] end).
 
 (* Program Dependencies *)
 

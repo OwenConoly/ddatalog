@@ -1,35 +1,18 @@
 From Stdlib Require Import Strings.String.
-From Datalog Require Import Datalog FancyNotations JSON.
+From Datalog Require Import Datalog.
+From DatalogRocq Require Import StringDatalogParams.
 From Stdlib Require Import List.
 Import ListNotations.
 Open Scope string_scope.
 
-Definition rel := string.
-Definition fn := string.
-Definition var := string.
-Definition aggregator := string.
+Import StringDatalogParams.
 
-Definition fact := fact rel var fn.
-Definition expr := expr var fn.
-Definition rule := rule rel var fn aggregator.
-
-Definition empty_rule : rule :=
-  {| rule_agg := None; 
-     rule_hyps := [];
-     rule_concls := []; 
-     rule_set_hyps := [] |}.
+Definition empty_rule : rule := normal_rule [] [].
 
 Definition edge_path_rule : rule :=
-  {| rule_agg := None;
-     rule_hyps := [
-      {| fact_R := "edge";
-         fact_args := [(var_expr "x"); (var_expr "y")]|}
-     ]; 
-     rule_concls := [
-       {| fact_R := "path";
-         fact_args := [(var_expr "x"); (var_expr "y")]|}
-     ]; 
-     rule_set_hyps := []|}.
+  normal_rule
+    [ {| clause_rel := "path"; clause_args := [var_expr "x"; var_expr "y"] |} ]
+    [ {| clause_rel := "edge"; clause_args := [var_expr "x"; var_expr "y"] |} ].
 
 (* Constants *)
 
@@ -39,27 +22,16 @@ Definition const (c : fn) : expr := fun_expr c [].
 (* Example: edge(x, 42) :- node(x) 
    This represents "for all x, if x is a node, then there's an edge from x to node 42" *)
 Definition everything_connects_to_42_rule : rule :=
-  {| rule_agg := None;
-     rule_hyps := [
-      {| fact_R := "node";
-         fact_args := [var_expr "x"] |}
-     ];
-     rule_concls := [
-       {| fact_R := "edge";
-          fact_args := [var_expr "x"; const "42"] |}
-     ];
-     rule_set_hyps := [] |}.
+  normal_rule
+    [ {| clause_rel := "edge"; clause_args := [var_expr "x"; const "42"] |} ]
+    [ {| clause_rel := "node"; clause_args := [var_expr "x"] |} ].
 
-(* Example: friends(alice, bob) :- . 
+(* Example: friends(alice, bob) :- .
    A fact about friendship with only constants *)
 Definition alice_bob_friend : rule :=
-  {| rule_agg := None;
-     rule_hyps := [];
-     rule_concls := [
-       {| fact_R := "friends";
-          fact_args := [const "alice"; const "bob"] |}
-     ];
-     rule_set_hyps := [] |}.
+  normal_rule
+    [ {| clause_rel := "friends"; clause_args := [const "alice"; const "bob"] |} ]
+    [].
 
 Definition basic_program: list rule :=
    [edge_path_rule; everything_connects_to_42_rule; alice_bob_friend].

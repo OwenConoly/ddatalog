@@ -2,6 +2,7 @@ From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result.
 From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Graph ComputableGraph EqbSpec.
+From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
 Open Scope error_scope.
@@ -17,102 +18,24 @@ Context {var_eqb : var -> var -> bool} {var_eqb_spec : forall x0 y0 : var, BoolS
 Context {var_eq_dec : forall x y : var, {x = y} + {x <> y}}.
 Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : forall r1 r2 : rel, BoolSpec (r1 = r2) (r1 <> r2) (rel_eqb r1 r2)}.
 Context {Node : Type}.
+Context {node_id : Type}
+        {node_id_eqb : node_id -> node_id -> bool}
+        {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 
-Definition var_id := nat.
-Definition trie_id := nat.
-Definition rel_id := nat.
-Definition edge_id := (nat * nat)%type.
-Definition fn_id := nat.
-Definition node_id := (nat * nat)%type.
-Definition clause_id := nat.
+(* Instantiating short names from HardwareProgram *)
 
-Definition node_id_eqb (n1 n2 : node_id) : bool :=
-  pair_eqb Nat.eqb Nat.eqb n1 n2.
+Definition fact := @HardwareProgram.fact rel var fn.
+Definition rule := @HardwareProgram.rule rel var fn aggregator.
+Definition expr := @HardwareProgram.expr var fn.
+Definition program := @HardwareProgram.program rel var fn aggregator.
 
-Definition nat_eqb_spec : forall x y : nat, BoolSpec (x = y) (x <> y) (Nat.eqb x y).
-Proof.
-  intros x y. destruct (Nat.eqb_spec x y); constructor; congruence.
-Qed.
+Definition lowered_expr := @HardwareProgram.lowered_expr var.
+Definition lowered_fact := @HardwareProgram.lowered_fact var.
+Definition lowered_rule := @HardwareProgram.lowered_rule var aggregator.
+Definition lowered_program := @HardwareProgram.lowered_program var aggregator.
 
-Definition node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y).
-Proof.
-  intros x y. eapply pair_eqb_spec; apply nat_eqb_spec.
-Qed.
-
-Definition fact := Datalog.fact rel var fn.
-Definition rule := Datalog.rule rel var fn aggregator.
-Definition expr := Datalog.expr var fn.
-Definition program := list rule.
-Definition permutation := list nat.
-
-Record trie := {
-  tid : trie_id;
-  trel : rel_id;
-  tperm : permutation;
-}.
-
-Inductive lowered_expr :=
-| LVar (v : var)
-| LFun (f : fn_id) (args : list lowered_expr).
-
-Record lowered_fact :=
-{ lf_R : rel_id;
-  lf_args : list lowered_expr
-}.
-
-Record lowered_rule :=
-{ lhyps : list lowered_fact;
-  lconcls : list lowered_fact
-}.
-
-Definition lowered_program := list lowered_rule.
-
-Record join :=
-{
-  tries : list trie_id;
-  trie_levels : permutation;
-  clauses : list clause_id
-}.
-
-Definition query := list join.
-
-Record join_output :=
-{
-  output_rel : rel_id;
-  output_var_indices : list nat
-}.
-
-Record hardware_rule :=
-{
-  hhyps : query;
-  hconcls : list join_output;
-}.
-
-Definition hardware_program := list hardware_rule.
-
-Definition trie_ids := list trie_id.
-Definition edge_ids := list edge_id.
-
-Inductive destination :=
-| DestEdge (e : edge_id)
-| DestTrie (t : trie_id).
-
-Definition destination_eqb (d1 d2 : destination) : bool :=
-  match d1, d2 with
-  | DestEdge e1, DestEdge e2 => pair_eqb Nat.eqb Nat.eqb e1 e2
-  | DestTrie t1, DestTrie t2 => Nat.eqb t1 t2
-  | _, _ => false
-  end.
-
-Lemma destination_eqb_spec : forall x y : destination, BoolSpec (x = y) (x <> y) (destination_eqb x y).
-Proof.
-  intros x y. destruct x, y; simpl; try (constructor; congruence).
-  - destruct e as [a b], e0 as [c d].
-    unfold destination_eqb, pair_eqb.
-    destruct (Nat.eqb_spec a c); destruct (Nat.eqb_spec b d);
-      subst; constructor; congruence.
-  - destruct (Nat.eqb_spec t t0); subst; constructor; congruence.
-Qed.
+Notation destination := (@DistributedHardwareProgram.destination node_id).
+Notation destination_eqb := (@DistributedHardwareProgram.destination_eqb node_id node_id_eqb).
 
 Context {node_id_set : map.map node_id unit}.
 Context {destination_set : map.map destination unit}.
@@ -124,6 +47,9 @@ Context {relid_rel_map : map.map rel_id rel}.
 Context {var_id_map : map.map var var_id}.
 Context {layout_map : map.map node_id program}.
 Context {lowered_layout_map : map.map node_id lowered_program}.
+
+Definition fact_locations := list (rel * list node_id)%type.
+Definition lowered_fact_locations := list (rel_id * list node_id)%type.
 
 Record node_info := {
   nid : node_id;
@@ -216,11 +142,15 @@ Definition update_global_context_with_rel (r : rel) (gcontext : global_context) 
 
 Definition collect_global_names_fact (f : fact) (gcontext : global_context) : global_context :=
   fold_left (fun acc arg => collect_global_names_expr arg acc)
-    f.(fact_args) (update_global_context_with_rel f.(fact_R) gcontext).
+    f.(Datalog.clause_args) (update_global_context_with_rel f.(Datalog.clause_rel) gcontext).
 
 Definition collect_global_names_rule (r : rule) (gcontext : global_context) : global_context :=
-  let info := fold_left (fun acc f => collect_global_names_fact f acc) r.(rule_hyps) gcontext in
-  fold_left (fun acc f => collect_global_names_fact f acc) r.(rule_concls) info.
+  match r with
+  | Datalog.normal_rule rconcls rhyps =>
+    let info := fold_left (fun acc f => collect_global_names_fact f acc) rhyps gcontext in
+    fold_left (fun acc f => collect_global_names_fact f acc) rconcls info
+  | _ => gcontext
+  end.
 
 Definition collect_global_names_program (p : program) (gcontext : global_context) : global_context :=
   fold_left (fun acc r => collect_global_names_rule r acc) p gcontext.
@@ -238,7 +168,7 @@ Definition rename_fn (f : fn) (gcontext : global_context) : result fn_id :=
 
 Fixpoint global_rename_expr (e : expr) (gcontext : global_context) : result lowered_expr :=
   match e with
-  | var_expr v => Success (LVar v)
+  | var_expr v => Success (var_expr v)
   | fun_expr f args =>
     f_id <- rename_fn f gcontext ;;
     rargs <- fold_left (fun acc arg =>
@@ -246,7 +176,7 @@ Fixpoint global_rename_expr (e : expr) (gcontext : global_context) : result lowe
       rarg <- global_rename_expr arg gcontext ;;
       Success (rarg :: rargs)%list
     ) args (Success []) ;;
-    Success (LFun f_id (List.rev rargs))
+    Success (fun_expr f_id (List.rev rargs))
   end.
 
 Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_id :=
@@ -256,27 +186,32 @@ Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_
   end.
 
 Definition global_rename_fact (f : fact) (gcontext : global_context) : result lowered_fact :=
-  r_id <- global_rename_rel f.(fact_R) gcontext ;;
+  r_id <- global_rename_rel f.(Datalog.clause_rel) gcontext ;;
   rargs <- fold_left (fun acc arg =>
     rargs <- acc ;;
     rarg <- global_rename_expr arg gcontext ;;
     Success (rarg :: rargs)
-  ) f.(fact_args) (Success []) ;;
-  Success {| lf_R := r_id; lf_args := List.rev rargs |}.
+  ) f.(Datalog.clause_args) (Success []) ;;
+  Success {| Datalog.clause_rel := r_id; Datalog.clause_args := List.rev rargs |}.
 
+(* the compiler only handles the bare fragment: rename the concls/hyps of a
+   [normal_rule] (meta/agg rules are rejected). *)
 Definition global_rename_rule (r : rule) (gcontext : global_context) : result lowered_rule :=
-  hyps <- fold_left (fun acc f =>
-    rfs <- acc ;;
-    rf <- global_rename_fact f gcontext ;;
-    Success (rf :: rfs)
-  ) r.(rule_hyps) (Success []) ;;
-  concls <- fold_left (fun acc f =>
-    rfs <- acc ;;
-    rf <- global_rename_fact f gcontext ;;
-    Success (rf :: rfs)
-  ) r.(rule_concls) (Success []) ;;
-  Success {| lhyps := List.rev hyps;
-             lconcls := List.rev concls |}.
+  match r with
+  | Datalog.normal_rule rconcls rhyps =>
+    hyps <- fold_left (fun acc f =>
+      rfs <- acc ;;
+      rf <- global_rename_fact f gcontext ;;
+      Success (rf :: rfs)
+    ) rhyps (Success []) ;;
+    concls <- fold_left (fun acc f =>
+      rfs <- acc ;;
+      rf <- global_rename_fact f gcontext ;;
+      Success (rf :: rfs)
+    ) rconcls (Success []) ;;
+    Success (Datalog.normal_rule (List.rev concls) (List.rev hyps))
+  | _ => error:("global_rename_rule: aggregation/meta rules are not supported")
+  end.
 
 Definition global_rename_program (p : program) (gcontext : global_context) : result lowered_program :=
   rs <- fold_left (fun acc r =>
@@ -294,19 +229,34 @@ Definition global_rename_rule_layout (layout : layout_map) (gcontext : global_co
     Success (map.put llayout node lp)
   ) (Success map.empty) layout.
 
+Definition global_rename_fact_locations (fact_locations : fact_locations) (gcontext : global_context) : result lowered_fact_locations :=
+  fold_left (fun acc '(r, locations) =>
+    acc' <- acc ;;
+    r_id <- global_rename_rel r gcontext ;;
+    Success ((r_id, locations) :: acc')
+  ) fact_locations (Success []).
+
 (*----Collecting Info About Layout----*)
 
 Definition lowered_fact_contains_rel (f : lowered_fact) (r_id : rel_id) : bool :=
-  Nat.eqb r_id f.(lf_R).
+  Nat.eqb r_id f.(Datalog.clause_rel).
 
 Definition lowered_facts_contains_rel (facts : list lowered_fact) (r_id : rel_id) : bool :=
   List.existsb (fun f => lowered_fact_contains_rel f r_id) facts.
 
 Definition lowered_program_produces_rel (program : lowered_program) (r_id : rel_id) : bool :=
-  List.existsb (fun rule => lowered_facts_contains_rel rule.(lconcls) r_id) program.
+  List.existsb (fun rule =>
+    match rule with
+    | Datalog.normal_rule concls _ => lowered_facts_contains_rel concls r_id
+    | _ => false
+    end) program.
 
 Definition lowered_program_consumes_rel (program : lowered_program) (r_id : rel_id) : bool :=
-  List.existsb (fun rule => lowered_facts_contains_rel rule.(lhyps) r_id) program.
+  List.existsb (fun rule =>
+    match rule with
+    | Datalog.normal_rule _ hyps => lowered_facts_contains_rel hyps r_id
+    | _ => false
+    end) program.
 
 Definition node_produces_rel (r_id : rel_id) (llayout : lowered_layout_map) (node_id : node_id) : bool :=
   match map.get llayout node_id with
@@ -320,18 +270,31 @@ Definition node_consumes_rel (r_id : rel_id) (llayout : lowered_layout_map) (nod
   | None => false
   end.
 
-Definition get_node_producers (r_id : rel_id) (llayout : lowered_layout_map)
-    (gcontext : global_context) : list node_id :=
-  List.filter (node_produces_rel r_id llayout) (map.keys llayout).
+Definition get_node_producers (r_id : rel_id) (llayout : lowered_layout_map) (lfact_locations : lowered_fact_locations) (gcontext : global_context) : list node_id :=
+  let layout_producers :=
+    List.filter (node_produces_rel r_id llayout) (map.keys llayout) in
+  let fact_locations :=
+    match List.find (fun '(rid, _) => Nat.eqb rid r_id) lfact_locations with
+    | Some (_, locations) => locations
+    | None => []
+    end in
+  layout_producers ++ fact_locations.
 
 Definition get_node_consumers (r_id : rel_id) (llayout : lowered_layout_map)
-    (gcontext : global_context) : list node_id :=
-  List.filter (node_consumes_rel r_id llayout) (map.keys llayout).
+    (lfact_locations : lowered_fact_locations) (gcontext : global_context) : list node_id :=
+  let layout_consumers :=
+    List.filter (node_consumes_rel r_id llayout) (map.keys llayout) in
+  let fact_locations :=
+    match List.find (fun '(rid, _) => Nat.eqb rid r_id) lfact_locations with
+    | Some (_, locations) => locations
+    | None => []
+    end in
+  layout_consumers ++ fact_locations.
 
-Definition collect_global_dependencies_for_rel_id (r_id : rel_id) (llayout : lowered_layout_map)
+Definition collect_global_dependencies_for_rel_id (r_id : rel_id) (llayout : lowered_layout_map) (lfact_producers : lowered_fact_locations) (lfact_consumers : lowered_fact_locations)
     (gcontext : global_context) : (list node_id * list node_id) :=
-  (get_node_producers r_id llayout gcontext,
-   get_node_consumers r_id llayout gcontext).
+  (get_node_producers r_id llayout lfact_producers gcontext,
+   get_node_consumers r_id llayout lfact_consumers gcontext).
 
 Definition add_producer_to_context (r_id : rel_id) (producer : node_id)
     (gcontext : global_context) : global_context :=
@@ -378,11 +341,11 @@ Definition add_consumers_to_context (r_id : rel_id) (consumers : list node_id)
 Definition get_rel_ids (gcontext : global_context) : list rel_id :=
   map.fold (fun acc _ rel_id => rel_id :: acc) [] gcontext.(rel_map).
 
-Definition collect_global_dependencies (llayout : lowered_layout_map)
+Definition collect_global_dependencies (llayout : lowered_layout_map) (lfact_producers : lowered_fact_locations) (lfact_consumers : lowered_fact_locations)
     (gcontext : global_context) : global_context :=
   fold_left (fun acc rel_id =>
     let (producers, consumers) :=
-      collect_global_dependencies_for_rel_id rel_id llayout gcontext in
+      collect_global_dependencies_for_rel_id rel_id llayout lfact_producers lfact_consumers gcontext in
     add_consumers_to_context rel_id consumers
       (add_producers_to_context rel_id producers acc)
   ) (get_rel_ids gcontext) gcontext.
@@ -392,12 +355,12 @@ Definition collect_global_dependencies (llayout : lowered_layout_map)
 (* Collect vars in order of first appearance in hypotheses *)
 Fixpoint collect_vars_expr (e : lowered_expr) : list var :=
   match e with
-  | LVar v => [v]
-  | LFun _ args => List.flat_map collect_vars_expr args
+  | var_expr v => [v]
+  | fun_expr _ args => List.flat_map collect_vars_expr args
   end.
 
 Definition collect_vars_fact (f : lowered_fact) : list var :=
-  List.flat_map collect_vars_expr f.(lf_args).
+  List.flat_map collect_vars_expr f.(Datalog.clause_args).
 
 Definition collect_vars_hyps (hyps : list lowered_fact) : list var :=
   List.flat_map collect_vars_fact hyps.
@@ -428,7 +391,7 @@ Definition vg_neighbors (g : var_graph) (v : var) : var_node_set :=
 
 Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_node_set) : var_graph :=
   match arg with
-  | LVar v =>
+  | var_expr v =>
     let new_neighbors := map.putmany (vg_neighbors g v) clause_vars in
     let g' := {| nodes := map.put g.(nodes) v tt;
                  edges := map.put g.(edges) v new_neighbors |} in
@@ -437,7 +400,7 @@ Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_n
       {| nodes := acc.(nodes);
          edges := map.put acc.(edges) u (map.put (vg_neighbors acc u) v tt) |})
       g' clause_vars
-  | LFun _ args =>
+  | fun_expr _ args =>
     fold_left (fun acc arg => add_arg_edges arg acc clause_vars) args g
   end.
 
@@ -447,14 +410,14 @@ Fixpoint add_args_edges (args : list lowered_expr) (g : var_graph) (seen : var_n
   | arg :: rest =>
     let g' := add_arg_edges arg g seen in
     let seen' := match arg with
-                 | LVar v => map.put seen v tt
-                 | LFun _ _ => seen
+                 | var_expr v => map.put seen v tt
+                 | fun_expr _ _ => seen
                  end in
     add_args_edges rest g' seen'
   end.
 
 Definition add_hyp_edges (hyp : lowered_fact) (g : var_graph) : var_graph :=
-  add_args_edges hyp.(lf_args) g map.empty.
+  add_args_edges hyp.(Datalog.clause_args) g map.empty.
 
 Definition empty_var_graph : var_graph :=
   {| nodes := map.empty; edges := map.empty |}.
@@ -599,12 +562,12 @@ Definition compute_variable_ordering_ordered (g : var_graph) (hyps : list lowere
 
 Definition vars_of_arg (arg : lowered_expr) : list var :=
   match arg with
-  | LVar v => [v]
-  | LFun _ _ => []
+  | var_expr v => [v]
+  | fun_expr _ _ => []
   end.
 
 Definition compute_var_order (lf : lowered_fact) : list var :=
-  List.flat_map vars_of_arg lf.(lf_args).
+  List.flat_map vars_of_arg lf.(Datalog.clause_args).
 
 Context {var_idx_map : map.map var nat}.
 
@@ -662,7 +625,7 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
     (existing_tries : list trie) (gcontext : global_context)
     (ncontext : node_context) : trie * node_context :=
   let perm := compute_permutation (compute_var_order hyp) rule_var_order in
-  let rel_id := hyp.(lf_R) in
+  let rel_id := hyp.(Datalog.clause_rel) in
   match List.find (fun t =>
     Nat.eqb t.(trel) rel_id && permutation_eqb t.(tperm) perm) existing_tries with
   | Some t => (t, ncontext)
@@ -683,8 +646,8 @@ Fixpoint get_hyp_arg_indices (args : list lowered_expr) (v : var) (i : nat) : li
   | arg :: rest =>
     let acc := get_hyp_arg_indices rest v (S i) in
     match arg with
-    | LVar v' => if var_eqb v v' then i :: acc else acc
-    | LFun _ _ => acc
+    | var_expr v' => if var_eqb v v' then i :: acc else acc
+    | fun_expr _ _ => acc
     end
   end.
 
@@ -697,7 +660,7 @@ Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lower
         fold_left (fun inner_acc arg_idx =>
           let '(ts', levels', cs') := inner_acc in
           (t.(tid) :: ts', List.nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
-          (get_hyp_arg_indices hyp.(lf_args) v 0) (ts, levels, cs)
+          (get_hyp_arg_indices hyp.(Datalog.clause_args) v 0) (ts, levels, cs)
       in
       (ts', levels', cs', S clause))
       (List.combine tries_by_hyp hyps) ([], [], [], 0)
@@ -713,11 +676,16 @@ Definition generate_query (tries : list trie) (rule_var_order : list var)
 Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
     (existing_tries : list trie) (gcontext : global_context) (ncontext : node_context)
     : query * node_context :=
-  let '(tries, ncontext) :=
-    fold_left (fun '(tries, ncontext) hyp =>
-      let (t, ncontext) := generate_trie hyp rule_var_order tries gcontext ncontext in
-      (t :: tries, ncontext)) hyps (existing_tries, ncontext) in
-  (generate_query tries rule_var_order hyps, ncontext).
+  (* [pool] is the dedup pool threaded into [generate_trie] (existing tries followed by
+     the ones we generate, newest first).  [per_hyp_rev] is the trie chosen for each
+     hypothesis, in reverse hypothesis order.  These must be kept distinct: [generate_join]
+     pairs its trie list with [hyps] positionally, so the list handed to [generate_query]
+     must be the *per-hypothesis* tries in forward order — not the reversed pool. *)
+  let '(pool, per_hyp_rev, ncontext) :=
+    fold_left (fun '(pool, per_hyp_rev, ncontext) hyp =>
+      let (t, ncontext) := generate_trie hyp rule_var_order pool gcontext ncontext in
+      (t :: pool, t :: per_hyp_rev, ncontext)) hyps (existing_tries, [], ncontext) in
+  (generate_query (List.rev per_hyp_rev) rule_var_order hyps, ncontext).
 
 Definition initial_node_context (nid : node_id) : node_context :=
   {| ncid := nid; nctries := []; last_trie_id := 0 |}.
@@ -727,13 +695,13 @@ Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
   var_indices <- fold_left (fun acc arg =>
     idxs <- acc ;;
     match arg with
-    | LVar v =>
+    | var_expr v =>
       idx <- get_rule_var_index rule_var_order v ;;
       Success (idx :: idxs)
-    | LFun _ _ => Success (0 :: idxs)
+    | fun_expr _ _ => Success (0 :: idxs)
     end
-  ) concl.(lf_args) (Success []) ;;
-  Success {| output_rel := concl.(lf_R);
+  ) concl.(Datalog.clause_args) (Success []) ;;
+  Success {| output_rel := concl.(Datalog.clause_rel);
              output_var_indices := List.rev var_indices |}.
 
 Definition compile_concls (concls : list lowered_fact) (gcontext : global_context)
@@ -745,24 +713,21 @@ Definition compile_concls (concls : list lowered_fact) (gcontext : global_contex
   ) concls (Success []) ;;
   Success (List.rev jos).
 
-(* Version that tries to keep original ordering *)
+(* Version that tries to keep original ordering.  Bare fragment: only
+   [normal_rule]s are compiled. *)
 Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
     (ncontext : node_context) : result (hardware_rule * node_context) :=
-  let dep_g := create_dependency_graph rule.(lhyps) in
-  let rule_var_order := compute_variable_ordering_ordered dep_g rule.(lhyps) in  (* pass hyps for ordering *)
-  let '(query, ncontext) :=
-    compile_hyps rule.(lhyps) rule_var_order ncontext.(nctries) gcontext ncontext in
-  concls <- compile_concls rule.(lconcls) gcontext rule_var_order ;;
-  Success ({| hhyps := query; hconcls := concls |}, ncontext).
-
-
-(* Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
-    (ncontext : node_context) : result (hardware_rule * node_context) :=
-  let rule_var_order := compute_variable_ordering (create_dependency_graph rule.(lhyps)) in
-  let '(query, ncontext) :=
-    compile_hyps rule.(lhyps) rule_var_order ncontext.(nctries) gcontext ncontext in
-  concls <- compile_concls rule.(lconcls) gcontext rule_var_order ;;
-  Success ({| hhyps := query; hconcls := concls |}, ncontext). *)
+  match rule with
+  | Datalog.normal_rule rconcls rhyps =>
+    let dep_g := create_dependency_graph rhyps in
+    let rule_var_order := compute_variable_ordering_ordered dep_g rhyps in  (* pass hyps for ordering *)
+    let '(query, ncontext) :=
+      compile_hyps rhyps rule_var_order ncontext.(nctries) gcontext ncontext in
+    concls <- compile_concls rconcls gcontext rule_var_order ;;
+    Success ({| hhyps := query; hconcls := concls;
+                hsig := List.map (fun h => (h.(Datalog.clause_rel), List.length h.(Datalog.clause_args))) rhyps |}, ncontext)
+  | _ => error:("compile_rule: aggregation/meta rules are not supported")
+  end.
 
 (*----Forwarding Tables----*)
 
@@ -802,7 +767,7 @@ Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
     let ft := get_node_ftable node ftables in
     let existing := match map.get ft rel with
                     | Some ds => ds | None => [] end in
-    let ft' := map.put ft rel (DestEdge next :: existing) in
+    let ft' := map.put ft rel (add_dest_if_absent (DestEdge next) existing) in
     add_path_to_forwarding_table rel rest (map.put ftables node ft') ninfos
   end.
 
@@ -884,11 +849,34 @@ Definition attach_forwarding_tables (ninfos : list node_info)
        ntries := ninfo.(ntries) |}
   ) ninfos.
 
-Definition compile (layout : layout_map) (g : node_graph) (fuel : nat)
+(* The renamed (numeric-id) layout that [compile] works on internally, exposed as a standalone
+   computable definition so correctness statements can name it (and run the bareness / node-validity
+   checks on it).  When [compile] succeeds these are exactly the [llayout]/[gcontext] it uses. *)
+Definition compile_renamed_layout (layout : layout_map) : lowered_layout_map :=
+  match global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context) with
+  | Success ll => ll
+  | Failure _ => map.empty
+  end.
+
+Definition compile_global_context (layout : layout_map)
+    (fact_producers fact_consumers : fact_locations) : global_context :=
+  let gcontext := collect_global_names_layout layout initial_global_context in
+  match global_rename_fact_locations fact_producers gcontext with
+  | Success lfp =>
+      match global_rename_fact_locations fact_consumers gcontext with
+      | Success lfc => collect_global_dependencies (compile_renamed_layout layout) lfp lfc gcontext
+      | Failure _ => gcontext
+      end
+  | Failure _ => gcontext
+  end.
+
+Definition compile (layout : layout_map) (fact_producers : fact_locations) (fact_consumers : fact_locations) (g : node_graph) (fuel : nat)
     : result (list node_info) :=
   let gcontext := collect_global_names_layout layout initial_global_context in
   llayout <- global_rename_rule_layout layout gcontext ;;
-  let gcontext := collect_global_dependencies llayout gcontext in
+  lfact_producers <- global_rename_fact_locations fact_producers gcontext ;;
+  lfact_consumers <- global_rename_fact_locations fact_consumers gcontext ;;
+  let gcontext := collect_global_dependencies llayout lfact_producers lfact_consumers gcontext in
   ninfos <- compile_all_nodes llayout gcontext ;;
   let ftables := generate_forwarding_table gcontext ninfos g fuel in
   Success (attach_forwarding_tables ninfos ftables).
@@ -905,5 +893,5 @@ Compute generate_join
   [ {| tid := 0; trel := 0; tperm := [0; 1] |} ;
     {| tid := 1; trel := 0; tperm := [1; 0] |} ]
   1
-  [ {| lf_R := 0; lf_args := [LVar 0; LVar 1] |} ;
-    {| lf_R := 0; lf_args := [LVar 1; LVar 2] |} ].
+  [ {| Datalog.clause_rel := 0; Datalog.clause_args := [var_expr 0; var_expr 1] |} ;
+    {| Datalog.clause_rel := 0; Datalog.clause_args := [var_expr 1; var_expr 2] |} ].
