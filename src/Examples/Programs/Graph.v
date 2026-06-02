@@ -1,29 +1,45 @@
 From Stdlib Require Import Strings.String List.
-From Datalog Require Import Datalog FancyNotations.
-From Datalog Require Import FancyNotations.
+From Datalog Require Import Datalog.
 From DatalogRocq Require Import StringDatalogParams DependencyGenerator.
 Import ListNotations.
 Open Scope string_scope.
 
 Import StringDatalogParams.
 
-Definition r_path_base : rule := 
-  datalog_rule:([ Path($a, $b) ] :- [ Edge($a, $b) ]).
+Definition r_path_base : rule :=
+  normal_rule
+    [ {| clause_rel := "Path"; clause_args := [var_expr "a"; var_expr "b"] |} ]
+    [ {| clause_rel := "Edge"; clause_args := [var_expr "a"; var_expr "b"] |} ].
 
-Definition r_path_step : rule := 
-  datalog_rule:([ Path($a, $c) ] :- [ Edge($a, $b); Path($b, $c) ]).
+Definition r_path_step : rule :=
+  normal_rule
+    [ {| clause_rel := "Path"; clause_args := [var_expr "a"; var_expr "c"] |} ]
+    [ {| clause_rel := "Edge"; clause_args := [var_expr "a"; var_expr "b"] |};
+      {| clause_rel := "Path"; clause_args := [var_expr "b"; var_expr "c"] |} ].
 
-Definition r_two_step : rule := 
-  datalog_rule:([ TwoStep($a, $c) ] :- [ Edge($a, $b); Edge($b, $c) ]).
+Definition r_two_step : rule :=
+  normal_rule
+    [ {| clause_rel := "TwoStep"; clause_args := [var_expr "a"; var_expr "c"] |} ]
+    [ {| clause_rel := "Edge"; clause_args := [var_expr "a"; var_expr "b"] |};
+      {| clause_rel := "Edge"; clause_args := [var_expr "b"; var_expr "c"] |} ].
 
-Definition r_cycle : rule := 
-  datalog_rule:([ Cycle($a) ] :- [ Path($a, $a) ]).
+Definition r_cycle : rule :=
+  normal_rule
+    [ {| clause_rel := "Cycle"; clause_args := [var_expr "a"] |} ]
+    [ {| clause_rel := "Path"; clause_args := [var_expr "a"; var_expr "a"] |} ].
 
-Definition r_triangle : rule := 
-  datalog_rule:([ Triangle($a, $b) ] :- [ Edge($a, $b); Edge($b, $c); Edge($c, $a) ]).
+Definition r_triangle : rule :=
+  normal_rule
+    [ {| clause_rel := "Triangle"; clause_args := [var_expr "a"; var_expr "b"] |} ]
+    [ {| clause_rel := "Edge"; clause_args := [var_expr "a"; var_expr "b"] |};
+      {| clause_rel := "Edge"; clause_args := [var_expr "b"; var_expr "c"] |};
+      {| clause_rel := "Edge"; clause_args := [var_expr "c"; var_expr "a"] |} ].
 
-Definition r_bipath : rule := 
-  datalog_rule:([ BiPath($a, $b) ] :- [ Path($a, $b); Path($b, $a) ]).
+Definition r_bipath : rule :=
+  normal_rule
+    [ {| clause_rel := "BiPath"; clause_args := [var_expr "a"; var_expr "b"] |} ]
+    [ {| clause_rel := "Path"; clause_args := [var_expr "a"; var_expr "b"] |};
+      {| clause_rel := "Path"; clause_args := [var_expr "b"; var_expr "a"] |} ].
 
 Definition graph_program : list rule :=
    [ r_path_base;

@@ -1,36 +1,61 @@
 From Stdlib Require Import Strings.String List.
-From Datalog Require Import Datalog FancyNotations.
+From Datalog Require Import Datalog.
 From DatalogRocq Require Import StringDatalogParams DependencyGenerator.
 Import ListNotations.
 Open Scope string_scope.
 
 Import StringDatalogParams.
 
-(* Individual rules using fancy Datalog notation *)
+(* Individual rules, written with plain (non-fancy) clause/normal_rule syntax.
+   [ {| clause_rel := R; clause_args := [...] |} ] are the conclusions, then the hypotheses. *)
 
 Definition r_ancestor1 : rule :=
-  datalog_rule:( [ ancestor($x, $y) ] :- [ parent($x, $y) ] ).
+  normal_rule
+    [ {| clause_rel := "ancestor"; clause_args := [var_expr "x"; var_expr "y"] |} ]
+    [ {| clause_rel := "parent";   clause_args := [var_expr "x"; var_expr "y"] |} ].
 
 Definition r_ancestor2 : rule :=
-  datalog_rule:( [ ancestor($y, $x) ] :- [ parent($p, $x); ancestor($y, $p) ] ).
+  normal_rule
+    [ {| clause_rel := "ancestor"; clause_args := [var_expr "y"; var_expr "x"] |} ]
+    [ {| clause_rel := "parent";   clause_args := [var_expr "p"; var_expr "x"] |};
+      {| clause_rel := "ancestor"; clause_args := [var_expr "y"; var_expr "p"] |} ].
 
 Definition r_sibling : rule :=
-  datalog_rule:( [ sibling($x, $y) ] :- [ parent($p, $x); parent($p, $y) ] ).
+  normal_rule
+    [ {| clause_rel := "sibling"; clause_args := [var_expr "x"; var_expr "y"] |} ]
+    [ {| clause_rel := "parent";  clause_args := [var_expr "p"; var_expr "x"] |};
+      {| clause_rel := "parent";  clause_args := [var_expr "p"; var_expr "y"] |} ].
 
 Definition r_aunt: rule :=
-  datalog_rule:( [ aunt($x, $y) ] :- [ sibling($x, $p); parent($p, $y); female($x) ] ).
+  normal_rule
+    [ {| clause_rel := "aunt"; clause_args := [var_expr "x"; var_expr "y"] |} ]
+    [ {| clause_rel := "sibling"; clause_args := [var_expr "x"; var_expr "p"] |};
+      {| clause_rel := "parent";  clause_args := [var_expr "p"; var_expr "y"] |};
+      {| clause_rel := "female";  clause_args := [var_expr "x"] |} ].
 
 Definition r_uncle : rule :=
-  datalog_rule:( [ uncle($x, $y) ] :- [ sibling($x, $p); parent($p, $y); male($x) ] ).
+  normal_rule
+    [ {| clause_rel := "uncle"; clause_args := [var_expr "x"; var_expr "y"] |} ]
+    [ {| clause_rel := "sibling"; clause_args := [var_expr "x"; var_expr "p"] |};
+      {| clause_rel := "parent";  clause_args := [var_expr "p"; var_expr "y"] |};
+      {| clause_rel := "male";    clause_args := [var_expr "x"] |} ].
 
 Definition r_cousin : rule :=
-  datalog_rule:( [ cousin($x, $y) ] :- [ parent($px, $x); parent($py, $y); sibling($px, $py) ] ).
+  normal_rule
+    [ {| clause_rel := "cousin"; clause_args := [var_expr "x"; var_expr "y"] |} ]
+    [ {| clause_rel := "parent";  clause_args := [var_expr "px"; var_expr "x"] |};
+      {| clause_rel := "parent";  clause_args := [var_expr "py"; var_expr "y"] |};
+      {| clause_rel := "sibling"; clause_args := [var_expr "px"; var_expr "py"] |} ].
 
 Definition r_related1 : rule :=
-  datalog_rule:( [ related($x, $y) ] :- [ ancestor($x, $y) ] ).
+  normal_rule
+    [ {| clause_rel := "related";  clause_args := [var_expr "x"; var_expr "y"] |} ]
+    [ {| clause_rel := "ancestor"; clause_args := [var_expr "x"; var_expr "y"] |} ].
 
 Definition r_related2 : rule :=
-  datalog_rule:( [ related($x, $y) ] :- [ ancestor($y, $x) ] ).
+  normal_rule
+    [ {| clause_rel := "related";  clause_args := [var_expr "x"; var_expr "y"] |} ]
+    [ {| clause_rel := "ancestor"; clause_args := [var_expr "y"; var_expr "x"] |} ].
 
 (* The full program, referencing the rules directly *)
 Definition family_program : list rule :=

@@ -1,5 +1,5 @@
 From Stdlib Require Import Strings.String List.
-From Datalog Require Import Datalog FancyNotations.
+From Datalog Require Import Datalog.
 From DatalogRocq Require Import StringDatalogParams DependencyGenerator.
 Import ListNotations.
 Open Scope string_scope.
@@ -19,573 +19,354 @@ Import StringDatalogParams.
 (* Drop = 0           Annihilation / zero element *)
 (* Id = 1             Identity element *)
 
+(* Plain (non-fancy) helpers replacing the old FancyNotations: NetKAT term constructors
+   are just function symbols ([fun_expr]) and the two relations ([Term], [rewrite]) are
+   plain [clause]s.  [v "x"] is a variable. *)
+Local Definition clause := Datalog.clause rel var fn.
+Local Definition v (s : string) : expr := var_expr s.
+Local Definition Disj (a b : expr) : expr := fun_expr "Disj" [a; b].
+Local Definition Conj (a b : expr) : expr := fun_expr "Conj" [a; b].
+Local Definition Parallel (a b : expr) : expr := fun_expr "Parallel" [a; b].
+Local Definition Seq (a b : expr) : expr := fun_expr "Seq" [a; b].
+Local Definition Assn (a b : expr) : expr := fun_expr "Assn" [a; b].
+Local Definition Match (a b : expr) : expr := fun_expr "Match" [a; b].
+Local Definition Filter (a : expr) : expr := fun_expr "Filter" [a].
+Local Definition Not (a : expr) : expr := fun_expr "Not" [a].
+Local Definition Drop : expr := fun_expr "Drop" [].
+Local Definition Id : expr := fun_expr "Id" [].
+Local Definition Term (e : expr) : clause := {| clause_rel := "Term"; clause_args := [e] |}.
+Local Definition rw (a b : expr) : clause := {| clause_rel := "rewrite"; clause_args := [a; b] |}.
+
 (* ================= Associativity ================= *)
 
 (* a \/ (b \/ c) -> (a \/ b) \/ c *)
 Definition r_disj_assoc_l : rule :=
-  datalog_rule:(
-    [ Term(Disj(Disj($a, $b), $c));
-      rewrite(
-        Disj($a, Disj($b, $c)),
-        Disj(Disj($a, $b), $c)
-      )
-    ]
-    :-
-    [ Term(Disj($a, Disj($b, $c))) ]
-  ).
+  normal_rule
+    [ Term (Disj (Disj (v "a") (v "b")) (v "c"));
+      rw (Disj (v "a") (Disj (v "b") (v "c"))) (Disj (Disj (v "a") (v "b")) (v "c")) ]
+    [ Term (Disj (v "a") (Disj (v "b") (v "c"))) ].
 
 (* (a \/ b) \/ c -> a \/ (b \/ c) *)
 Definition r_disj_assoc_r : rule :=
-  datalog_rule:(
-    [ Term(Disj($a, Disj($b, $c)));
-      rewrite(
-        Disj(Disj($a, $b), $c),
-        Disj($a, Disj($b, $c))
-      )
-    ]
-    :-
-    [ Term(Disj(Disj($a, $b), $c)) ]
-  ).
+  normal_rule
+    [ Term (Disj (v "a") (Disj (v "b") (v "c")));
+      rw (Disj (Disj (v "a") (v "b")) (v "c")) (Disj (v "a") (Disj (v "b") (v "c"))) ]
+    [ Term (Disj (Disj (v "a") (v "b")) (v "c")) ].
 
 (* a /\ (b /\ c) -> (a /\ b) /\ c *)
 Definition r_conj_assoc_l : rule :=
-  datalog_rule:(
-    [ Term(Conj(Conj($a, $b), $c));
-      rewrite(
-        Conj($a, Conj($b, $c)),
-        Conj(Conj($a, $b), $c)
-      )
-    ]
-    :-
-    [ Term(Conj($a, Conj($b, $c))) ]
-  ).
+  normal_rule
+    [ Term (Conj (Conj (v "a") (v "b")) (v "c"));
+      rw (Conj (v "a") (Conj (v "b") (v "c"))) (Conj (Conj (v "a") (v "b")) (v "c")) ]
+    [ Term (Conj (v "a") (Conj (v "b") (v "c"))) ].
 
 (* (a /\ b) /\ c -> a /\ (b /\ c) *)
 Definition r_conj_assoc_r : rule :=
-  datalog_rule:(
-    [ Term(Conj($a, Conj($b, $c)));
-      rewrite(
-        Conj(Conj($a, $b), $c),
-        Conj($a, Conj($b, $c))
-      )
-    ]
-    :-
-    [ Term(Conj(Conj($a, $b), $c)) ]
-  ).
+  normal_rule
+    [ Term (Conj (v "a") (Conj (v "b") (v "c")));
+      rw (Conj (Conj (v "a") (v "b")) (v "c")) (Conj (v "a") (Conj (v "b") (v "c"))) ]
+    [ Term (Conj (Conj (v "a") (v "b")) (v "c")) ].
 
 (* p + (q + r) -> (p + q) + r *)
 Definition r_parallel_assoc_l : rule :=
-  datalog_rule:(
-    [ Term(Parallel(Parallel($p, $q), $r));
-      rewrite(
-        Parallel($p, Parallel($q, $r)),
-        Parallel(Parallel($p, $q), $r)
-      )
-    ]
-    :-
-    [ Term(Parallel($p, Parallel($q, $r))) ]
-  ).
+  normal_rule
+    [ Term (Parallel (Parallel (v "p") (v "q")) (v "r"));
+      rw (Parallel (v "p") (Parallel (v "q") (v "r"))) (Parallel (Parallel (v "p") (v "q")) (v "r")) ]
+    [ Term (Parallel (v "p") (Parallel (v "q") (v "r"))) ].
 
 (* (p + q) + r -> p + (q + r) *)
 Definition r_parallel_assoc_r : rule :=
-  datalog_rule:(
-    [ Term(Parallel($p, Parallel($q, $r)));
-      rewrite(
-        Parallel(Parallel($p, $q), $r),
-        Parallel($p, Parallel($q, $r))
-      )
-    ]
-    :-
-    [ Term(Parallel(Parallel($p, $q), $r)) ]
-  ).
+  normal_rule
+    [ Term (Parallel (v "p") (Parallel (v "q") (v "r")));
+      rw (Parallel (Parallel (v "p") (v "q")) (v "r")) (Parallel (v "p") (Parallel (v "q") (v "r"))) ]
+    [ Term (Parallel (Parallel (v "p") (v "q")) (v "r")) ].
 
 (* (p ; q) ; r -> p ; (q ; r) *)
 Definition r_seq_assoc_l : rule :=
-  datalog_rule:(
-    [ Term(Seq(Seq($p, $q), $r));
-      rewrite(
-        Seq($p, Seq($q, $r)),
-        Seq(Seq($p, $q), $r)
-      )
-    ]
-    :-
-    [ Term(Seq($p, Seq($q, $r))) ]
-  ).
-
+  normal_rule
+    [ Term (Seq (Seq (v "p") (v "q")) (v "r"));
+      rw (Seq (v "p") (Seq (v "q") (v "r"))) (Seq (Seq (v "p") (v "q")) (v "r")) ]
+    [ Term (Seq (v "p") (Seq (v "q") (v "r"))) ].
 
 (* p ; (q ; r) -> (p ; q) ; r *)
 Definition r_seq_assoc_r : rule :=
-  datalog_rule:(
-    [ Term(Seq($p, Seq($q, $r)));
-      rewrite(
-        Seq(Seq($p, $q), $r),
-        Seq($p, Seq($q, $r))
-      )
-    ]
-    :-
-    [ Term(Seq(Seq($p, $q), $r)) ]
-  ).
+  normal_rule
+    [ Term (Seq (v "p") (Seq (v "q") (v "r")));
+      rw (Seq (Seq (v "p") (v "q")) (v "r")) (Seq (v "p") (Seq (v "q") (v "r"))) ]
+    [ Term (Seq (Seq (v "p") (v "q")) (v "r")) ].
 
 (* ================= Commutativity ================= *)
 
 (* a \/ b -> b \/ a *)
 Definition r_disj_comm : rule :=
-  datalog_rule:(
-    [ Term(Disj($b, $a));
-      rewrite(
-        Disj($a, $b),
-        Disj($b, $a)
-      )
-    ]
-    :-
-    [ Term(Disj($a, $b)) ]
-  ).
+  normal_rule
+    [ Term (Disj (v "b") (v "a"));
+      rw (Disj (v "a") (v "b")) (Disj (v "b") (v "a")) ]
+    [ Term (Disj (v "a") (v "b")) ].
 
 (* a /\ b -> b /\ a *)
 Definition r_conj_comm : rule :=
-  datalog_rule:(
-    [ Term(Conj($b, $a));
-      rewrite(
-        Conj($a, $b),
-        Conj($b, $a)
-      )
-    ]
-    :-
-    [ Term(Conj($a, $b)) ]
-  ).
+  normal_rule
+    [ Term (Conj (v "b") (v "a"));
+      rw (Conj (v "a") (v "b")) (Conj (v "b") (v "a")) ]
+    [ Term (Conj (v "a") (v "b")) ].
 
 (* p + q -> q + p *)
 Definition r_parallel_comm : rule :=
-  datalog_rule:(
-    [ Term(Parallel($q, $p));
-      rewrite(
-        Parallel($p, $q),
-        Parallel($q, $p)
-      )
-    ]
-    :-
-    [ Term(Parallel($p, $q)) ]
-  ).
+  normal_rule
+    [ Term (Parallel (v "q") (v "p"));
+      rw (Parallel (v "p") (v "q")) (Parallel (v "q") (v "p")) ]
+    [ Term (Parallel (v "p") (v "q")) ].
 
 (* ================= Identities ================= *)
 
 (* a \/ 0 -> a *)
 Definition r_disj_id : rule :=
-  datalog_rule:(
-    [ Term($a);
-      rewrite(
-        Disj($a, Drop ( )),
-        $a
-      )
-    ]
-    :-
-    [ Term(Disj($a, Drop ( ))) ]
-  ).
+  normal_rule
+    [ Term (v "a");
+      rw (Disj (v "a") Drop) (v "a") ]
+    [ Term (Disj (v "a") Drop) ].
 
 (* p + 0 -> p *)
 Definition r_parallel_filter_drop : rule :=
-  datalog_rule:(
-    [ Term($p);
-      rewrite(
-        Parallel($p, Filter(Drop ( ))),
-        $p
-      )
-    ]
-    :-
-    [ Term(Parallel($p, Filter(Drop ( )))) ]
-  ).
+  normal_rule
+    [ Term (v "p");
+      rw (Parallel (v "p") (Filter Drop)) (v "p") ]
+    [ Term (Parallel (v "p") (Filter Drop)) ].
 
 (* a /\ 1 -> a *)
 Definition r_conj_id : rule :=
-  datalog_rule:(
-    [ Term($a);
-      rewrite(
-        Conj($a, Id ( ) ),
-        $a
-      )
-    ]
-    :-
-    [ Term(Conj($a, Id ( ) )) ]
-  ).
+  normal_rule
+    [ Term (v "a");
+      rw (Conj (v "a") Id) (v "a") ]
+    [ Term (Conj (v "a") Id) ].
 
 (* 1 ; p -> p *)
 Definition r_seq_filter_id_l : rule :=
-  datalog_rule:(
-    [ Term($p);
-      rewrite(
-        Seq(Filter(Id ( )), $p),
-        $p
-      )
-    ]
-    :-
-    [ Term(Seq(Filter(Id ( )), $p)) ]
-  ).
+  normal_rule
+    [ Term (v "p");
+      rw (Seq (Filter Id) (v "p")) (v "p") ]
+    [ Term (Seq (Filter Id) (v "p")) ].
 
 (* p ; 1 -> p *)
 Definition r_seq_filter_id_r : rule :=
-  datalog_rule:(
-    [ Term($p);
-      rewrite(
-        Seq($p, Filter(Id ( ))),
-        $p
-      )
-    ]
-    :-
-    [ Term(Seq($p, Filter(Id ( )))) ]
-  ).
+  normal_rule
+    [ Term (v "p");
+      rw (Seq (v "p") (Filter Id)) (v "p") ]
+    [ Term (Seq (v "p") (Filter Id)) ].
 
 (* ================= Annihilation ================= *)
 
 (* a /\ 0 -> 0 *)
 Definition r_conj_drop : rule :=
-  datalog_rule:(
-    [ Term(Drop ( ));
-      rewrite(
-        Conj($a, Drop ( )),
-        Drop ( )
-      )
-    ]
-    :-
-    [ Term(Conj($a, Drop ( ))) ]
-  ).
+  normal_rule
+    [ Term Drop;
+      rw (Conj (v "a") Drop) Drop ]
+    [ Term (Conj (v "a") Drop) ].
 
 (* p ; 0 -> 0 *)
 Definition r_seq_filter_drop_l : rule :=
-  datalog_rule:(
-    [ Term(Filter(Drop ( )));
-      rewrite(
-        Seq(Filter(Drop ( )), $p),
-        Filter(Drop ( ))
-      )
-    ]
-    :-
-    [ Term(Seq(Filter(Drop ( )), $p)) ]
-  ).
+  normal_rule
+    [ Term (Filter Drop);
+      rw (Seq (Filter Drop) (v "p")) (Filter Drop) ]
+    [ Term (Seq (Filter Drop) (v "p")) ].
 
 (* 0 ; p -> 0 *)
 Definition r_seq_filter_drop_r : rule :=
-  datalog_rule:(
-    [ Term(Filter(Drop ( )));
-      rewrite(
-        Seq($p, Filter(Drop ( ))),
-        Filter(Drop ( ))
-      )
-    ]
-    :-
-    [ Term(Seq($p, Filter(Drop ( )))) ]
-  ).
+  normal_rule
+    [ Term (Filter Drop);
+      rw (Seq (v "p") (Filter Drop)) (Filter Drop) ]
+    [ Term (Seq (v "p") (Filter Drop)) ].
 
 (* ================= Idempotence ================= *)
 
 (* a \/ a -> a *)
 Definition r_disj_idempotent : rule :=
-  datalog_rule:(
-    [ Term($a);
-      rewrite(
-        Disj($a, $a),
-        $a
-      )
-    ]
-    :-
-    [ Term(Disj($a, $a)) ]
-  ).
+  normal_rule
+    [ Term (v "a");
+      rw (Disj (v "a") (v "a")) (v "a") ]
+    [ Term (Disj (v "a") (v "a")) ].
 
 (* p + p -> p *)
 Definition r_parallel_idempotent : rule :=
-  datalog_rule:(
-    [ Term($p);
-      rewrite(
-        Parallel($p, $p),
-        $p
-      )
-    ]
-    :-
-    [ Term(Parallel($p, $p)) ]
-  ).
+  normal_rule
+    [ Term (v "p");
+      rw (Parallel (v "p") (v "p")) (v "p") ]
+    [ Term (Parallel (v "p") (v "p")) ].
 
 (* ================= Distributivity ================= *)
 
 (* a /\ (b \/ c) -> (a /\ b) \/ (a /\ c) *)
 Definition r_conj_disj_dist_l : rule :=
-  datalog_rule:(
-    [ Term(Disj(Conj($a, $b), Conj($a, $c)));
-      rewrite(
-        Conj($a, Disj($b, $c)),
-        Disj(Conj($a, $b), Conj($a, $c))
-      )
-    ]
-    :-
-    [ Term(Conj($a, Disj($b, $c))) ]
-  ).
+  normal_rule
+    [ Term (Disj (Conj (v "a") (v "b")) (Conj (v "a") (v "c")));
+      rw (Conj (v "a") (Disj (v "b") (v "c"))) (Disj (Conj (v "a") (v "b")) (Conj (v "a") (v "c"))) ]
+    [ Term (Conj (v "a") (Disj (v "b") (v "c"))) ].
 
 (* (a /\ b) \/ (a /\ c) -> a /\ (b \/ c) *)
 Definition r_conj_disj_dist_r : rule :=
-  datalog_rule:(
-    [ Term(Conj($a, Disj($b, $c)));
-      rewrite(
-        Disj(Conj($a, $b), Conj($a, $c)),
-        Conj($a, Disj($b, $c))
-      )
-    ]
-    :-
-    [ Term(Disj(Conj($a, $b), Conj($a, $c))) ]
-  ).
+  normal_rule
+    [ Term (Conj (v "a") (Disj (v "b") (v "c")));
+      rw (Disj (Conj (v "a") (v "b")) (Conj (v "a") (v "c"))) (Conj (v "a") (Disj (v "b") (v "c"))) ]
+    [ Term (Disj (Conj (v "a") (v "b")) (Conj (v "a") (v "c"))) ].
 
 (* ================= Boolean Algebra Axioms ================= *)
 
 (* a \/ 1 -> 1 *)
 Definition r_disj_id_plus : rule :=
-  datalog_rule:(
-    [ Term(Id ( ));
-      rewrite(
-        Disj($a, Id ( )),
-        Id ( )
-      )
-    ]
-    :-
-    [ Term(Disj($a, Id ( ))) ]
-  ).
+  normal_rule
+    [ Term Id;
+      rw (Disj (v "a") Id) Id ]
+    [ Term (Disj (v "a") Id) ].
 
 (* a \/ ~a -> 1 *)
 Definition r_disj_not : rule :=
-  datalog_rule:(
-    [ Term(Id ( ));
-      rewrite(
-        Disj($a, Not($a)),
-        Id ( )
-      )
-    ]
-    :-
-    [ Term(Disj($a, Not($a))) ]
-  ).
+  normal_rule
+    [ Term Id;
+      rw (Disj (v "a") (Not (v "a"))) Id ]
+    [ Term (Disj (v "a") (Not (v "a"))) ].
 
 (* a /\ ~a -> 0 *)
 Definition r_conj_not : rule :=
-  datalog_rule:(
-    [ Term(Drop ( ));
-      rewrite(
-        Conj($a, Not($a)),
-        Drop ( )
-      )
-    ]
-    :-
-    [ Term(Conj($a, Not($a))) ]
-  ).
+  normal_rule
+    [ Term Drop;
+      rw (Conj (v "a") (Not (v "a"))) Drop ]
+    [ Term (Conj (v "a") (Not (v "a"))) ].
 
 (* ================= Packet / Sequential Axioms ================= *)
 
-(* f1 := n1 ; f2 := n2 -> f2 := n2 ; f1 := n1 when f1 != f2*)
+(* f1 := n1 ; f2 := n2 -> f2 := n2 ; f1 := n1 when f1 != f2 *)
 (* TODO encode the NEQ for f1 and f2 *)
 Definition r_mod_comm : rule :=
-  datalog_rule:(
-    [ Term(Seq(Assn($f2, $n2), Assn($f1, $n1)));
-      rewrite(
-        Seq(Assn($f1, $n1), Assn($f2, $n2)),
-        Seq(Assn($f2, $n2), Assn($f1, $n1))
-      )
-    ]
-    :-
-    [ Term(Seq(Assn($f1, $n1), Assn($f2, $n2))) ]
-  ).
+  normal_rule
+    [ Term (Seq (Assn (v "f2") (v "n2")) (Assn (v "f1") (v "n1")));
+      rw (Seq (Assn (v "f1") (v "n1")) (Assn (v "f2") (v "n2")))
+         (Seq (Assn (v "f2") (v "n2")) (Assn (v "f1") (v "n1"))) ]
+    [ Term (Seq (Assn (v "f1") (v "n1")) (Assn (v "f2") (v "n2"))) ].
 
 (* f1 := n1 ; f2 == n2 -> f2 == n2 ; f1 := n1 when f2 != f1 *)
 Definition r_mod_filter_comm1 : rule :=
-  datalog_rule:(
-    [ Term(Seq(Assn($f1, $n1), Filter(Match($f2, $n2))));
-      rewrite(
-        Seq(Filter(Match($f2, $n2)), Assn($f1, $n1)),
-        Seq(Assn($f1, $n1), Filter(Match($f2, $n2)))
-      )
-    ]
-    :-
-    [ Term(Seq(Assn($f1, $n1), Filter(Match($f2, $n2)))) ]
-  ).
+  normal_rule
+    [ Term (Seq (Assn (v "f1") (v "n1")) (Filter (Match (v "f2") (v "n2"))));
+      rw (Seq (Filter (Match (v "f2") (v "n2"))) (Assn (v "f1") (v "n1")))
+         (Seq (Assn (v "f1") (v "n1")) (Filter (Match (v "f2") (v "n2")))) ]
+    [ Term (Seq (Assn (v "f1") (v "n1")) (Filter (Match (v "f2") (v "n2")))) ].
 
 (* f1 == n1 ; f2 := n2 -> f2 := n2 ; f1 == n1 when f2 != f1 *)
 Definition r_mod_filter_comm2 : rule :=
-  datalog_rule:(
-    [ Term(Seq(Filter(Match($f1, $n1)), Assn($f2, $n2)));
-      rewrite(
-        Seq(Assn($f2, $n2), Filter(Match($f1, $n1))),
-        Seq(Filter(Match($f1, $n1)), Assn($f2, $n2))
-      )
-    ]
-    :-
-    [ Term(Seq(Filter(Match($f1, $n1)), Assn($f2, $n2))) ]
-  ).
+  normal_rule
+    [ Term (Seq (Filter (Match (v "f1") (v "n1"))) (Assn (v "f2") (v "n2")));
+      rw (Seq (Assn (v "f2") (v "n2")) (Filter (Match (v "f1") (v "n1"))))
+         (Seq (Filter (Match (v "f1") (v "n1"))) (Assn (v "f2") (v "n2"))) ]
+    [ Term (Seq (Filter (Match (v "f1") (v "n1"))) (Assn (v "f2") (v "n2"))) ].
 
 (* f := n ; f == n -> f := n *)
 Definition r_mod_filter : rule :=
-  datalog_rule:(
-    [ Term(Assn($f, $n));
-      rewrite(
-        Seq(Assn($f, $n), Filter(Match($f, $n))),
-        Assn($f, $n)
-      )
-    ]
-    :-
-    [ Term(Seq(Assn($f, $n), Filter(Match($f, $n)))) ]
-  ).
+  normal_rule
+    [ Term (Assn (v "f") (v "n"));
+      rw (Seq (Assn (v "f") (v "n")) (Filter (Match (v "f") (v "n")))) (Assn (v "f") (v "n")) ]
+    [ Term (Seq (Assn (v "f") (v "n")) (Filter (Match (v "f") (v "n")))) ].
 
 (* f == n ; f := n -> f == n *)
 Definition r_filter_mod : rule :=
-  datalog_rule:(
-    [ Term(Filter(Match($f, $n)));
-      rewrite(
-        Seq(Filter(Match($f, $n)), Assn($f, $n)),
-        Filter(Match($f, $n))
-      )
-    ]
-    :-
-    [ Term(Seq(Filter(Match($f, $n)), Assn($f, $n))) ]
-  ).
+  normal_rule
+    [ Term (Filter (Match (v "f") (v "n")));
+      rw (Seq (Filter (Match (v "f") (v "n"))) (Assn (v "f") (v "n"))) (Filter (Match (v "f") (v "n"))) ]
+    [ Term (Seq (Filter (Match (v "f") (v "n"))) (Assn (v "f") (v "n"))) ].
 
 (* f == n1 ; f == n2 -> 0 when n1 != n2 *)
 (* TODO encode the NEQ for n1 and n2 *)
 Definition r_filter_contradiction : rule :=
-  datalog_rule:(
-    [ Term(Filter(Drop ( )));
-      rewrite(
-        Seq(Filter(Match($f, $n1)), Filter(Match($f, $n2))),
-        Filter(Drop ( ))
-      )
-    ]
-    :-
-    [ Term(Seq(Filter(Match($f, $n1)), Filter(Match($f, $n2)))) ]
-  ).
+  normal_rule
+    [ Term (Filter Drop);
+      rw (Seq (Filter (Match (v "f") (v "n1"))) (Filter (Match (v "f") (v "n2")))) (Filter Drop) ]
+    [ Term (Seq (Filter (Match (v "f") (v "n1"))) (Filter (Match (v "f") (v "n2")))) ].
 
 (* f := n ; f := n -> f := n *)
 Definition r_twice_mod : rule :=
-  datalog_rule:(
-    [ Term(Assn($f, $n));
-      rewrite(
-        Seq(Assn($f, $n), Assn($f, $n)),
-        Assn($f, $n)
-      )
-    ]
-    :-
-    [ Term(Seq(Assn($f, $n), Assn($f, $n))) ]
-  ).
+  normal_rule
+    [ Term (Assn (v "f") (v "n"));
+      rw (Seq (Assn (v "f") (v "n")) (Assn (v "f") (v "n"))) (Assn (v "f") (v "n")) ]
+    [ Term (Seq (Assn (v "f") (v "n")) (Assn (v "f") (v "n"))) ].
 
 (* ================= Equality Between Algebras ================= *)
 
 (* a \/ b -> Filter a + Filter b *)
 Definition r_filter_disj : rule :=
-  datalog_rule:(
-    [ Term(Parallel(Filter($a), Filter($b)));
-      rewrite(
-        Filter(Disj($a, $b)),
-        Parallel(Filter($a), Filter($b))
-      )
-    ]
-    :-
-    [ Term(Filter(Disj($a, $b))) ]
-  ).
+  normal_rule
+    [ Term (Parallel (Filter (v "a")) (Filter (v "b")));
+      rw (Filter (Disj (v "a") (v "b"))) (Parallel (Filter (v "a")) (Filter (v "b"))) ]
+    [ Term (Filter (Disj (v "a") (v "b"))) ].
 
 (* Filter a + Filter b -> Filter (a \/ b) *)
 Definition r_parallel_filter : rule :=
-  datalog_rule:(
-    [ Term(Filter(Disj($a, $b)));
-      rewrite(
-        Parallel(Filter($a), Filter($b)),
-        Filter(Disj($a, $b))
-      )
-    ]
-    :-
-    [ Term(Parallel(Filter($a), Filter($b))) ]
-  ).
+  normal_rule
+    [ Term (Filter (Disj (v "a") (v "b")));
+      rw (Parallel (Filter (v "a")) (Filter (v "b"))) (Filter (Disj (v "a") (v "b"))) ]
+    [ Term (Parallel (Filter (v "a")) (Filter (v "b"))) ].
 
 (* Filter(a) ; Filter(b) -> Filter(a /\ b) *)
 Definition r_filter_conj : rule :=
-  datalog_rule:(
-    [ Term(Filter(Conj($a, $b)));
-      rewrite(
-        Seq(Filter($a), Filter($b)),
-        Filter(Conj($a, $b))
-      )
-    ]
-    :-
-    [ Term(Seq(Filter($a), Filter($b))) ]
-  ).
+  normal_rule
+    [ Term (Filter (Conj (v "a") (v "b")));
+      rw (Seq (Filter (v "a")) (Filter (v "b"))) (Filter (Conj (v "a") (v "b"))) ]
+    [ Term (Seq (Filter (v "a")) (Filter (v "b"))) ].
 
-(* Filter(a) ; Filter(b) -> Filter(a /\ b) *)
+(* Filter(a /\ b) -> Filter(a) ; Filter(b) *)
 Definition r_seq_filter : rule :=
-  datalog_rule:(
-    [ Term(Seq(Filter($a), Filter($b)));
-      rewrite(
-        Filter(Conj($a, $b)),
-        Seq(Filter($a), Filter($b))
-      )
-    ]
-    :-
-    [ Term(Seq(Filter($a), Filter($b))) ]
-  ).
+  normal_rule
+    [ Term (Seq (Filter (v "a")) (Filter (v "b")));
+      rw (Filter (Conj (v "a") (v "b"))) (Seq (Filter (v "a")) (Filter (v "b"))) ]
+    [ Term (Seq (Filter (v "a")) (Filter (v "b"))) ].
 
 Definition r_backwards_congruence : rule :=
-  datalog_rule:(
-    [ rewrite($a, $b) ]
-    :-
-    [ rewrite(Filter($a), Filter($b)) ]
-  ).
+  normal_rule
+    [ rw (v "a") (v "b") ]
+    [ rw (Filter (v "a")) (Filter (v "b")) ].
 
 Definition r_rewrite_transitive : rule :=
-  datalog_rule:(
-    [ rewrite($a, $c) ]
-    :-
-    [ rewrite($a, $b);
-      rewrite($b, $c)
-    ]
-  ).
+  normal_rule
+    [ rw (v "a") (v "c") ]
+    [ rw (v "a") (v "b");
+      rw (v "b") (v "c") ].
 
 (* ================= Term Closure Rules ================= *)
 
 (* If Disj(a, b) is a term, then a and b are terms *)
 Definition r_disj_subterms : rule :=
-  datalog_rule:(
-    [ Term($a); Term($b) ]
-    :-
-    [ Term(Disj($a, $b)) ]
-  ).
+  normal_rule
+    [ Term (v "a"); Term (v "b") ]
+    [ Term (Disj (v "a") (v "b")) ].
 
 (* If Conj(a, b) is a term, then a and b are terms *)
 Definition r_conj_subterms : rule :=
-  datalog_rule:(
-    [ Term($a); Term($b) ]
-    :-
-    [ Term(Conj($a, $b)) ]
-  ).
+  normal_rule
+    [ Term (v "a"); Term (v "b") ]
+    [ Term (Conj (v "a") (v "b")) ].
 
 (* If Seq(p, q) is a term, then p and q are terms *)
 Definition r_seq_subterms : rule :=
-  datalog_rule:(
-    [ Term($p); Term($q) ]
-    :-
-    [ Term(Seq($p, $q)) ]
-  ).
+  normal_rule
+    [ Term (v "p"); Term (v "q") ]
+    [ Term (Seq (v "p") (v "q")) ].
 
 (* If Parallel(p, q) is a term, then p and q are terms *)
 Definition r_parallel_subterms : rule :=
-  datalog_rule:(
-    [ Term($p); Term($q) ]
-    :-
-    [ Term(Parallel($p, $q)) ]
-  ).
+  normal_rule
+    [ Term (v "p"); Term (v "q") ]
+    [ Term (Parallel (v "p") (v "q")) ].
 
 (* If Filter(a) is a term, then a is a term *)
 Definition r_filter_subterm : rule :=
-  datalog_rule:(
-    [ Term($a) ]
-    :-
-    [ Term(Filter($a)) ]
-  ).
+  normal_rule
+    [ Term (v "a") ]
+    [ Term (Filter (v "a")) ].
 
 (* If Not(a) is a term, then a is a term *)
 Definition r_not_subterm : rule :=
-  datalog_rule:(
-    [ Term($a) ]
-    :-
-    [ Term(Not($a)) ]
-  ).
+  normal_rule
+    [ Term (v "a") ]
+    [ Term (Not (v "a")) ].
 
 
 (* ================= Program ================= *)

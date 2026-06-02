@@ -1,4 +1,6 @@
-From Stdlib Require Import Strings.String List.
+(* ATL to Datalog broken so we're skipping for now *)
+
+(* From Stdlib Require Import Strings.String List.
 From Datalog Require Import Datalog FancyNotations CompilerExamples.
 From DatalogRocq Require Import ATLDatalogParams DependencyGenerator.
 Import ListNotations.
@@ -45,4 +47,4 @@ Compute get_rule_dependencies
         (nth 0 datalog_matmul empty_rule).
 Compute get_program_dependencies_flat datalog_matmul.
 Compute prune_empty_concl_rules datalog_matmul.
-Print datalog_matmul.
+Print datalog_matmul. *)

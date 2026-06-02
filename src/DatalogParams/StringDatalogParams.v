@@ -12,8 +12,7 @@ Definition T := string.
 Definition rule := Datalog.rule rel var fn aggregator.
 Definition program := list rule.
 Definition expr := Datalog.expr var fn.
-Definition fact := Datalog.fact rel var fn.
-Definition agg_expr := Datalog.agg_expr rel var fn aggregator.
+Definition fact := Datalog.clause rel var fn.
 
 (* Equality *)
 Definition var_eqb : var -> var -> bool := String.eqb.
