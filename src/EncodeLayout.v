@@ -51,12 +51,9 @@ Context {lowered_layout_map : map.map node_id lowered_program}.
 Definition fact_locations := list (rel * list node_id)%type.
 Definition lowered_fact_locations := list (rel_id * list node_id)%type.
 
-Record node_info := {
-  nid : node_id;
-  nprogram : hardware_program;
-  nforwarding : forwarding_table;
-  ntries : list trie;
-}.
+(* [node_info] now lives in [DistributedHardwareProgram] (the distributed AST); this is the
+   compiler's view of it, with the topology's [node_id] and forwarding-table map fixed. *)
+Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 Context {node_info_map : map.map node_id node_info}.
 
