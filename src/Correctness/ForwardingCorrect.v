@@ -6,7 +6,7 @@
 
 From Stdlib Require Import List Bool Lia PeanoNat.
 From coqutil Require Import Map.Interface Map.Properties.
-From DatalogRocq Require Import DistributedHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
+From DatalogRocq Require Import DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
 Import ListNotations.
 
 Section ForwardingCorrect.
@@ -28,10 +28,10 @@ Context {node_ftable_map : map.map node_id forwarding_table}
         {node_ftable_map_ok : map.ok node_ftable_map}.
 
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
-Notation get_node_ftable := (@DistributedHardwareCompiler.get_node_ftable node_id forwarding_table node_ftable_map).
-Notation add_dest_if_absent := (@DistributedHardwareCompiler.add_dest_if_absent node_id node_id_eqb).
-Notation add_trie_dest := (@DistributedHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
-Notation add_path := (@DistributedHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
+Notation get_node_ftable := (@DistributedDatalogToHardwareCompiler.get_node_ftable node_id forwarding_table node_ftable_map).
+Notation add_dest_if_absent := (@DistributedDatalogToHardwareCompiler.add_dest_if_absent node_id node_id_eqb).
+Notation add_trie_dest := (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
+Notation add_path := (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 
 (* the [DestEdge] targets among a destination list *)
 Definition dest_edges (ds : list destination) : list node_id :=
@@ -59,14 +59,14 @@ Proof. reflexivity. Qed.
 Lemma dest_edges_mono (d : destination) (ds : list destination) (x : node_id) :
   In x (dest_edges ds) -> In x (dest_edges (add_dest_if_absent d ds)).
 Proof.
-  intros H. unfold DistributedHardwareCompiler.add_dest_if_absent.
+  intros H. unfold DistributedDatalogToHardwareCompiler.add_dest_if_absent.
   destruct (existsb _ ds); [exact H|]. destruct d; cbn; [right|]; exact H.
 Qed.
 
 Lemma dest_edges_add_edge (m : node_id) (ds : list destination) :
   In m (dest_edges (add_dest_if_absent (DistributedHardwareProgram.DestEdge m) ds)).
 Proof.
-  unfold DistributedHardwareCompiler.add_dest_if_absent.
+  unfold DistributedDatalogToHardwareCompiler.add_dest_if_absent.
   destruct (existsb _ ds) eqn:E.
   - (* DestEdge m already present *)
     apply existsb_exists in E. destruct E as [d [Hin Heq]].
@@ -93,7 +93,7 @@ Lemma node_rel_dests_put_diff (ftables : node_ftable_map) (n node : node_id)
   n <> node ->
   node_rel_dests (map.put ftables n nf) node rel = node_rel_dests ftables node rel.
 Proof.
-  intros Hne. unfold node_rel_dests, DistributedHardwareCompiler.get_node_ftable.
+  intros Hne. unfold node_rel_dests, DistributedDatalogToHardwareCompiler.get_node_ftable.
   rewrite map.get_put_diff by (intro; subst; apply Hne; reflexivity). reflexivity.
 Qed.
 
@@ -102,7 +102,7 @@ Lemma node_rel_dests_put_same (ftables : node_ftable_map) (node : node_id)
   node_rel_dests (map.put ftables node nf) node rel =
   match map.get nf rel with Some ds => ds | None => [] end.
 Proof.
-  unfold node_rel_dests, DistributedHardwareCompiler.get_node_ftable. rewrite map.get_put_same. reflexivity.
+  unfold node_rel_dests, DistributedDatalogToHardwareCompiler.get_node_ftable. rewrite map.get_put_same. reflexivity.
 Qed.
 
 (* the rel-dests at [node0] right after [putting] a fresh value [V] for [rel] there is exactly [V] *)
@@ -139,7 +139,7 @@ Lemma add_trie_mono (node0 : node_id) (rel : rel_id) (ninfos : list node_info)
   has_fwd_edge ftables node rel0 m ->
   has_fwd_edge (add_trie_dest node0 rel ftables ninfos) node rel0 m.
 Proof.
-  intros Hhas. unfold DistributedHardwareCompiler.add_trie_dest_to_forwarding_table.
+  intros Hhas. unfold DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table.
   apply (has_fwd_edge_put_relupdate ftables node0 rel
            (fun ds => fold_left (fun acc t => add_dest_if_absent
                         (DistributedHardwareProgram.DestTrie t.(tid)) acc) _ ds)).
@@ -215,14 +215,14 @@ Lemma dest_edges_add_edge_inv (next : node_id) (ds : list destination) (m : node
   In m (dest_edges (add_dest_if_absent (DistributedHardwareProgram.DestEdge next) ds)) ->
   m = next \/ In m (dest_edges ds).
 Proof.
-  unfold DistributedHardwareCompiler.add_dest_if_absent. destruct (existsb _ ds).
+  unfold DistributedDatalogToHardwareCompiler.add_dest_if_absent. destruct (existsb _ ds).
   - intros H. right. exact H.
   - cbn. intros [<- | H]; [left; reflexivity | right; exact H].
 Qed.
 
 Lemma dest_edges_add_trie_eq (t : trie_id) (ds : list destination) :
   dest_edges (add_dest_if_absent (DistributedHardwareProgram.DestTrie t) ds) = dest_edges ds.
-Proof. unfold DistributedHardwareCompiler.add_dest_if_absent. destruct (existsb _ ds); reflexivity. Qed.
+Proof. unfold DistributedDatalogToHardwareCompiler.add_dest_if_absent. destruct (existsb _ ds); reflexivity. Qed.
 
 Lemma dest_edges_fold_trie_eq {A : Type} (f : A -> trie_id) (l : list A) (ds : list destination) :
   dest_edges (fold_left (fun acc t => add_dest_if_absent (DistributedHardwareProgram.DestTrie (f t)) acc) l ds) = dest_edges ds.
@@ -237,7 +237,7 @@ Lemma add_trie_edges (node0 : node_id) (rel : rel_id) (ninfos : list node_info)
   has_fwd_edge (add_trie_dest node0 rel ftables ninfos) node rel0 m ->
   has_fwd_edge ftables node rel0 m.
 Proof.
-  unfold has_fwd_edge, DistributedHardwareCompiler.add_trie_dest_to_forwarding_table. cbv zeta. intros H.
+  unfold has_fwd_edge, DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table. cbv zeta. intros H.
   destruct (node_id_eqb_spec node node0) as [->|Hne].
   - destruct (Nat.eqb_spec rel0 rel) as [->|Hrne].
     + rewrite node_rel_dests_put_self in H. rewrite dest_edges_fold_trie_eq in H. exact H.
@@ -278,7 +278,7 @@ Definition ftable_edges_sound (g : node_graph) (ftables : node_ftable_map) : Pro
 (* the empty table is edge-sound (it records nothing) *)
 Lemma ftable_edges_sound_empty (g : node_graph) : ftable_edges_sound g map.empty.
 Proof.
-  intros node rel m H. unfold has_fwd_edge, node_rel_dests, DistributedHardwareCompiler.get_node_ftable in H.
+  intros node rel m H. unfold has_fwd_edge, node_rel_dests, DistributedDatalogToHardwareCompiler.get_node_ftable in H.
   rewrite map.get_empty in H. rewrite map.get_empty in H. cbn in H. destruct H.
 Qed.
 

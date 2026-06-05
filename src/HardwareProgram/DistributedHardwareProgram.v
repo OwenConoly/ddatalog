@@ -33,7 +33,7 @@ Context {forwarding_table : map.map rel_id (list destination)}.
 
 (* A compiled node's program: its trie-join rules ([nprogram]), the tries they read ([ntries]),
    and the forwarding table ([nforwarding]).  This is the per-node piece of the *distributed*
-   hardware program; the compiler ([DistributedHardwareCompiler]) is what produces it. *)
+   hardware program; the compiler ([DistributedDatalogToHardwareCompiler]) is what produces it. *)
 Record node_info := {
   nid : node_id;
   nprogram : hardware_program;

@@ -312,6 +312,6 @@ Qed.
 
 (* (The grid's bespoke soundness/completeness convenience theorems were removed: they duplicated
    the generic [ConnectedTopology] streaming theorems -- use [grid_good_network_streaming] with
-   [ConnectedTopology]/[DistributedHardwareCompilerCorrect.compile_checked_correct] instead.) *)
+   [ConnectedTopology]/[DistributedDatalogToHardwareCompilerCorrect.compile_checked_correct] instead.) *)
 
 End GridLayout.
