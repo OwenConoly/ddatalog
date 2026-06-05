@@ -1,6 +1,6 @@
 From Stdlib Require Import List Bool Lia.
 From Datalog Require Import Datalog.
-From DatalogRocq Require Import DistributedDatalog Graph GridGraph ConnectedTopology.
+From DatalogRocq Require Import DistributedDatalog Topologies.Graph GridGraph ConnectedTopology.
 From coqutil Require Import Map.Interface.
 Import ListNotations.
 

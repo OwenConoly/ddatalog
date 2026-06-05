@@ -22,7 +22,7 @@
 From Datalog Require Import Datalog.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
-From DatalogRocq Require Import HardwareProgram EncodeNode Graph DistributedDatalog.
+From DatalogRocq Require Import HardwareProgram EncodeNode Topologies.Graph DistributedDatalog.
 
 Import ListNotations.
 

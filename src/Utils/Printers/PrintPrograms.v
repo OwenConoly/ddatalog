@@ -2,7 +2,7 @@ From JSON Require Import Encode Printer.
 From Datalog Require Import Datalog (* JSON FancyNotations CompilerExamples ATLToDatalog : broken *).
 From Stdlib Require Import List String.
 Import ListNotations.
-From DatalogRocq Require Import BasicProgram Family Graph (* Matmul : ATL *) NetkatWithoutStar Csda Cspa Po1 Po2 Po3 Po4 Po5 Pointsto Ranpo Reach Tc Trans Triangle X9 Unitprop1.
+From DatalogRocq Require Import BasicProgram Family Examples.Programs.Graph (* Matmul : ATL *) NetkatWithoutStar Csda Cspa Po1 Po2 Po3 Po4 Po5 Pointsto Ranpo Reach Tc Trans Triangle X9 Unitprop1.
 
 (* Local JSON encoders for the *source* datalog AST, decoupled from the broken [Datalog.JSON]
    submodule file.  (Mirrors how [PrintHardwareEncoding] defines encoders for the hardware AST.) *)

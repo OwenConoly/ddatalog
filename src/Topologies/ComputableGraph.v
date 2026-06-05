@@ -1,6 +1,6 @@
 From coqutil Require Import Map.Interface.
 From Stdlib Require Import List Bool Lia PeanoNat.
-From DatalogRocq Require Import Graph.
+From DatalogRocq Require Import Topologies.Graph.
 Import ListNotations.
 Import BoolNotations.
 
