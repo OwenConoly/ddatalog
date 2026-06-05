@@ -10,7 +10,7 @@
 
 From Stdlib Require Import List Bool.
 From Datalog Require Import Datalog.
-From DatalogRocq Require Import DistributedDatalog Graph.
+From DatalogRocq Require Import DistributedDatalog Topologies.Graph.
 From coqutil Require Import Map.Interface.
 Import ListNotations.
 

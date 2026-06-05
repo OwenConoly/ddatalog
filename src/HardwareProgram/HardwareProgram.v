@@ -1,7 +1,7 @@
 From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
-From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Graph ComputableGraph EqbSpec.
+From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Topologies.Graph ComputableGraph EqbSpec.
 
 Open Scope bool_scope.
 Import ListNotations.

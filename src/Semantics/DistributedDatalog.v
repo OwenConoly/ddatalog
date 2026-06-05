@@ -1,7 +1,7 @@
 From Stdlib Require Import List Bool.
 From Datalog Require Import Datalog.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
-From DatalogRocq Require Import Graph.
+From DatalogRocq Require Import Topologies.Graph.
 
 Import ListNotations.
 

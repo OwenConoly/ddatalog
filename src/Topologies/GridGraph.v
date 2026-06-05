@@ -1,5 +1,5 @@
 From Stdlib Require Import List Bool ZArith.Znat Lia.
-From DatalogRocq Require Import Graph.
+From DatalogRocq Require Import Topologies.Graph.
 From coqutil Require Import Datatypes.List.
 Import ListNotations.
 
