@@ -1,5 +1,5 @@
 From Stdlib Require Import List.
-From DatalogRocq Require Import Examples.Programs.Graph EncodeLayout StringGridCompiler StringDatalogParams.
+From DatalogRocq Require Import Examples.Programs.Graph DistributedHardwareCompiler StringGridCompiler StringDatalogParams.
 Import ListNotations.
 
 (* Compilation *)

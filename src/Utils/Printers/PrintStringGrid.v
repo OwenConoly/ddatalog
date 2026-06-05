@@ -1,7 +1,7 @@
 From JSON Require Import Encode Printer.
 From Stdlib Require Import String List ZArith.
 From coqutil Require Import Map.Interface Result.
-From DatalogRocq Require Import EncodeLayout PrintHardwareEncoding.
+From DatalogRocq Require Import DistributedHardwareCompiler PrintHardwareEncoding.
 From DatalogRocq Require Import StringDatalogParams GridTopology SortedListNat.
 From DatalogRocq Require Import CompiledFamily CompiledBasicProgram CompiledGraph CsdaCompiler CspaCompiler Po1Compiler Po2Compiler Po3Compiler Po4Compiler Po5Compiler PointstoCompiler RanpoCompiler ReachCompiler TcCompiler TransCompiler TriangleCompiler X9Compiler Unitprop1Compiler.
 

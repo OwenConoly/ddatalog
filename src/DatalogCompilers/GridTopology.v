@@ -9,7 +9,7 @@
    with no extra encoding.  This works for grids of any dimension, not just 2D. *)
 
 From Stdlib Require Import List ZArith.
-From DatalogRocq Require Import EncodeLayout GridGraph SortedListList SortedListNat ComputableGraph.
+From DatalogRocq Require Import DistributedHardwareCompiler GridGraph SortedListList SortedListNat ComputableGraph.
 From coqutil Require Import Map.Interface.
 Import ListNotations.
 

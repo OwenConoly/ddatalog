@@ -11,7 +11,7 @@ Import ListNotations.
 
 Module Import RM := ResultMonadNotations.
 
-Section EncodeLayout.
+Section DistributedHardwareCompiler.
 
 Context {rel var fn aggregator T : Type}.
 Context {var_eqb : var -> var -> bool} {var_eqb_spec : forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
@@ -878,7 +878,7 @@ Definition compile (layout : layout_map) (fact_producers : fact_locations) (fact
   let ftables := generate_forwarding_table gcontext ninfos g fuel in
   Success (attach_forwarding_tables ninfos ftables).
 
-End EncodeLayout.
+End DistributedHardwareCompiler.
 
 Existing Instance SortedListNat.map.
 From coqutil Require Import SortedListString.

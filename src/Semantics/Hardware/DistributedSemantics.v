@@ -3,10 +3,10 @@
    A hardware network is a [DistributedDatalog.DataflowNetwork] (graph + forwarding + input +
    output + a per-node Datalog program [layout]) augmented with, for each node, its trie table
    and hardware program.  Derivation reuses DistributedDatalog's [network_prop], but a node
-   fires a *hardware* rule ([EncodeNode.hw_rule_impl]) instead of [Datalog.rule_impl].
+   fires a *hardware* rule ([NodeSemantics.hw_rule_impl]) instead of [Datalog.rule_impl].
 
    MAIN RESULT ([hw_dist_correct], PROVED): if on every node the hardware rules match the
-   node's Datalog rules ([EncodeNode.hw_rule_matches], pointwise) and the network is well-formed
+   node's Datalog rules ([NodeSemantics.hw_rule_matches], pointwise) and the network is well-formed
    ([DistributedDatalog.good_network] -- the side condition matching DistributedDatalog), then
    the hardware network derives exactly the facts the global Datalog program derives:
 
@@ -17,16 +17,16 @@
    DistributedDatalog network derive the same facts; then DistributedDatalog's already-proved
    [soundness]/[completeness] close it.
 
-   Discharging the per-node matching (from a compiled node) is [EncodeLayoutCorrect]'s job. *)
+   Discharging the per-node matching (from a compiled node) is [DistributedHardwareCompilerCorrect]'s job. *)
 
 From Datalog Require Import Datalog.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
-From DatalogRocq Require Import HardwareProgram EncodeNode Topologies.Graph DistributedDatalog.
+From DatalogRocq Require Import HardwareProgram NodeSemantics Topologies.Graph DistributedDatalog.
 
 Import ListNotations.
 
-Section EncodeDistributed.
+Section DistributedSemantics.
 
 (* Relations/functions are numeric ids at this layer; only variables and values are abstract. *)
 Context {var aggregator T : Type}.
@@ -174,4 +174,4 @@ Corollary hw_dist_implements (hn : HwNetwork) (program : dl_program) (Q : dl_fac
   node_rules_match hn -> good_network_streaming (hw_dnet hn) program Q -> dist_implements hn program Q.
 Proof. exact (hw_dist_correct hn program Q). Qed.
 
-End EncodeDistributed.
+End DistributedSemantics.

@@ -8,8 +8,8 @@ Import ListNotations.
 
 (* The abstract syntax of hardware-readable datalog programs.
 
-   This is the shared vocabulary used by the compiler (EncodeLayout), the
-   single-node semantics (EncodeNode), and the printers.  It is split into
+   This is the shared vocabulary used by the compiler (DistributedHardwareCompiler), the
+   single-node semantics (NodeSemantics), and the printers.  It is split into
    three layers:
 
    - [lowered_*]    : a datalog program with relations/functions renamed to
@@ -52,7 +52,7 @@ Record trie := {
 
    The lowered aggregator is the source's [aggregator] (NOT [unit]), so a [lowered_rule] is
    literally the rule the trie-join semantics verifies -- no retyping adapter.  Aggregation is
-   still unsupported: the lowering ([EncodeLayout.global_rename_rule]/[compile_rule]) only ever
+   still unsupported: the lowering ([DistributedHardwareCompiler.global_rename_rule]/[compile_rule]) only ever
    emits [normal_rule]s and ERRORS (result monad) on [meta_rule]/[agg_rule], so a lowered program
    is normal by construction.  A lowered atom is a [Datalog.clause] ([clause_rel]/[clause_args]);
    a ground lowered fact is a [Datalog.fact] ([normal_fact]). *)

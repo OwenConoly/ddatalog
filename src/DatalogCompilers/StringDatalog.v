@@ -3,7 +3,7 @@
    map instances they need.  This is entirely independent of the topology (node ids / graph):
    combine it with a topology backend (e.g. GridTopology) to get a concrete compiler. *)
 
-From DatalogRocq Require Import EncodeLayout StringDatalogParams.
+From DatalogRocq Require Import DistributedHardwareCompiler StringDatalogParams.
 From coqutil Require Import Map.Interface Map.SortedListString.
 Import StringDatalogParams.
 

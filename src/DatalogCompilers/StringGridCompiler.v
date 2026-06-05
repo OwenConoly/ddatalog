@@ -6,7 +6,7 @@
 
 From Stdlib Require Import List ZArith.
 From Datalog Require Import Datalog.
-From DatalogRocq Require Import EncodeLayout GridTopology StringDatalog StringDatalogParams
+From DatalogRocq Require Import DistributedHardwareCompiler GridTopology StringDatalog StringDatalogParams
   GridGraph SortedListNat DistributedHardwareProgram.
 From coqutil Require Import Map.Interface Result.
 Import ListNotations.
