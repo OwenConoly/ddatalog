@@ -48,14 +48,6 @@ Definition has_fwd_edge (ftables : node_ftable_map) (node : node_id) (rel : rel_
 
 (*----dest_edges facts----*)
 
-Lemma dest_edges_cons_edge (n : node_id) (ds : list destination) :
-  dest_edges (DistributedHardwareProgram.DestEdge n :: ds) = n :: dest_edges ds.
-Proof. reflexivity. Qed.
-
-Lemma dest_edges_cons_trie (t : trie_id) (ds : list destination) :
-  dest_edges (DistributedHardwareProgram.DestTrie t :: ds) = dest_edges ds.
-Proof. reflexivity. Qed.
-
 Lemma dest_edges_mono (d : destination) (ds : list destination) (x : node_id) :
   In x (dest_edges ds) -> In x (dest_edges (add_dest_if_absent d ds)).
 Proof.
