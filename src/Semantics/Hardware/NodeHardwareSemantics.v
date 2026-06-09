@@ -182,13 +182,20 @@ Definition hw_rule_impl (tries : list trie) (hr : hardware_rule)
     query_sat tries hr.(hhyps) vals hyps' /\
     exists jo, In jo hr.(hconcls) /\ join_output_fact vals jo = Some f.
 
+(* THE SINGLE-NODE RUN: from a set of input/base facts [inputs] delivered to this node, the hardware
+   program [hp] (with trie table [tries]) derives more facts -- the proof-tree closure where every
+   internal node fires some hardware rule and every leaf is an input fact.  "Run the node's program
+   on its inputs."  This is the per-node building block of the distributed operational semantics. *)
+Definition node_run (tries : list trie) (hp : hardware_program) (inputs : dl_fact -> Prop)
+  : dl_fact -> Prop :=
+  pftree (fun f hyps' => Exists (fun hr => hw_rule_impl tries hr f hyps') hp) inputs.
+
 (* The proof-tree closure, mirroring [Datalog.prog_impl] with an empty EDB
    ([Q := fun _ => False]): a fact is hardware-derivable iff it is the root of a
-   proof tree whose every node fires some hardware rule. *)
+   proof tree whose every node fires some hardware rule.  ([node_run] with no inputs.) *)
 Definition hw_prog_impl_fact (tries : list trie) (hp : hardware_program)
   : dl_fact -> Prop :=
-  pftree (fun f hyps' => Exists (fun hr => hw_rule_impl tries hr f hyps') hp)
-         (fun _ => False).
+  node_run tries hp (fun _ => False).
 
 (* [pftree] weakening (the new [Datalog] drops the old [pftree_weaken]; we reprove
    it from [pftree_ind]): replacing the step relation by a weaker one preserves trees. *)

@@ -1,28 +1,23 @@
-(* Distributed hardware semantics, and its correctness against [DistributedDatalog].
+(* OPERATIONAL distributed hardware semantics: a standalone small-step machine that just RUNS the
+   compiled program.  Each step either delivers an EDB fact at an input node, runs a node's hardware
+   program over the facts it currently holds ([NodeHardwareSemantics.node_run]), or forwards a fact
+   to a neighbour per that node's forwarding table.  [run_ninfos] runs the compiler's returned
+   [ninfos] directly.
 
-   A hardware network is a [DistributedDatalog.DataflowNetwork] (graph + forwarding + input +
-   output + a per-node Datalog program [layout]) augmented with, for each node, its trie table
-   and hardware program.  Derivation reuses DistributedDatalog's [network_prop], but a node
-   fires a *hardware* rule ([NodeHardwareSemantics.hw_rule_impl]) instead of [Datalog.rule_impl].
+   This file deliberately does NOT depend on [DistributedDatalog]: the operational semantics is
+   defined purely from the compiled data (per-node program / tries / forwarding) plus the runtime
+   EDB and output sinks -- no graph, no datalog layout, no reference network.  The equivalence to
+   the declarative [DistributedDatalog]-based semantics (and through it to [Datalog]) is a PROVED
+   theorem, isolated in [HardwareDatalogBridge] (the only file that touches [DistributedDatalog]).
 
-   MAIN RESULT ([hw_dist_correct], PROVED): if on every node the hardware rules match the
-   node's Datalog rules ([NodeHardwareSemantics.hw_rule_matches], pointwise) and the network is well-formed
-   ([DistributedDatalog.good_network] -- the side condition matching DistributedDatalog), then
-   the hardware network derives exactly the facts the global Datalog program derives:
-
-       hw_net_prog_impl_fact hn f  <->  DistributedDatalog.prog_impl_fact program f
-
-   Proof: the per-rule bridge makes [hw_net_step] and DistributedDatalog's [network_step] agree
-   pointwise; [pftree_weaken] lifts that to the whole derivation, so the hardware network and the
-   DistributedDatalog network derive the same facts; then DistributedDatalog's already-proved
-   [soundness]/[completeness] close it.
-
-   Discharging the per-node matching (from a compiled node) is [DistributedDatalogToHardwareCompilerCorrect]'s job. *)
+   What lives here: [config]/[cadd], [dstep]/[dreach]/[hw_run_output], [find_ninfo]/[run_ninfos],
+   and the order-independence machinery ([dstep_replay], [dreach_merge], [present_list]) the bridge
+   uses to prove adequacy. *)
 
 From Datalog Require Import Datalog.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
-From DatalogRocq Require Import HardwareProgram NodeHardwareSemantics Topologies.Graph DistributedDatalog.
+From DatalogRocq Require Import HardwareProgram DistributedHardwareProgram NodeHardwareSemantics.
 
 Import ListNotations.
 
@@ -37,141 +32,192 @@ Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 
-Notation dl_rule := (Datalog.rule rel_id var nat aggregator).
-Notation dl_program := (list dl_rule).
-Notation DNet := (@DistributedDatalog.DataflowNetwork rel_id var nat aggregator T node_id).
-Notation nprop := (@DistributedDatalog.network_prop rel_id T node_id).
 (* ground/runtime facts at this (numeric-id) layer *)
 Notation dl_fact := (Datalog.fact rel_id T).
 
-(*----A distributed hardware network----*)
+(*============================================================================*)
+(*  OPERATIONAL hardware semantics: a standalone small-step machine that just  *)
+(*  RUNS the compiled program -- deliver EDB facts, run each node's hardware   *)
+(*  program on what it holds, forward facts along the forwarding table.  Built  *)
+(*  ONLY from the compiled data (per-node program/tries/forwarding) + the       *)
+(*  runtime EDB/sinks -- NO [DistributedDatalog], no graph, no datalog layout.  *)
+(*  Its equivalence to the declarative semantics above is a PROVED theorem.     *)
+(*============================================================================*)
 
-(* The Datalog-level dataflow network [hw_dnet] (graph / forwarding / input / output / the
-   per-node Datalog program [layout]) plus each node's trie table and hardware program. *)
-Record HwNetwork := {
-  hw_dnet  : DNet;
-  hw_tries : node_id -> list trie;
-  hw_prog  : node_id -> hardware_program;
-}.
+(* a configuration: which facts are currently present at which node. *)
+Definition config := node_id -> dl_fact -> Prop.
+Definition cadd (c : config) (n : node_id) (f : dl_fact) : config :=
+  fun n0 f0 => c n0 f0 \/ (n0 = n /\ f0 = f).
 
-(* One derivation step, mirroring [DistributedDatalog.network_step] but with a hardware rule
-   firing ([hw_rule_impl]) in place of [rule_impl]; same [network_prop]. *)
-Inductive hw_net_step (hn : HwNetwork) : nprop -> list nprop -> Prop :=
-| HwInput n f :
-    (hw_dnet hn).(input) n f ->
-    hw_net_step hn (FactOnNode n f) []
-| HwRuleApp n f hr hyps :
-    In hr (hw_prog hn n) ->
-    Forall (fun n' => n' = n) (map fst (get_facts_on_node hyps)) ->
-    hw_rule_impl (hw_tries hn n) hr f (map snd (get_facts_on_node hyps)) ->
-    hw_net_step hn (FactOnNode n f) hyps
-| HwForward n n' f :
-    In n' ((hw_dnet hn).(forward) n (Datalog.rel_of f)) ->
-    hw_net_step hn (FactOnNode n' f) [FactOnNode n f]
-| HwOutputStep n f :
-    (hw_dnet hn).(output) n (Datalog.rel_of f) ->
-    hw_net_step hn (Output n f) [FactOnNode n f].
+Section Run.
+Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
+        (forward : node_id -> rel_id -> list node_id)
+        (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop).
 
-Definition hw_net_pftree (hn : HwNetwork) : nprop -> Prop :=
-  pftree (hw_net_step hn) (fun _ => False).
+(* one operational step: an EDB fact ENTERS at an input node; a node RUNS its hardware program over
+   the facts it currently holds ([node_run]); or a fact is FORWARDED to a neighbour per that node's
+   forwarding table. *)
+Inductive dstep (c : config) : config -> Prop :=
+| dstep_input n f :
+    input n f -> dstep c (cadd c n f)
+| dstep_run n f :
+    node_run (tries n) (prog n) (c n) f -> dstep c (cadd c n f)
+| dstep_forward n n' f :
+    c n f -> In n' (forward n (Datalog.rel_of f)) -> dstep c (cadd c n' f).
 
-Definition hw_net_prog_impl_fact (hn : HwNetwork) : dl_fact -> Prop :=
-  fun f => exists n, hw_net_pftree hn (Output n f).
+(* configurations reachable from the empty configuration by stepping. *)
+Inductive dreach : config -> Prop :=
+| dreach0 : dreach (fun _ _ => False)
+| dreachS c c' : dreach c -> dstep c c' -> dreach c'.
 
-(*----Per-node matching: each node's hardware rules match its Datalog rules----*)
+(* a fact is PRODUCED by the run when some reachable configuration holds it at an output node. *)
+Definition hw_run_output (f : dl_fact) : Prop :=
+  exists n c, dreach c /\ c n f /\ output n (Datalog.rel_of f).
 
-(* The per-rule bridge [hw_rule_matches] is stated against [Datalog.rule_impl env]; in the
-   bare/non-meta fragment that relation is environment-independent on the [normal_fact]
-   conclusions a trie-join produces, so we fix the empty environment here. *)
-Definition node_rules_match (hn : HwNetwork) : Prop :=
-  forall n, Forall2 (hw_rule_matches (hw_tries hn n) (fun _ _ _ => False))
-                    ((hw_dnet hn).(layout) n) (hw_prog hn n).
+End Run.
 
-(* A trie-join always concludes a [normal_fact] (it projects a binding through
-   [join_output_fact]). *)
-Lemma hw_rule_impl_concl_normal (tries : list trie) hr (f : dl_fact) hyps' :
-  hw_rule_impl tries hr f hyps' -> exists R args, f = Datalog.normal_fact R args.
+(*----Running the compiler's output [ninfos] directly----*)
+
+Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
+Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+
+(* read a node's compiled data off the returned [ninfos] (empty default if the node is absent). *)
+Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
+  match List.find (fun ni => node_id_eqb ni.(DistributedHardwareProgram.nid) n) ninfos with
+  | Some ni => ni
+  | None => {| DistributedHardwareProgram.nid := n; DistributedHardwareProgram.nprogram := [];
+               DistributedHardwareProgram.nforwarding := map.empty; DistributedHardwareProgram.ntries := [] |}
+  end.
+
+(* the hardware program / trie read-specs a node runs, read straight off its [node_info]. *)
+Definition node_prog (ninfos : list node_info) (n : node_id) : hardware_program :=
+  (find_ninfo ninfos n).(DistributedHardwareProgram.nprogram).
+Definition node_tries (ninfos : list node_info) (n : node_id) : list trie :=
+  (find_ninfo ninfos n).(DistributedHardwareProgram.ntries).
+
+(* the forwarding function read off [ninfos]: the EDGE destinations a node lists for a relation. *)
+Definition forward_from_ninfos (ninfos : list node_info) (n : node_id) (r : rel_id) : list node_id :=
+  flat_map (fun d => match d with
+                     | DistributedHardwareProgram.DestEdge n' => [n']
+                     | DistributedHardwareProgram.DestTrie _ => [] end)
+           (match map.get (find_ninfo ninfos n).(DistributedHardwareProgram.nforwarding) r with
+            | Some ds => ds | None => [] end).
+
+(* RUN THE COMPILED NETWORK, straight from the compiler output [ninfos]: each node runs [node_prog]
+   over the facts it holds (reading them through [node_tries]) and forwards along [forward_from_ninfos];
+   [input]/[output] are the runtime EDB sources / answer sinks.  [run_ninfos ninfos input output f] is
+   the predicate "the run can park fact [f] at an output node" -- the distributed [hw_run_output] with
+   every node's data sourced from its [node_info].  NO [DistributedDatalog] anywhere in its definition. *)
+Definition run_ninfos (ninfos : list node_info) (input : node_id -> dl_fact -> Prop)
+    (output : node_id -> rel_id -> Prop) : dl_fact -> Prop :=
+  hw_run_output (node_prog ninfos) (node_tries ninfos) (forward_from_ninfos ninfos) input output.
+
+(*============================================================================*)
+(*  ADEQUACY: the operational run [hw_run_output] equals the declarative        *)
+(*  [hw_net_prog_impl_fact].  Monotonicity (queue order doesn't matter) is the  *)
+(*  engine; everything else is two inductions.                                  *)
+(*============================================================================*)
+
+(* [pftree] is monotone in its leaf predicate: more leaves -> more trees. *)
+Lemma pftree_Q_mono {U : Type} (P : U -> list U -> Prop) (Q1 Q2 : U -> Prop) (x : U) :
+  (forall y, Q1 y -> Q2 y) -> pftree P Q1 x -> pftree P Q2 x.
 Proof.
-  intros [_ [vals [_ [jo [_ Hjo]]]]].
-  unfold join_output_fact in Hjo.
-  destruct (fold_right _ _ _) as [out|]; [|discriminate].
-  injection Hjo as <-. eauto.
+  intros Hsub. apply (Datalog.pftree_ind P Q1 (fun x => pftree P Q2 x)).
+  - intros x0 HQ. apply pftree_leaf, Hsub, HQ.
+  - intros x0 l HP _ HR. eapply pftree_step; eassumption.
 Qed.
 
-(* On [normal_fact] conclusions, [rule_impl env] (for any [env]) is exactly DistributedDatalog's
-   environment-free [fires]. *)
-Lemma rule_impl_iff_fires (env : list dl_fact -> rel_id -> list T -> Prop)
-      (r : dl_rule) (f : dl_fact) (hyps : list dl_fact) :
-  (exists R args, f = Datalog.normal_fact R args) ->
-  (Datalog.rule_impl env r f hyps <-> DistributedDatalog.fires r f hyps).
+(* [node_run] inherits leaf-monotonicity: a node run on a bigger input set derives at least as much. *)
+Lemma node_run_mono (tries : list trie) (hp : hardware_program) (Q1 Q2 : dl_fact -> Prop) (f : dl_fact) :
+  (forall g, Q1 g -> Q2 g) -> node_run tries hp Q1 f -> node_run tries hp Q2 f.
+Proof. apply pftree_Q_mono. Qed.
+
+Section Adequacy.
+Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
+        (forward : node_id -> rel_id -> list node_id)
+        (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop).
+
+Notation step  := (dstep prog tries forward input).
+Notation reach := (dreach prog tries forward input).
+
+(* a fact is operationally PRESENT at a node when some reachable config holds it. *)
+Definition present (n : node_id) (f : dl_fact) : Prop := exists c, reach c /\ c n f.
+
+(* MONOTONICITY: any step taken from [c] can be replayed from any larger config [d] -- it adds the
+   same fact and the result still extends [d].  (This is why processing order is immaterial.) *)
+Lemma dstep_replay (c d c' : config) :
+  (forall n f, c n f -> d n f) -> step c c' ->
+  exists d', step d d' /\ (forall n f, c' n f -> d' n f) /\ (forall n f, d n f -> d' n f).
 Proof.
-  intros [R [args ->]]. split.
-  - intros H. inversion H; subst. exists R, args. split; [reflexivity | assumption].
-  - intros [R' [args' [Heq Hnm]]]. injection Heq as <- <-.
-    apply Datalog.simple_rule_impl. assumption.
+  intros Hsub Hstep. inversion Hstep as [n f Hin | n f Hrun | n n' f Hcnf Hfwd]; subst;
+    [ exists (cadd d n f); split; [apply dstep_input; exact Hin |]
+    | exists (cadd d n f); split;
+        [apply dstep_run; exact (node_run_mono (tries n) (prog n) (c n) (d n) f (fun g Hg => Hsub n g Hg) Hrun) |]
+    | exists (cadd d n' f); split;
+        [apply (dstep_forward prog tries forward input d n n' f (Hsub n f Hcnf) Hfwd) |] ];
+    (split; intros n0 f0; unfold cadd; [intros [H|H]; [left; apply Hsub; exact H | right; exact H]
+                                       | intros H; left; exact H]).
 Qed.
 
-(*----Step / derivation correspondence with DistributedDatalog----*)
-
-Lemma step_corr (hn : HwNetwork) (Hm : node_rules_match hn) (x : nprop) (l : list nprop) :
-  hw_net_step hn x l <-> network_step (hw_dnet hn) x l.
+(* DIRECTEDNESS: any two reachable configs have a common reachable extension.  This is the precise
+   sense in which the order facts are processed in does not matter -- two runs can always be merged. *)
+Lemma dreach_merge (c1 c2 : config) :
+  reach c1 -> reach c2 ->
+  exists c, reach c /\ (forall n f, c1 n f -> c n f) /\ (forall n f, c2 n f -> c n f).
 Proof.
-  split; intros H.
-  - inversion H; subst.
-    + apply Input; assumption.
-    + (* HwRuleApp: find the matching datalog rule, then bridge hw_rule_impl -> fires *)
-      destruct (Forall2_exists_r _ _ _ _ (Hm n) H0) as [r [Hin Hmatch]].
-      eapply RuleApp; [exact Hin | assumption |].
-      apply (rule_impl_iff_fires (fun _ _ _ => False) r f);
-        [eapply hw_rule_impl_concl_normal; eassumption |].
-      apply (Hmatch f (map snd (get_facts_on_node l))); assumption.
-    + apply Forward; assumption.
-    + apply OutputStep; assumption.
-  - inversion H; subst.
-    + apply HwInput; assumption.
-    + (* RuleApp: find the matching hardware rule, then bridge fires -> hw_rule_impl *)
-      destruct (Forall2_exists_l _ _ _ _ (Hm n) H0) as [hr [Hin Hmatch]].
-      eapply HwRuleApp; [exact Hin | assumption |].
-      apply (Hmatch f (map snd (get_facts_on_node l))).
-      apply (rule_impl_iff_fires (fun _ _ _ => False) r f);
-        [ match goal with Hf : DistributedDatalog.fires _ _ _ |- _ =>
-            destruct Hf as [R [args [-> _]]]; eauto end | assumption ].
-    + apply HwForward; assumption.
-    + apply HwOutputStep; assumption.
+  intros H1 H2. revert c1 H1. induction H2 as [| c2' c2'' Hr2 IH Hstep2]; intros c1 H1.
+  - exists c1. split; [exact H1 | split; [auto | intros n f []]].
+  - destruct (IH c1 H1) as [c [Hrc [Hc1 Hc2']]].
+    destruct (dstep_replay c2' c c2'' Hc2' Hstep2) as [d [Hstepd [Hc2'' Hcd]]].
+    exists d. split; [eapply dreachS; eassumption | split].
+    + intros n f Hf. apply Hcd, Hc1, Hf.
+    + intros n f Hf. apply Hc2'', Hf.
 Qed.
 
-Lemma pftree_corr (hn : HwNetwork) (Hm : node_rules_match hn) (x : nprop) :
-  pftree (hw_net_step hn) (fun _ => False) x <-> pftree (network_step (hw_dnet hn)) (fun _ => False) x.
+(* Merge a list of separately-present facts (all at node [n]) into ONE reachable config holding them all. *)
+Lemma present_list (n : node_id) (hs : list dl_fact) :
+  Forall (fun h => present n h) hs -> exists c, reach c /\ Forall (fun h => c n h) hs.
 Proof.
-  split; intros H; eapply pftree_weaken; try exact H; intros y l Hy;
-    apply (step_corr hn Hm); exact Hy.
+  induction hs as [| h hs IH]; intros Hall.
+  - exists (fun _ _ => False). split; [apply dreach0 | constructor].
+  - pose proof (Forall_inv Hall) as Hh. pose proof (Forall_inv_tail Hall) as Hrest.
+    destruct Hh as [ch [Hrch Hchnh]]. destruct (IH Hrest) as [c [Hrc Hcs]].
+    destruct (dreach_merge ch c Hrch Hrc) as [d [Hrd [Hchd Hcd]]].
+    exists d. split; [exact Hrd | constructor].
+    + exact (Hchd n h Hchnh).
+    + apply (@Forall_impl _ (fun h => c n h) (fun h => d n h));
+        [intros a Ha; exact (Hcd n a Ha) | exact Hcs].
 Qed.
 
-(*----Main result----*)
+End Adequacy.
 
-(* The hardware network derives exactly what the global Datalog program does from the base
-   facts [Q] (the streaming EDB distributed to per-relation input nodes). *)
-Theorem hw_dist_correct (hn : HwNetwork) (program : dl_program) (Q : dl_fact -> Prop) :
-  node_rules_match hn ->
-  good_network_streaming (hw_dnet hn) program Q ->
-  forall f, hw_net_prog_impl_fact hn f <-> DistributedDatalog.prog_impl_fact program Q f.
+(* The run depends on the forwarding function only POINTWISE: equal forwarding tables give equal runs.
+   (Used to bridge the operational [forward_from_ninfos] to the correctness layer's [forward_of_ninfos],
+   which are pointwise-equal but not syntactically identical -- keeps the top theorem funext-free.) *)
+Lemma dreach_forward_ext (prog : node_id -> hardware_program) (tries : node_id -> list trie)
+      (fwd1 fwd2 : node_id -> rel_id -> list node_id) (input : node_id -> dl_fact -> Prop) (c : config) :
+  (forall n r, fwd1 n r = fwd2 n r) ->
+  dreach prog tries fwd1 input c -> dreach prog tries fwd2 input c.
 Proof.
-  intros Hm Hgood f. split.
-  - intros [n Hpf]. eapply soundness.
-    + destruct Hgood as [_ [_ [_ [_ [HinQ_s _]]]]]. exact HinQ_s.
-    + destruct Hgood as [_ [Hgl _]]. exact Hgl.
-    + exists n. cbv [network_pftree]. apply (pftree_corr hn Hm). exact Hpf.
-  - intros Hprog.
-    destruct (completeness (hw_dnet hn) program Q Hgood f Hprog) as [n Hpf].
-    exists n. apply (pftree_corr hn Hm). cbv [network_pftree] in Hpf. exact Hpf.
+  intros Hext Hr. induction Hr as [| c0 c0' Hr0 IH Hstep].
+  - apply dreach0.
+  - eapply dreachS; [exact IH |].
+    inversion Hstep as [n f Hi | n f Hru | n n' f Hcnf Hfwd]; subst c0'.
+    + apply dstep_input; exact Hi.
+    + apply dstep_run; exact Hru.
+    + eapply dstep_forward; [exact Hcnf | rewrite <- (Hext n (Datalog.rel_of f)); exact Hfwd].
 Qed.
 
-(* The distributed correctness notion, now a corollary of the theorem. *)
-Definition dist_implements (hn : HwNetwork) (program : dl_program) (Q : dl_fact -> Prop) : Prop :=
-  forall f, hw_net_prog_impl_fact hn f <-> DistributedDatalog.prog_impl_fact program Q f.
-
-Corollary hw_dist_implements (hn : HwNetwork) (program : dl_program) (Q : dl_fact -> Prop) :
-  node_rules_match hn -> good_network_streaming (hw_dnet hn) program Q -> dist_implements hn program Q.
-Proof. exact (hw_dist_correct hn program Q). Qed.
+Lemma hw_run_output_forward_ext (prog : node_id -> hardware_program) (tries : node_id -> list trie)
+      (fwd1 fwd2 : node_id -> rel_id -> list node_id)
+      (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop) (f : dl_fact) :
+  (forall n r, fwd1 n r = fwd2 n r) ->
+  hw_run_output prog tries fwd1 input output f <-> hw_run_output prog tries fwd2 input output f.
+Proof.
+  intros Hext. split; intros [n [c [Hr [Hcf Ho]]]]; exists n, c;
+    (split; [| split; [exact Hcf | exact Ho]]).
+  - exact (dreach_forward_ext prog tries fwd1 fwd2 input c Hext Hr).
+  - exact (dreach_forward_ext prog tries fwd2 fwd1 input c (fun n r => eq_sym (Hext n r)) Hr).
+Qed.
 
 End DistributedHardwareSemantics.
