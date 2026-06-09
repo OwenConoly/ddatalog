@@ -294,6 +294,50 @@ Proof.
     exists no. split; [apply Hout; exact Hin | exact (validate_route_sound net.(forward) R n no (opath no) Hval)].
 Qed.
 
+(*----------------------------------------------------------------------------*)
+(* Decidable [good_layout] check, over a plain node enumeration [all_nodes]    *)
+(* (no topology record): (1) every rule placed on an enumerated node is a      *)
+(* program rule, and (2) every program rule is placed on some enumerated node. *)
+(*----------------------------------------------------------------------------*)
+Definition node_rules_okb (rule_eqb : rule -> rule -> bool)
+    (layout : Layout) (program : list rule) (n : Node) : bool :=
+  forallb (fun r => existsb (rule_eqb r) program) (layout n).
+Definition rule_in_layoutb (rule_eqb : rule -> rule -> bool)
+    (all_nodes : list Node) (layout : Layout) (r : rule) : bool :=
+  existsb (fun n => existsb (rule_eqb r) (layout n)) all_nodes.
+Definition good_layoutb (rule_eqb : rule -> rule -> bool)
+    (all_nodes : list Node) (layout : Layout) (program : list rule) : bool :=
+  forallb (node_rules_okb rule_eqb layout program) all_nodes &&
+  forallb (rule_in_layoutb rule_eqb all_nodes layout) program.
+
+Lemma good_layoutb_sound (rule_eqb : rule -> rule -> bool)
+    (rule_eqb_spec : forall r1 r2, BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2))
+    (all_nodes : list Node) (nodes : Node -> Prop) (layout : Layout) (program : list rule) :
+  (forall n, In n all_nodes <-> nodes n) ->
+  (forall n r, In r (layout n) -> nodes n) ->
+  good_layoutb rule_eqb all_nodes layout program = true ->
+  good_layout layout nodes program.
+Proof.
+  intros Hspec Hvalid Hcheck.
+  unfold good_layout. unfold good_layoutb in Hcheck.
+  apply andb_true_iff in Hcheck. destruct Hcheck as [H_nodes_ok H_rule_in].
+  rewrite forallb_forall in H_nodes_ok. rewrite forallb_forall in H_rule_in.
+  split.
+  - apply Forall_forall. intros r Hr.
+    apply H_rule_in in Hr as H_layout. unfold rule_in_layoutb in H_layout.
+    rewrite existsb_exists in H_layout. destruct H_layout as [n [Hn_in Hr_in]].
+    rewrite existsb_exists in Hr_in. destruct Hr_in as [r' [Hin Hr_eq]].
+    exists n. destruct (rule_eqb_spec r r') as [->|]; [|discriminate Hr_eq].
+    split; [apply (proj1 (Hspec n)); exact Hn_in | exact Hin].
+  - intros n r H0. split.
+    + apply (Hvalid n r H0).
+    + pose proof (Hvalid n r H0) as Hgn. apply (proj2 (Hspec n)) in Hgn.
+      specialize (H_nodes_ok n Hgn). unfold node_rules_okb in H_nodes_ok.
+      rewrite forallb_forall in H_nodes_ok. specialize (H_nodes_ok r H0).
+      rewrite existsb_exists in H_nodes_ok. destruct H_nodes_ok as [r' [Hin Hr_eq]].
+      destruct (rule_eqb_spec r r') as [->|]; [exact Hin | discriminate Hr_eq].
+Qed.
+
 (* Streaming input: the network's input facts are *exactly* the base facts [Q], and each base
    fact is injected at an input node that is a good source for its relation (so it forwards to
    every consumer and to an output node -- the "per-relation input node + forwarding"). *)

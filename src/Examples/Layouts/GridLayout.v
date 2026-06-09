@@ -1,6 +1,6 @@
 From Stdlib Require Import List Bool Lia.
 From Datalog Require Import Datalog.
-From DatalogRocq Require Import DistributedDatalog Topologies.Graph GridGraph ConnectedTopology.
+From DatalogRocq Require Import DistributedDatalog Topologies.Graph GridGraph.
 From coqutil Require Import Map.Interface.
 Import ListNotations.
 
@@ -229,89 +229,5 @@ Proof.
            --- simpl. unfold mk_all_output_fn. trivial.
 Qed.
 
-(*===========================================================================*)
-(*  THE GRID AS A [connected_topology] INSTANCE                              *)
-(*                                                                           *)
-(*  We discharge each field of the abstract interface for the grid, then     *)
-(*  package them as [grid_topology].  From that point on, [good_network] for  *)
-(*  the grid is just [good_network_ct grid_topology] -- no grid reasoning is  *)
-(*  redone, and the very same generic theorem serves any other topology.     *)
-(*===========================================================================*)
-
-Lemma grid_all_nodes_spec (dims : Dimensions) :
-  forall n, In n (all_nodes_h dims) <-> (GridGraph dims).(nodes) n.
-Proof. intros n. symmetry. apply GridGraph.all_nodes_h_correct. Qed.
-
-Lemma grid_forward_sound (dims : Dimensions) :
-  forall n1 n2 r, In n2 (mk_always_forward_table dims n1 r) ->
-    (GridGraph dims).(nodes) n1 /\ (GridGraph dims).(nodes) n2 /\ (GridGraph dims).(edge) n1 n2.
-Proof.
-  intros n1 n2 r H. unfold mk_always_forward_table in H.
-  apply filter_In in H. destruct H as [Hneighbor Hin].
-  apply GridGraph.is_neighbor_correct in Hin.
-  split; try inversion Hin; auto.
-Qed.
-
-Lemma grid_connected_topology (dims : Dimensions) :
-  forall r n1 n2, (GridGraph dims).(nodes) n1 -> (GridGraph dims).(nodes) n2 ->
-    n1 = n2 \/ forwarding_reachable (mk_always_forward_table dims) r n1 n2.
-Proof.
-  intros r n1 n2 H1 H2.
-  apply grid_reachable_to_forwarding.
-  apply GridGraph.grid_connected; auto.
-Qed.
-
-Lemma grid_no_input (dims : Dimensions) :
-  forall n f, ~ mk_no_input_fn n f.
-Proof. intros n f H. exact H. Qed.
-
-Lemma grid_output_total (dims : Dimensions) :
-  forall n r, (GridGraph dims).(nodes) n -> mk_all_output_fn n r.
-Proof. intros n r _. exact I. Qed.
-
-(* The grid, packaged as an abstract connected topology.  [input_node] is the (real) node where
-   streaming base facts enter -- any real node works, by connectivity. *)
-Definition grid_topology (dims : Dimensions) (input_node : Node)
-    (Hinput : (GridGraph dims).(nodes) input_node) : connected_topology :=
-  {| ct_graph         := GridGraph dims;
-     ct_forward       := mk_always_forward_table dims;
-     ct_input         := mk_no_input_fn;
-     ct_output        := mk_all_output_fn;
-     ct_all_nodes     := all_nodes_h dims;
-     ct_all_nodes_spec := grid_all_nodes_spec dims;
-     ct_good_graph    := GridGraph.good_graph dims;
-     ct_forward_sound := grid_forward_sound dims;
-     ct_connected     := grid_connected_topology dims;
-     ct_no_input      := grid_no_input dims;
-     ct_output_total  := grid_output_total dims;
-     ct_input_node      := fun _ => input_node;
-     ct_input_node_real := fun _ => Hinput |}.
-
-(* [good_network] for the grid is now a one-liner through the generic theorem. *)
-Theorem grid_good_network (dims : Dimensions) (input_node : Node)
-    (Hinput : (GridGraph dims).(nodes) input_node)
-    (L : Node -> list rule) (program : list rule) :
-  ConnectedTopology.layout_valid_nodes (grid_topology dims input_node Hinput) L ->
-  ConnectedTopology.check_layout (rule_eqb := rule_eqb) (grid_topology dims input_node Hinput) L program = true ->
-  DistributedDatalog.good_network (net_of (grid_topology dims input_node Hinput) L) program.
-Proof.
-  intros Hvalid Hcheck. apply (good_network_ct (rule_eqb := rule_eqb)); assumption.
-Qed.
-
-(* [good_network_streaming] for the grid, for any base facts [Q] entering at [input_node]. *)
-Theorem grid_good_network_streaming (dims : Dimensions) (input_node : Node)
-    (Hinput : (GridGraph dims).(nodes) input_node)
-    (L : Node -> list rule) (program : list rule) (Q : Datalog.fact rel T -> Prop) :
-  ConnectedTopology.layout_valid_nodes (grid_topology dims input_node Hinput) L ->
-  ConnectedTopology.check_layout (rule_eqb := rule_eqb) (grid_topology dims input_node Hinput) L program = true ->
-  DistributedDatalog.good_network_streaming
-    (net_of_streaming (grid_topology dims input_node Hinput) L Q) program Q.
-Proof.
-  intros Hvalid Hcheck. apply (good_network_streaming_ct (rule_eqb := rule_eqb)); assumption.
-Qed.
-
-(* (The grid's bespoke soundness/completeness convenience theorems were removed: they duplicated
-   the generic [ConnectedTopology] streaming theorems -- use [grid_good_network_streaming] with
-   [ConnectedTopology]/[DistributedDatalogToHardwareCompilerCorrect.compile_checked_correct] instead.) *)
 
 End GridLayout.

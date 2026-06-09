@@ -5,7 +5,7 @@
    compiler.
 
    Node ids are grid coordinates represented as [list nat] -- exactly [GridGraph.Node] -- so the
-   grid connectivity proofs (and the [ConnectedTopology] instance built on them) apply directly,
+   grid connectivity proofs apply directly,
    with no extra encoding.  This works for grids of any dimension, not just 2D. *)
 
 From Stdlib Require Import List ZArith.
