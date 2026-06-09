@@ -16,25 +16,17 @@ Definition empty_fact_producers : fact_producers (rel := rel) := []. *)
 
 Definition one_node_layout : list (node_id * list nat) := [ ([0;0], [0; 1]) ].
 
-Definition one_node_fact_producers : fact_locations (rel := rel) (node_id := node_id) :=
-  [ ("arc", [[0;0]]); ("null", [[0;0]]); ("nullEdge", [[0;0]]) ].
-
-Definition one_node_fact_consumers : fact_locations (rel := rel) (node_id := node_id) :=
-  [ ("null", [[0;0]]) ].
-
 (* Actual compiler assigned layout *)
 
 Definition layout : list (node_id * list nat) :=
   [ ([1;1], [0]); ([2;1], [1]) ].
 
-Definition fact_producers : fact_locations (rel := rel) (node_id := node_id) :=
-  [ ("arc", [[2;1]]); ("null", [[2;1]]); ("nullEdge", [[0;0]]) ].
-
-Definition fact_consumers : fact_locations (rel := rel) (node_id := node_id) :=
-  [ ("null", [[1;2]]) ].
-
 Definition topo_dims : GridGraph.Dimensions := [3; 3].
 
-Definition compiled_csda := compile_program program_to_compile layout fact_producers fact_consumers topo_dims 100.
+(* TODO: no designated input/output nodes (the declared fact_producers/fact_consumers, if any,
+   don't cover every produced relation under the output-sink gate), so this uses
+   [all_io_locations] -- every grid node is an input AND output for every relation.
+   Replace with the real input/output nodes. *)
+Definition compiled_csda := compile_program program_to_compile layout (all_io_locations program_to_compile layout topo_dims) (all_io_locations program_to_compile layout topo_dims) topo_dims 100.
 
 Eval vm_compute in compiled_csda.
