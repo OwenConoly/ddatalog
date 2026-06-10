@@ -2349,12 +2349,6 @@ Notation global_rename_program :=
 Notation global_rename_rule_layout :=
   (@DistributedDatalogToHardwareCompiler.global_rename_rule_layout rel var fn aggregator Node node_id node_id_set
      rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map).
-Notation compile_renamed_layout :=
-  (@DistributedDatalogToHardwareCompiler.compile_renamed_layout rel var fn aggregator Node node_id node_id_set
-     rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map).
-Notation compile_global_context :=
-  (@DistributedDatalogToHardwareCompiler.compile_global_context rel var fn aggregator Node node_id node_id_set
-     rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map).
 Notation fact_locations := (@DistributedDatalogToHardwareCompiler.fact_locations rel node_id fact_locations_map).
 Notation lowered_fact_locations := (@DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id lowered_fact_locations_map).
 Notation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
@@ -2668,12 +2662,15 @@ Qed.
 Notation lowered_fact := (@HardwareProgram.lowered_fact var).
 Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
 
-(* Boolean version of [bare_fact]: every argument is a plain variable. *)
-Definition bare_factb (lf : lowered_fact) : bool :=
-  forallb (fun e => match e with var_expr _ => true | fun_expr _ _ => false end) lf.(Datalog.clause_args).
+(* Boolean version of [bare_fact]: every argument is a plain variable.  PARAMETRIC over the relation
+   and function types -- bareness inspects only [var_expr]/[fun_expr], never the relation/function
+   identifiers -- so the SAME check applies to the source layout (over [rel]/[fn]) and the renamed
+   lowered layout (over [rel_id]/[fn_id]). *)
+Definition bare_factb {Rel Fn} (f : Datalog.clause Rel var Fn) : bool :=
+  forallb (fun e => match e with var_expr _ => true | fun_expr _ _ => false end) f.(Datalog.clause_args).
 
-Definition bare_ruleb (lr : lowered_rule) : bool :=
-  match lr with
+Definition bare_ruleb {Rel Fn} (r : Datalog.rule Rel var Fn aggregator) : bool :=
+  match r with
   | Datalog.normal_rule concls hyps => forallb bare_factb hyps && forallb bare_factb concls
   | _ => false
   end.
@@ -2695,17 +2692,21 @@ Proof.
   - apply Forall_forall. intros lf Hlf. apply bare_factb_spec. apply H2. exact Hlf.
 Qed.
 
-(* Decidable check that every program in the lowered layout is bare. *)
-Definition bare_layoutb (llayout : lowered_layout_map) : bool :=
-  map.fold (fun acc _ p => acc && forallb bare_ruleb p) true llayout.
+(* Decidable check that every program in a layout is bare.  PARAMETRIC over the relation/function
+   types and the layout-map instance, so it applies to both the source [layout] and the lowered
+   [llayout]. *)
+Definition bare_layoutb {Rel Fn} {M : map.map node_id (list (Datalog.rule Rel var Fn aggregator))}
+    (lay : M) : bool :=
+  map.fold (fun acc _ p => acc && forallb bare_ruleb p) true lay.
 
-Lemma bare_layoutb_entry (llayout : lowered_layout_map) :
-  bare_layoutb llayout = true ->
-  forall n p, map.get llayout n = Some p -> forallb bare_ruleb p = true.
+Lemma bare_layoutb_entry {Rel Fn} {M : map.map node_id (list (Datalog.rule Rel var Fn aggregator))}
+    {M_ok : map.ok M} (lay : M) :
+  bare_layoutb lay = true ->
+  forall n p, map.get lay n = Some p -> forallb bare_ruleb p = true.
 Proof.
   unfold bare_layoutb.
   apply (map.fold_spec
-    (fun (m : lowered_layout_map) (b : bool) =>
+    (fun (m : M) (b : bool) =>
        b = true -> forall n p, map.get m n = Some p -> forallb bare_ruleb p = true)).
   - intros _ n p Hget. rewrite map.get_empty in Hget. discriminate.
   - intros k v m r Hgmk IH Hb n p Hget.
@@ -3310,16 +3311,16 @@ Definition construction_routesb (gcontext : global_context) (g : node_graph) (fu
   (map.keys llayout).
 
 (* The declared input/EDB (or, with [lfc], output/sink) locations of relation [R]. *)
-Definition input_locs (lfp : lowered_fact_locations) (R : rel_id) : list node_id :=
+Definition rel_locs (lfp : lowered_fact_locations) (R : rel_id) : list node_id :=
   match map.get lfp R with
   | Some locs => locs
   | None => []
   end.
 
-Lemma input_locs_In (lfp : lowered_fact_locations) (R : rel_id) (n : node_id) :
-  In n (input_locs lfp R) -> exists locs, map.get lfp R = Some locs /\ In n locs.
+Lemma rel_locs_In (lfp : lowered_fact_locations) (R : rel_id) (n : node_id) :
+  In n (rel_locs lfp R) -> exists locs, map.get lfp R = Some locs /\ In n locs.
 Proof.
-  unfold input_locs.
+  unfold rel_locs.
   destruct (map.get lfp R) as [locs|] eqn:Hf; [|intros []].
   intros Hn. exists locs. split; [reflexivity | exact Hn].
 Qed.
@@ -3351,18 +3352,18 @@ Qed.
    locations [lfp] -- every [Q]-fact's relation has at least one declared input node, so the fact can
    actually enter the network.  (This is the EDB side condition of the top correctness theorem.) *)
 Definition edb_routable (lfp : lowered_fact_locations) (Q : Datalog.fact rel_id T -> Prop) : Prop :=
-  forall f, Q f -> exists n, In n (input_locs lfp (Datalog.rel_of f)).
+  forall f, Q f -> exists n, In n (rel_locs lfp (Datalog.rel_of f)).
 
 (* SOURCE-LEVEL EDB routability, the form the top theorem actually takes as its side condition.  It
    mentions ONLY the user's two original objects -- the fact-producer table [fps] and the base-fact set
    [Qsrc] -- with NO renaming, NO layout, NO program.  (It is a genuine EXTRA condition, not implied by
    [compile = Success]: [compile] never receives [Qsrc], so it cannot know every injected fact has a
    declared input node.  What [compile] gates is that the declared locations route well, not that [fps]
-   covers [Qsrc].)  [src_input_locs] is the source twin of [input_locs] -- a plain [map.get]. *)
-Definition src_input_locs (fps : fact_locations) (R : rel) : list node_id :=
+   covers [Qsrc].)  [src_rel_locs] is the source twin of [rel_locs] -- a plain [map.get]. *)
+Definition src_rel_locs (fps : fact_locations) (R : rel) : list node_id :=
   match map.get fps R with Some locs => locs | None => [] end.
 Definition edb_routable_src (fps : fact_locations) (Qsrc : Datalog.fact rel T -> Prop) : Prop :=
-  forall f, Qsrc f -> exists n, In n (src_input_locs fps (Datalog.rel_of f)).
+  forall f, Qsrc f -> exists n, In n (src_rel_locs fps (Datalog.rel_of f)).
 
 Notation output_routesb :=
   (@DistributedDatalogToHardwareCompiler.output_routesb rel var fn aggregator Node node_id node_id_eqb
@@ -3376,7 +3377,7 @@ Lemma construction_good_source (gcontext : global_context) (ninfos : list node_i
     (net : DNet) :
   net.(DistributedDatalog.layout) = (fun n => lprog_of llayout n) ->
   net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table gcontext ninfos g fuel) ->
-  net.(DistributedDatalog.output) = (fun n R => In n (input_locs lfc R)) ->
+  net.(DistributedDatalog.output) = (fun n R => In n (rel_locs lfc R)) ->
   construction_routesb gcontext g fuel llayout = true ->
   output_routesb gcontext g fuel llayout lfc = true ->
   forall n_prod R, DistributedDatalog.node_produces net.(DistributedDatalog.layout) n_prod R ->
@@ -3467,12 +3468,6 @@ Qed.
 Notation input_routes_validb :=
   (@DistributedDatalogToHardwareCompiler.input_routes_validb rel var fn aggregator Node node_id node_id_eqb
      node_id_set rel_dependency_map fn_id_map rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
-Notation compile_renamed_fact_producers :=
-  (@DistributedDatalogToHardwareCompiler.compile_renamed_fact_producers rel var fn aggregator Node node_id
-     node_id_set rel_dependency_map fn_id_map rel_relid_map layout_map fact_locations_map lowered_fact_locations_map).
-Notation compile_renamed_fact_consumers :=
-  (@DistributedDatalogToHardwareCompiler.compile_renamed_fact_consumers rel var fn aggregator Node node_id
-     node_id_set rel_dependency_map fn_id_map rel_relid_map layout_map fact_locations_map lowered_fact_locations_map).
 
 (* The streaming network whose base facts [Q] enter at the declared fact-producer (input) locations
    and whose OUTPUT nodes are the declared fact-consumer (sink) locations [lfc]. *)
@@ -3480,8 +3475,8 @@ Definition compiled_base_edb (g : node_graph) (ftables : node_ftable_map)
     (lfp lfc : lowered_fact_locations) (Q : Datalog.fact rel_id T -> Prop) : DNet :=
   {| DistributedDatalog.graph   := cg2g g;
      DistributedDatalog.forward := fwd_list ftables;
-     DistributedDatalog.input   := fun n f => Q f /\ In n (input_locs lfp (Datalog.rel_of f));
-     DistributedDatalog.output  := fun n R => In n (input_locs lfc R);
+     DistributedDatalog.input   := fun n f => Q f /\ In n (rel_locs lfp (Datalog.rel_of f));
+     DistributedDatalog.output  := fun n R => In n (rel_locs lfc R);
      DistributedDatalog.layout  := fun _ => [] |}.
 
 (* Every declared input location is a good source, from the compiler's input gate [input_routes_validb]. *)
@@ -3490,7 +3485,7 @@ Lemma edb_input_good_source (gcontext : global_context) (ninfos : list node_info
     (lfp lfc : lowered_fact_locations) (net : DNet) :
   net.(DistributedDatalog.layout) = (fun n => lprog_of llayout n) ->
   net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table gcontext ninfos g fuel) ->
-  net.(DistributedDatalog.output) = (fun n R => In n (input_locs lfc R)) ->
+  net.(DistributedDatalog.output) = (fun n R => In n (rel_locs lfc R)) ->
   input_routes_validb gcontext g fuel llayout lfp = true ->
   input_output_routesb gcontext g fuel lfp lfc = true ->
   forall R locs ni, map.get lfp R = Some locs -> In ni locs -> DistributedDatalog.good_source net ni R.
@@ -3547,7 +3542,7 @@ Theorem compiled_good_network_streaming_edb
   input_routes_validb gcontext g fuel llayout lfp = true ->
   output_routesb gcontext g fuel llayout lfc = true ->
   input_output_routesb gcontext g fuel lfp lfc = true ->
-  (forall f, Q f -> exists n, In n (input_locs lfp (Datalog.rel_of f))) ->
+  (forall f, Q f -> exists n, In n (rel_locs lfp (Datalog.rel_of f))) ->
   DistributedDatalog.good_network_streaming
     (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table gcontext ninfos g fuel) lfp lfc Q))
     program Q.
@@ -3568,7 +3563,7 @@ Proof.
     + split.
       * intros n f [HQf _]. exact HQf.
       * intros f HQf. destruct (HQ f HQf) as [n Hn].
-        destruct (input_locs_In lfp (Datalog.rel_of f) n Hn) as [locs [Hlfp Hnlocs]].
+        destruct (rel_locs_In lfp (Datalog.rel_of f) n Hn) as [locs [Hlfp Hnlocs]].
         exists n. split.
         -- split; [exact HQf | exact Hn].
         -- apply (edb_input_good_source gcontext ninfos g fuel llayout lfp lfc
@@ -3577,79 +3572,76 @@ Proof.
              [reflexivity | reflexivity | reflexivity | exact Hinput | exact Hinoutroutes | exact Hlfp | exact Hnlocs].
 Qed.
 
-(* [compile = Success] entails, over the exposer defs, the per-node compilation, the forwarding gate,
-   and the input gate -- the rename-layer bridge that lets the top theorem name compile's internals. *)
+(* Invert the relabel pass: [lower_inputs] returns exactly the renamed layout/fact-tables and the
+   collected name context, so its [Success] equation IS the rename results.  Replaces the old
+   re-derivation helpers ([compile_global_rename_success]/[compile_fps_rename_success]). *)
+Lemma lower_inputs_inv (layout : layout_map) (fps fcs : fact_locations)
+    (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations) (gcontext : global_context) :
+  lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
+  gcontext = collect_global_names_layout layout initial_global_context /\
+  global_rename_rule_layout layout gcontext = Success llayout /\
+  global_rename_fact_locations fps gcontext = Success lfp /\
+  global_rename_fact_locations fcs gcontext = Success lfc.
+Proof.
+  intros H. unfold lower_inputs, DistributedDatalogToHardwareCompiler.lower_inputs in H. cbv zeta in H.
+  destruct (global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context))
+    as [ll|] eqn:Hgr; cbn beta iota in H; [|discriminate].
+  destruct (DistributedDatalogToHardwareCompiler.global_rename_fact_locations fps
+              (collect_global_names_layout layout initial_global_context)) as [lp|] eqn:Hlp;
+    cbn beta iota in H; [|discriminate].
+  destruct (DistributedDatalogToHardwareCompiler.global_rename_fact_locations fcs
+              (collect_global_names_layout layout initial_global_context)) as [lc|] eqn:Hlc;
+    cbn beta iota in H; [|discriminate].
+  inversion H; subst.
+  split; [reflexivity | split; [exact Hgr | split; [exact Hlp | exact Hlc]]].
+Qed.
+
+(* [compile = Success], given the compiler's OWN lowering outputs ([lower_inputs] = the renamed
+   layout/fact-tables/context), entails the per-node compilation, the forwarding gate, and the input
+   gate -- stated over those ACTUAL intermediates (no re-derivation exposers). *)
 Lemma compile_success_extract (layout : layout_map) (fps fcs : fact_locations)
-    (g : node_graph) (fuel : nat) (ninfos : list node_info) :
+    (g : node_graph) (fuel : nat) (ninfos : list node_info)
+    (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations) (gcontext : global_context) :
+  lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
   compile layout fps fcs g fuel = Success ninfos ->
   exists ninfos0 ftables,
     ninfos = attach_forwarding_tables ninfos0 ftables /\
-    compile_all_nodes (compile_renamed_layout layout) (compile_global_context layout fps fcs)
+    compile_all_nodes llayout (collect_global_dependencies llayout lfp lfc gcontext)
       = Success ninfos0 /\
-    generate_forwarding_table_checked (compile_global_context layout fps fcs) ninfos0 g fuel
-      (compile_renamed_layout layout) = Success ftables /\
-    input_routes_validb (compile_global_context layout fps fcs) g fuel (compile_renamed_layout layout)
-      (compile_renamed_fact_producers layout fps) = true /\
-    output_routesb (compile_global_context layout fps fcs) g fuel (compile_renamed_layout layout)
-      (compile_renamed_fact_consumers layout fcs) = true /\
-    input_output_routesb (compile_global_context layout fps fcs) g fuel
-      (compile_renamed_fact_producers layout fps) (compile_renamed_fact_consumers layout fcs) = true /\
+    generate_forwarding_table_checked (collect_global_dependencies llayout lfp lfc gcontext) ninfos0 g fuel
+      llayout = Success ftables /\
+    input_routes_validb (collect_global_dependencies llayout lfp lfc gcontext) g fuel llayout
+      lfp = true /\
+    output_routesb (collect_global_dependencies llayout lfp lfc gcontext) g fuel llayout
+      lfc = true /\
+    input_output_routesb (collect_global_dependencies llayout lfp lfc gcontext) g fuel
+      lfp lfc = true /\
     check_graph_valid g = true /\
-    layout_in_graphb g (compile_renamed_layout layout) = true.
+    layout_in_graphb g llayout = true.
 Proof.
-  intros H. unfold DistributedDatalogToHardwareCompiler.compile,
-    DistributedDatalogToHardwareCompiler.lower_inputs,
-    DistributedDatalogToHardwareCompiler.compile_lowered in H. cbv zeta in H.
-  destruct (global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context))
-    as [llayout|] eqn:Hgr; cbn beta iota in H; [|discriminate].
-  destruct (DistributedDatalogToHardwareCompiler.global_rename_fact_locations fps
-              (collect_global_names_layout layout initial_global_context)) as [lfp|] eqn:Hlfp;
-    cbn beta iota in H; [|discriminate].
-  destruct (DistributedDatalogToHardwareCompiler.global_rename_fact_locations fcs
-              (collect_global_names_layout layout initial_global_context)) as [lfc|] eqn:Hlfc;
-    cbn beta iota in H; [|discriminate].
+  intros Hlow H. unfold DistributedDatalogToHardwareCompiler.compile in H.
+  rewrite Hlow in H. cbn beta iota in H.
+  unfold DistributedDatalogToHardwareCompiler.compile_lowered in H. cbv zeta in H.
   destruct (check_graph_valid g) eqn:Hcgv; cbn beta iota in H; [|discriminate].
   destruct (DistributedDatalogToHardwareCompiler.layout_in_graphb g llayout) eqn:Hlig;
     cbn beta iota in H; [|discriminate].
-  destruct (compile_all_nodes llayout
-              (collect_global_dependencies llayout lfp lfc
-                 (collect_global_names_layout layout initial_global_context))) as [ninfos0|] eqn:Hcan;
-    cbn beta iota in H; [|discriminate].
+  destruct (compile_all_nodes llayout (collect_global_dependencies llayout lfp lfc gcontext))
+    as [ninfos0|] eqn:Hcan; cbn beta iota in H; [|discriminate].
   destruct (DistributedDatalogToHardwareCompiler.generate_forwarding_table_checked
-              (collect_global_dependencies llayout lfp lfc
-                 (collect_global_names_layout layout initial_global_context)) ninfos0 g fuel llayout)
+              (collect_global_dependencies llayout lfp lfc gcontext) ninfos0 g fuel llayout)
     as [ftables|] eqn:Hft; cbn beta iota in H; [|discriminate].
   destruct (DistributedDatalogToHardwareCompiler.input_routes_validb
-              (collect_global_dependencies llayout lfp lfc
-                 (collect_global_names_layout layout initial_global_context)) g fuel llayout lfp) eqn:Hinp;
+              (collect_global_dependencies llayout lfp lfc gcontext) g fuel llayout lfp) eqn:Hinp;
     cbn beta iota in H; [|discriminate].
   destruct (DistributedDatalogToHardwareCompiler.output_routesb
-              (collect_global_dependencies llayout lfp lfc
-                 (collect_global_names_layout layout initial_global_context)) g fuel llayout lfc) eqn:Houtp;
+              (collect_global_dependencies llayout lfp lfc gcontext) g fuel llayout lfc) eqn:Houtp;
     cbn beta iota in H; [|discriminate].
   destruct (DistributedDatalogToHardwareCompiler.input_output_routesb
-              (collect_global_dependencies llayout lfp lfc
-                 (collect_global_names_layout layout initial_global_context)) g fuel lfp lfc) eqn:Hinoutp;
+              (collect_global_dependencies llayout lfp lfc gcontext) g fuel lfp lfc) eqn:Hinoutp;
     cbn beta iota in H; [|discriminate].
-  assert (Hll : compile_renamed_layout layout = llayout).
-  { unfold compile_renamed_layout, DistributedDatalogToHardwareCompiler.compile_renamed_layout.
-    rewrite Hgr. reflexivity. }
-  assert (Hgc : compile_global_context layout fps fcs
-                = collect_global_dependencies llayout lfp lfc
-                    (collect_global_names_layout layout initial_global_context)).
-  { unfold compile_global_context, DistributedDatalogToHardwareCompiler.compile_global_context.
-    cbv zeta. rewrite Hlfp, Hlfc, Hll. reflexivity. }
-  assert (Hfp : compile_renamed_fact_producers layout fps = lfp).
-  { unfold compile_renamed_fact_producers, DistributedDatalogToHardwareCompiler.compile_renamed_fact_producers.
-    rewrite Hlfp. reflexivity. }
-  assert (Hfc : compile_renamed_fact_consumers layout fcs = lfc).
-  { unfold compile_renamed_fact_consumers, DistributedDatalogToHardwareCompiler.compile_renamed_fact_consumers.
-    rewrite Hlfc. reflexivity. }
   injection H as Hret.
-  exists ninfos0, ftables. rewrite Hll, Hgc, Hfp, Hfc.
-  split; [exact (eq_sym Hret)
-         | split; [exact Hcan | split; [exact Hft | split; [exact Hinp | split; [exact Houtp |
-           split; [exact Hinoutp | split; [reflexivity | exact Hlig]]]]]]].
+  exists ninfos0, ftables.
+  split; [exact (eq_sym Hret) | repeat split; first [reflexivity | assumption]].
 Qed.
 
 (*----The hardware network read DIRECTLY off the returned [ninfos]----*)
@@ -3924,43 +3916,44 @@ Qed.
    NO route checker side condition. *)
 Theorem compile_distributed_correct
     (layout : layout_map) (fps fcs : fact_locations) (g : node_graph) (fuel : nat)
-    (ninfos : list node_info) (Q : Datalog.fact rel_id T -> Prop) :
+    (ninfos : list node_info) (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
+    (gcontext : global_context) (Q : Datalog.fact rel_id T -> Prop) :
+  lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
   compile layout fps fcs g fuel = Success ninfos ->
-  bare_layoutb (compile_renamed_layout layout) = true ->
-  edb_routable (compile_renamed_fact_producers layout fps) Q ->
+  bare_layoutb llayout = true ->
+  edb_routable lfp Q ->
   forall f, run_ninfos ninfos
-              (fun n f0 => Q f0 /\ In n (input_locs (compile_renamed_fact_producers layout fps) (Datalog.rel_of f0)))
-              (fun n R => In n (input_locs (compile_renamed_fact_consumers layout fcs) R))
+              (fun n f0 => Q f0 /\ In n (rel_locs lfp (Datalog.rel_of f0)))
+              (fun n R => In n (rel_locs lfc R))
               f
-            <-> Datalog.prog_impl (canonical_program (compile_renamed_layout layout)) Q f.
+            <-> Datalog.prog_impl (canonical_program llayout) Q f.
 Proof.
-  intros Hcomp Hbare HQ f.
-  destruct (compile_success_extract layout fps fcs g fuel ninfos Hcomp)
+  intros Hlow Hcomp Hbare HQ f.
+  destruct (compile_success_extract layout fps fcs g fuel ninfos llayout lfp lfc gcontext Hlow Hcomp)
     as [ninfos0 [ftables [Hret [Hcan [Hft [Hinp [Houtp [Hinoutp [Hgraph Hkeys]]]]]]]]].
-  destruct (generate_forwarding_table_checked_success (compile_global_context layout fps fcs) ninfos0 g fuel
-              (compile_renamed_layout layout) ftables Hft) as [Hfteq Hroutes].
+  destruct (generate_forwarding_table_checked_success (collect_global_dependencies llayout lfp lfc gcontext)
+              ninfos0 g fuel llayout ftables Hft) as [Hfteq Hroutes].
   (* the returned [ninfos] IS [attach_forwarding_tables ninfos0 ftables]; [ftables] IS the generated
      table.  The operational run of [ninfos] over the compiled EDB equals [prog_impl_fact] of the
      canonical program ([compile_all_distributes_ninfos]), which is the reference [Datalog.prog_impl]
      on the bare fragment ([prog_impl_fact_iff_datalog]). *)
   rewrite Hret. rewrite Hfteq.
   apply (iff_trans
-           (compile_all_distributes_ninfos (compile_renamed_layout layout)
-              (compile_global_context layout fps fcs) ninfos0
-              (generate_forwarding_table (compile_global_context layout fps fcs) ninfos0 g fuel)
-              (dnet_of_llayout (compile_renamed_layout layout)
-                 (compiled_base_edb g (generate_forwarding_table (compile_global_context layout fps fcs) ninfos0 g fuel)
-                    (compile_renamed_fact_producers layout fps) (compile_renamed_fact_consumers layout fcs) Q))
-              (canonical_program (compile_renamed_layout layout)) Q Hcan Hbare
+           (compile_all_distributes_ninfos llayout
+              (collect_global_dependencies llayout lfp lfc gcontext) ninfos0
+              (generate_forwarding_table (collect_global_dependencies llayout lfp lfc gcontext) ninfos0 g fuel)
+              (dnet_of_llayout llayout
+                 (compiled_base_edb g (generate_forwarding_table (collect_global_dependencies llayout lfp lfc gcontext) ninfos0 g fuel)
+                    lfp lfc Q))
+              (canonical_program llayout) Q Hcan Hbare
               eq_refl eq_refl
-              (compiled_good_network_streaming_edb g (compile_global_context layout fps fcs) ninfos0 fuel
-                 (compile_renamed_layout layout) (compile_renamed_fact_producers layout fps)
-                 (compile_renamed_fact_consumers layout fcs)
-                 (canonical_program (compile_renamed_layout layout)) Q
+              (compiled_good_network_streaming_edb g (collect_global_dependencies llayout lfp lfc gcontext) ninfos0 fuel
+                 llayout lfp lfc
+                 (canonical_program llayout) Q
                  (proj1 (check_graph_correct g) Hgraph)
-                 (canonical_good_layout g (compile_renamed_layout layout) Hkeys)
-                 (routes_validb_construction (compile_global_context layout fps fcs) g fuel
-                    (compile_renamed_layout layout) Hroutes)
+                 (canonical_good_layout g llayout Hkeys)
+                 (routes_validb_construction (collect_global_dependencies llayout lfp lfc gcontext) g fuel
+                    llayout Hroutes)
                  Hinp Houtp Hinoutp HQ)
               f)).
   apply prog_impl_fact_iff_datalog. apply canonical_bare. exact Hbare.
@@ -4413,20 +4406,6 @@ Proof.
   apply (map_fold_put_get_bwd (fun nd p => global_rename_program p gc) node orig layout llayout H).
 Qed.
 
-(* a successful [compile] means the rename pass succeeded, returning exactly [compile_renamed_layout]. *)
-Lemma compile_global_rename_success (layout : layout_map) (fps fcs : fact_locations)
-    (g : node_graph) (fuel : nat) (ninfos : list node_info) :
-  compile layout fps fcs g fuel = Success ninfos ->
-  global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context)
-    = Success (compile_renamed_layout layout).
-Proof.
-  intros H. unfold compile_renamed_layout, DistributedDatalogToHardwareCompiler.compile_renamed_layout.
-  unfold DistributedDatalogToHardwareCompiler.compile,
-    DistributedDatalogToHardwareCompiler.lower_inputs in H. cbv zeta in H.
-  destruct (global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context))
-    as [ll|] eqn:Hgr; [reflexivity | cbn beta iota in H; discriminate].
-Qed.
-
 (* [bare_layoutb] on the renamed layout already proves the SOURCE program bare -- so the explicit
    [bare_program (source_program ...)] hypothesis is redundant given the layoutb check. *)
 Lemma source_bare_of_layoutb (layout : layout_map) (gc : global_context) (llayout : lowered_layout_map) :
@@ -4463,22 +4442,21 @@ Qed.
 
 (* B3c: the compiled canonical (numeric) program is exactly the RELABEL of the source program,
    AS A RULE SET (so [prog_impl_set_iff] can swap them). *)
-Lemma canonical_renamed_eq_relabel_source (layout : layout_map) (fps fcs : fact_locations)
-    (g : node_graph) (fuel : nat) (ninfos : list node_info) (r : Datalog.rule rel_id var nat aggregator) :
-  compile layout fps fcs g fuel = Success ninfos ->
+Lemma canonical_renamed_eq_relabel_source (layout : layout_map)
+    (llayout : lowered_layout_map) (r : Datalog.rule rel_id var nat aggregator) :
+  global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context) = Success llayout ->
   RelabelCorrect.bare_program (source_program layout) ->
   RelabelCorrect.Sprogram (Sdom (collect_global_names_layout layout initial_global_context)) (source_program layout) ->
-  (In r (canonical_program (compile_renamed_layout layout)) <->
+  (In r (canonical_program llayout) <->
    In r (RelabelCorrect.relabel_program
            (rho_gc (collect_global_names_layout layout initial_global_context))
            (iota_gc (collect_global_names_layout layout initial_global_context)) (source_program layout))).
 Proof.
-  set (gc0 := collect_global_names_layout layout initial_global_context).
-  intros Hcomp Hbare HS.
-  pose proof (compile_global_rename_success layout fps fcs g fuel ninfos Hcomp) as Hgr.
+  intros Hgr Hbare HS.
+  set (gc0 := collect_global_names_layout layout initial_global_context) in *.
   split.
   - intros Hin. apply canonical_program_in in Hin. destruct Hin as [n [lp [Hgetll Hinlp]]].
-    destruct (global_rename_rule_layout_spec layout gc0 (compile_renamed_layout layout) n lp Hgr Hgetll)
+    destruct (global_rename_rule_layout_spec layout gc0 llayout n lp Hgr Hgetll)
       as [orig [Hgetlayout Hgrp]].
     rewrite (global_rename_program_eq gc0 orig (layout_program_bare layout n orig Hbare Hgetlayout)
                (layout_program_scoped layout gc0 n orig HS Hgetlayout)) in Hgrp.
@@ -4490,7 +4468,7 @@ Proof.
   - intros Hin. unfold RelabelCorrect.relabel_program in Hin. apply in_map_iff in Hin.
     destruct Hin as [r0 [Hr0eq Hr0in]]. apply source_program_in in Hr0in.
     destruct Hr0in as [n [orig [Hgetlayout Hr0inorig]]].
-    destruct (global_rename_rule_layout_spec_bwd layout gc0 (compile_renamed_layout layout) n orig Hgr Hgetlayout)
+    destruct (global_rename_rule_layout_spec_bwd layout gc0 llayout n orig Hgr Hgetlayout)
       as [lp [Hgrp Hgetll]].
     rewrite (global_rename_program_eq gc0 orig (layout_program_bare layout n orig Hbare Hgetlayout)
                (layout_program_scoped layout gc0 n orig HS Hgetlayout)) in Hgrp.
@@ -4509,13 +4487,13 @@ Proof.
   intros [Hhs Hcs]. split; [exact Hcs | exact Hhs].
 Qed.
 
-Lemma canonical_renamed_bare (layout : layout_map) :
-  bare_layoutb (compile_renamed_layout layout) = true ->
-  RelabelCorrect.bare_program (canonical_program (compile_renamed_layout layout)).
+Lemma canonical_renamed_bare (llayout : lowered_layout_map) :
+  bare_layoutb llayout = true ->
+  RelabelCorrect.bare_program (canonical_program llayout).
 Proof.
   intros Hbl. unfold RelabelCorrect.bare_program. apply Forall_forall. intros r Hr.
   apply corr_bare_iff_relabel.
-  exact (proj1 (Forall_forall _ _) (canonical_bare (compile_renamed_layout layout) Hbl) r Hr).
+  exact (proj1 (Forall_forall _ _) (canonical_bare llayout Hbl) r Hr).
 Qed.
 
 (*----Discharging source [Sprogram]: every relation in the layout is collected by the rename pass,
@@ -4707,25 +4685,16 @@ Proof.
     + rewrite map.get_put_diff in Hget by exact Hne. exact (IH acc0 eq_refl rid locs Hget).
 Qed.
 
-Lemma renamed_producers_id_lt (layout : layout_map) (fps : fact_locations) (rid : rel_id) (locs : list node_id) :
-  map.get (compile_renamed_fact_producers layout fps) rid = Some locs ->
-  rid < rlast (collect_global_names_layout layout initial_global_context).
+(* The fresh id [last_rel_id] -- where out-of-scope relations land -- routes nowhere: every key of the
+   renamed producer table is a real id BELOW [last_rel_id] ([grfl_id_lt]), so [last_rel_id] has no entry. *)
+Lemma rel_locs_rlast_nil (layout : layout_map) (fps : fact_locations) (lfp : lowered_fact_locations)
+    (n : node_id) :
+  DistributedDatalogToHardwareCompiler.global_rename_fact_locations fps
+    (collect_global_names_layout layout initial_global_context) = Success lfp ->
+  ~ In n (rel_locs lfp (rlast (collect_global_names_layout layout initial_global_context))).
 Proof.
-  unfold compile_renamed_fact_producers, DistributedDatalogToHardwareCompiler.compile_renamed_fact_producers.
-  destruct (DistributedDatalogToHardwareCompiler.global_rename_fact_locations fps
-              (collect_global_names_layout layout initial_global_context)) as [lfp | msg] eqn:Hgr.
-  - intros Hget.
-    exact (grfl_id_lt _ (collect_global_names_RelInv layout) fps lfp Hgr rid locs Hget).
-  - cbn. rewrite map.get_empty. intros H; discriminate H.
-Qed.
-
-(* The fresh id [last_rel_id] -- where out-of-scope relations land -- routes nowhere. *)
-Lemma input_locs_rlast_nil (layout : layout_map) (fps : fact_locations) (n : node_id) :
-  ~ In n (input_locs (compile_renamed_fact_producers layout fps)
-            (rlast (collect_global_names_layout layout initial_global_context))).
-Proof.
-  intros Hin. apply input_locs_In in Hin. destruct Hin as [locs [Hentry _]].
-  exact (Nat.lt_irrefl _ (renamed_producers_id_lt layout fps _ locs Hentry)).
+  intros Hgr Hin. apply rel_locs_In in Hin. destruct Hin as [locs [Hentry _]].
+  exact (Nat.lt_irrefl _ (grfl_id_lt _ (collect_global_names_RelInv layout) fps lfp Hgr _ locs Hentry)).
 Qed.
 
 (* The renaming preserves each producer entry: a source entry [fps[R] = locs] reappears in the renamed
@@ -4764,25 +4733,6 @@ Proof.
       rewrite map.get_put_diff by exact Hrho_ne. exact (IH acc0 eq_refl R locs Hget).
 Qed.
 
-(* [compile = Success] entails the fact-producer rename succeeded (it is a step of [lower_inputs]). *)
-Lemma compile_fps_rename_success (layout : layout_map) (fps fcs : fact_locations)
-    (g : node_graph) (fuel : nat) (ninfos : list node_info) :
-  compile layout fps fcs g fuel = Success ninfos ->
-  DistributedDatalogToHardwareCompiler.global_rename_fact_locations fps
-    (collect_global_names_layout layout initial_global_context)
-    = Success (compile_renamed_fact_producers layout fps).
-Proof.
-  intros H.
-  unfold DistributedDatalogToHardwareCompiler.compile,
-    DistributedDatalogToHardwareCompiler.lower_inputs in H. cbv zeta in H.
-  destruct (global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context))
-    as [ll|] eqn:Hgl; cbn beta iota in H; [| discriminate].
-  unfold compile_renamed_fact_producers, DistributedDatalogToHardwareCompiler.compile_renamed_fact_producers.
-  destruct (DistributedDatalogToHardwareCompiler.global_rename_fact_locations fps
-              (collect_global_names_layout layout initial_global_context)) as [lfp|] eqn:Hgf;
-    cbn beta iota in H; [reflexivity | discriminate].
-Qed.
-
 (* THE BRIDGE: source EDB-routability (over [fps]/[Qsrc], no renaming) implies the [rel_id]-level
    [edb_routable] the proof core uses, because the renamed producer table is just [fps] with keys
    renamed and locations preserved ([grfl_get]). *)
@@ -4793,9 +4743,9 @@ Lemma edb_routable_src_to_renamed (gc : global_context) (HR : RelInv gc)
   edb_routable lfp (RelabelCorrect.relabel_Q (rho_gc gc) Qsrc).
 Proof.
   intros Hgr Hsrc f' [f [HQf Hrel]]. subst f'.
-  destruct (Hsrc f HQf) as [n Hn]. unfold src_input_locs in Hn.
+  destruct (Hsrc f HQf) as [n Hn]. unfold src_rel_locs in Hn.
   destruct (map.get fps (Datalog.rel_of f)) as [locs|] eqn:Hfps; [| destruct Hn].
-  exists n. unfold input_locs. rewrite rel_of_relabel_fact.
+  exists n. unfold rel_locs. rewrite rel_of_relabel_fact.
   rewrite (grfl_get gc HR fps lfp Hgr (Datalog.rel_of f) locs Hfps). exact Hn.
 Qed.
 
@@ -4855,6 +4805,133 @@ Proof.
 Qed.
 
 (*========================================================================================*)
+(*  RENAMING PRESERVES THE BARENESS CHECK.  [global_rename_*] only swaps relation/function     *)
+(*  identifiers; it never changes whether an argument is a [var_expr] or a [fun_expr].  So the  *)
+(*  (parametric) [bare_ruleb]/[bare_layoutb] check is rename-invariant, and the top theorem can *)
+(*  state bareness over the SOURCE [layout], transporting it to the renamed [llayout].          *)
+(*========================================================================================*)
+
+(* generic: if [g] sends [P]-inputs to [Q]-outputs on Success, the rev-building fold preserves it. *)
+Lemma fold_result_forall_pres {A B} (g : A -> result B) (P : A -> Prop) (Q : B -> Prop) :
+  (forall x y, P x -> g x = Success y -> Q y) ->
+  forall (xs : list A) (acc res : list B),
+    Forall Q acc -> Forall P xs ->
+    fold_left (fun a x => l <- a ;; y <- g x ;; Success (y :: l)%list) xs (Success acc) = Success res ->
+    Forall Q res.
+Proof.
+  intros Hg. induction xs as [|x xs IH]; intros acc res Hacc Hxs Hfold; cbn [fold_left] in Hfold.
+  - injection Hfold as <-. exact Hacc.
+  - inversion Hxs as [| x' xs' HPx HPxs]; subst. cbn beta iota in Hfold.
+    destruct (g x) as [y | e] eqn:Hgx; cbn beta iota in Hfold;
+      [| rewrite fold_result_fail in Hfold; discriminate].
+    apply (IH (y :: acc) res); [constructor; [exact (Hg x y HPx Hgx) | exact Hacc] | exact HPxs | exact Hfold].
+Qed.
+
+(* renaming a plain-variable arg yields a plain-variable arg. *)
+Lemma grn_expr_isvarb_fwd (gc : global_context) (e : @Datalog.expr var fn) (le : lowered_expr) :
+  (match e with var_expr _ => true | fun_expr _ _ => false end) = true ->
+  global_rename_expr e gc = Success le ->
+  (match le with var_expr _ => true | fun_expr _ _ => false end) = true.
+Proof.
+  destruct e as [v | f0 args]; intros Hb Hren; [| discriminate].
+  cbn in Hren. injection Hren as <-. reflexivity.
+Qed.
+
+Lemma grn_fact_bareb_fwd (gc : global_context) (f : @HardwareProgram.fact rel var fn) (lf : lowered_fact) :
+  global_rename_fact f gc = Success lf -> bare_factb f = true -> bare_factb lf = true.
+Proof.
+  unfold DistributedDatalogToHardwareCompiler.global_rename_fact. intros Hren Hbare.
+  destruct (global_rename_rel f.(Datalog.clause_rel) gc) as [rid | msg]; [| discriminate].
+  match type of Hren with context[fold_left ?ff f.(Datalog.clause_args) (Success [])] =>
+    destruct (fold_left ff f.(Datalog.clause_args) (Success [])) as [rargs | msg] eqn:Hfold; [| discriminate] end.
+  injection Hren as <-. unfold bare_factb in Hbare |- *. cbn [Datalog.clause_args].
+  assert (Hres : Forall (fun b => (match b with var_expr _ => true | fun_expr _ _ => false end) = true) rargs).
+  { apply (fold_result_forall_pres (fun a => global_rename_expr a gc)
+             (fun a => (match a with var_expr _ => true | fun_expr _ _ => false end) = true)
+             (fun b => (match b with var_expr _ => true | fun_expr _ _ => false end) = true)
+             (grn_expr_isvarb_fwd gc) f.(Datalog.clause_args) [] rargs (Forall_nil _)); [| exact Hfold].
+    apply Forall_forall. exact (proj1 (forallb_forall _ _) Hbare). }
+  apply forallb_forall. intros e He. apply in_rev in He.
+  rewrite Forall_forall in Hres. exact (Hres e He).
+Qed.
+
+(* the per-fact-list step (hyps / concls), via [grn_fact_bareb_fwd]. *)
+Lemma grn_facts_bareb_fwd (gc : global_context) (fs : list (@HardwareProgram.fact rel var fn))
+    (lfs : list lowered_fact) :
+  fold_left (fun acc f => rfs <- acc ;; rf <- global_rename_fact f gc ;; Success (rf :: rfs)%list) fs (Success []) = Success lfs ->
+  forallb bare_factb fs = true -> forallb bare_factb (List.rev lfs) = true.
+Proof.
+  intros Hfold Hbare.
+  assert (Hres : Forall (fun lf => bare_factb lf = true) lfs).
+  { apply (fold_result_forall_pres (fun f => global_rename_fact f gc)
+             (fun f => bare_factb f = true) (fun lf => bare_factb lf = true)
+             (fun x y Hb Hg => grn_fact_bareb_fwd gc x y Hg Hb) fs [] lfs (Forall_nil _)); [| exact Hfold].
+    apply Forall_forall. exact (proj1 (forallb_forall _ _) Hbare). }
+  apply forallb_forall. intros lf Hlf. apply in_rev in Hlf.
+  rewrite Forall_forall in Hres. exact (Hres lf Hlf).
+Qed.
+
+Lemma grn_rule_bareb_fwd (gc : global_context) (r : @HardwareProgram.rule rel var fn aggregator)
+    (lr : lowered_rule) :
+  global_rename_rule r gc = Success lr -> bare_ruleb r = true -> bare_ruleb lr = true.
+Proof.
+  intros Hren Hbare. destruct r as [rconcls rhyps | mcs mhs | cr agg hr];
+    cbn [DistributedDatalogToHardwareCompiler.global_rename_rule] in Hren; [| discriminate | discriminate].
+  match type of Hren with context[fold_left ?ff rhyps (Success [])] =>
+    destruct (fold_left ff rhyps (Success [])) as [hyps_f | msg] eqn:Hfh; [| discriminate] end.
+  match type of Hren with context[fold_left ?ff rconcls (Success [])] =>
+    destruct (fold_left ff rconcls (Success [])) as [concls_f | msg] eqn:Hfc; [| discriminate] end.
+  injection Hren as <-. cbn [bare_ruleb] in Hbare |- *.
+  apply andb_true_iff in Hbare. destruct Hbare as [Hbh Hbc].
+  apply andb_true_iff. split.
+  - exact (grn_facts_bareb_fwd gc rhyps hyps_f Hfh Hbh).
+  - exact (grn_facts_bareb_fwd gc rconcls concls_f Hfc Hbc).
+Qed.
+
+Lemma grn_program_bareb_fwd (gc : global_context) (p : program) (lp : lowered_program) :
+  global_rename_program p gc = Success lp -> forallb bare_ruleb p = true -> forallb bare_ruleb lp = true.
+Proof.
+  unfold DistributedDatalogToHardwareCompiler.global_rename_program. intros Hren Hbare.
+  match type of Hren with context[fold_left ?ff p (Success [])] =>
+    destruct (fold_left ff p (Success [])) as [rs | msg] eqn:Hfold; [| discriminate] end.
+  injection Hren as <-.
+  assert (Hres : Forall (fun lr => bare_ruleb lr = true) rs).
+  { apply (fold_result_forall_pres (fun r => global_rename_rule r gc)
+             (fun r => bare_ruleb r = true) (fun lr => bare_ruleb lr = true)
+             (fun x y Hb Hg => grn_rule_bareb_fwd gc x y Hg Hb) p [] rs (Forall_nil _)); [| exact Hfold].
+    apply Forall_forall. exact (proj1 (forallb_forall _ _) Hbare). }
+  apply forallb_forall. intros lr Hlr. apply in_rev in Hlr.
+  rewrite Forall_forall in Hres. exact (Hres lr Hlr).
+Qed.
+
+(* converse of [bare_layoutb_entry]: a layout all of whose programs are bare passes [bare_layoutb]. *)
+Lemma bare_layoutb_intro (llayout : lowered_layout_map) :
+  (forall n p, map.get llayout n = Some p -> forallb bare_ruleb p = true) ->
+  bare_layoutb llayout = true.
+Proof.
+  unfold bare_layoutb.
+  apply (map.fold_spec
+    (fun (m : lowered_layout_map) (b : bool) =>
+       (forall n p, map.get m n = Some p -> forallb bare_ruleb p = true) -> b = true)).
+  - intros _. reflexivity.
+  - intros k v m r Hgmk IH Hall. apply andb_true_iff. split.
+    + apply IH. intros n p Hget. apply (Hall n p).
+      rewrite map.get_put_diff; [exact Hget |]. intros ->. rewrite Hgmk in Hget. discriminate.
+    + exact (Hall k v (map.get_put_same m k v)).
+Qed.
+
+(* THE BRIDGE: [bare_layoutb] is rename-invariant, so the source layout's bareness transports. *)
+Lemma rename_preserves_bare_layoutb (layout : layout_map) (gc : global_context) (llayout : lowered_layout_map) :
+  global_rename_rule_layout layout gc = Success llayout ->
+  bare_layoutb layout = true ->
+  bare_layoutb llayout = true.
+Proof.
+  intros Hgr Hbl. apply bare_layoutb_intro. intros n lp Hgetll.
+  destruct (global_rename_rule_layout_spec layout gc llayout n lp Hgr Hgetll) as [orig [Hgetlayout Hgrp]].
+  exact (grn_program_bareb_fwd gc orig lp Hgrp (bare_layoutb_entry layout Hbl n orig Hgetlayout)).
+Qed.
+
+(*========================================================================================*)
 (*  THE FINAL THEOREM: correctness over a USER-SUPPLIED program [P], given the layout is a     *)
 (*  valid distribution of [P] ([layout_distributes_program], a checkable rule-set equality).    *)
 (*  No relabel-equality / injectivity hyps (discharged); "inputs in scope" is ABSORBED by      *)
@@ -4862,37 +4939,56 @@ Qed.
 (*========================================================================================*)
 Theorem compile_implements_source
     (layout : layout_map) (fps fcs : fact_locations) (g : node_graph) (fuel : nat)
-    (ninfos : list node_info) (P : program)
+    (ninfos : list node_info) (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
+    (gcontext : global_context)
+    (* a decidable equality on source rules, so the distribution condition is a runnable boolean check
+       (the concrete layer supplies it, e.g. a string-rule equality) *)
+    (rule_eqb : @HardwareProgram.rule rel var fn aggregator -> @HardwareProgram.rule rel var fn aggregator -> bool)
+    (rule_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rule_eqb x y))
+    (P : program)
     (Qsrc : Datalog.fact rel T -> Prop) (fsrc : Datalog.fact rel T) :
   (* the compiler succeeds *)
   compile layout fps fcs g fuel = Success ninfos ->
-  (* the layout only has variables (no functions )*)
-  bare_layoutb (compile_renamed_layout layout) = true ->
-  (* the layout is a valid distribution of the reference program [P] (same rule set) *)
-  layout_distributes_program P layout ->
+  (* renaming of inputs to numbers *)
+  lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
+  (* the source layout only has variables (no functions) *)
+  bare_layoutb layout = true ->
+  (* the layout is a valid distribution of the reference program [P] (same rule set) -- a CHECKABLE
+     boolean (examples discharge it by [vm_compute]); [layout_distributes_programb_spec] soundly turns
+     it into the [Prop] the proof uses. *)
+  layout_distributes_programb rule_eqb P layout = true ->
   (* the queried fact's relation appears in [P] *)
   In (Datalog.rel_of fsrc) (program_rels P) ->
-  (* the EDB must be routable -- a condition on ONLY the producer table [fps] and the base facts [Qsrc]
-     (no renaming, no layout, no program): every base fact's relation has a declared input node.  This
-     is a genuine extra condition: [compile] never sees [Qsrc], so it cannot discharge it. *)
+  (* Every base fact's relation has a declared input node *)
   edb_routable_src fps Qsrc ->
   run_ninfos ninfos
-    (fun n f0 => RelabelCorrect.relabel_Q (rho_gc (collect_global_names_layout layout initial_global_context)) Qsrc f0
-                 /\ In n (input_locs (compile_renamed_fact_producers layout fps) (Datalog.rel_of f0)))
-    (fun n R => In n (input_locs (compile_renamed_fact_consumers layout fcs) R))
-    (RelabelCorrect.relabel_fact (rho_gc (collect_global_names_layout layout initial_global_context)) fsrc)
+    (* Input *)
+    (fun n f0 => RelabelCorrect.relabel_Q (rho_gc gcontext) Qsrc f0 /\ In n (rel_locs lfp (Datalog.rel_of f0)))
+    (* Output *)
+    (fun n R => In n (rel_locs lfc R))
+    (* Query *)
+    (RelabelCorrect.relabel_fact (rho_gc gcontext) fsrc)
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
-  intros Hcomp Hbl Hdist Hquery Hedbsrc.
+  intros Hcomp Hlow Hbl_src Hdistb Hquery Hedbsrc.
+  (* the checkable distribution check soundly gives the [Prop] rule-set equality the proof uses. *)
+  pose proof (layout_distributes_programb_spec rule_eqb rule_eqb_spec P layout Hdistb) as Hdist.
+  (* the [lower_inputs] equation IS the rename results: it names the compiler's actual renamed
+     layout/fact-tables and the collected name context. *)
+  destruct (lower_inputs_inv layout fps fcs llayout lfp lfc gcontext Hlow) as [Hgc0 [Hgrl [Hgrfp Hgrfc]]].
+  subst gcontext.
+  (* the SOURCE bareness check transports to the renamed [llayout] (renaming is bareness-invariant). *)
+  assert (Hbl : bare_layoutb llayout = true)
+    by exact (rename_preserves_bare_layoutb layout
+                (collect_global_names_layout layout initial_global_context) llayout Hgrl Hbl_src).
   (* lift the source EDB-routability to the [rel_id]-level [edb_routable] the proof core uses, via the
-     fact that the renamed producer table is [fps] with keys renamed and locations preserved. *)
-  assert (Hedb : edb_routable (compile_renamed_fact_producers layout fps)
+     fact that the renamed producer table [lfp] is [fps] with keys renamed and locations preserved. *)
+  assert (Hedb : edb_routable lfp
                    (RelabelCorrect.relabel_Q (rho_gc (collect_global_names_layout layout initial_global_context)) Qsrc)).
   { exact (edb_routable_src_to_renamed (collect_global_names_layout layout initial_global_context)
-             (collect_global_names_RelInv layout) fps (compile_renamed_fact_producers layout fps) Qsrc
-             (compile_fps_rename_success layout fps fcs g fuel ninfos Hcomp) Hedbsrc). }
+             (collect_global_names_RelInv layout) fps lfp Qsrc Hgrfp Hedbsrc). }
   (* "inputs are in scope" is FORCED by routability: an out-of-scope input renames to the fresh
-     [last_rel_id], which has no producer node ([input_locs_rlast_nil]), so [edb_routable] can't route
+     [last_rel_id], which has no producer node ([rel_locs_rlast_nil]), so [edb_routable] can't route
      it -- contradiction. *)
   assert (HSQ : facts_in_domain (collect_global_names_layout layout initial_global_context) Qsrc).
   { intros h Hh. unfold fact_in_domain, Sdom.
@@ -4903,11 +4999,10 @@ Proof.
                       (rho_gc (collect_global_names_layout layout initial_global_context)) h)
                 (ex_intro _ h (conj Hh eq_refl))) as [n Hn].
     rewrite rel_of_relabel_fact in Hn. unfold rho_gc in Hn. rewrite Hget in Hn.
-    exact (input_locs_rlast_nil layout fps n Hn). }
+    exact (rel_locs_rlast_nil layout fps lfp n Hgrfp Hn). }
   (* bareness of the source program is implied by the layoutb check on the renamed layout. *)
   pose proof (source_bare_of_layoutb layout (collect_global_names_layout layout initial_global_context)
-                (compile_renamed_layout layout)
-                (compile_global_rename_success layout fps fcs g fuel ninfos Hcomp) Hbl) as Hbsrc.
+                llayout Hgrl Hbl) as Hbsrc.
   (* "rel of fsrc is in P" gives the [Sdom] fact (via [layout_distributes_program] + collect-correctness). *)
   assert (HSf : fact_in_domain (collect_global_names_layout layout initial_global_context) fsrc).
   { exact (program_rels_in_domain layout (Datalog.rel_of fsrc) Hbsrc
@@ -4921,23 +5016,23 @@ Proof.
              (proj2 Hdist) (proj1 Hdist)).
   pose proof (source_Sprogram layout) as HSsrc.
   set (gc0 := collect_global_names_layout layout initial_global_context) in *.
-  rewrite (compile_distributed_correct layout fps fcs g fuel ninfos
-             (RelabelCorrect.relabel_Q (rho_gc gc0) Qsrc) Hcomp Hbl Hedb
+  rewrite (compile_distributed_correct layout fps fcs g fuel ninfos llayout lfp lfc gc0
+             (RelabelCorrect.relabel_Q (rho_gc gc0) Qsrc) Hlow Hcomp Hbl Hedb
              (RelabelCorrect.relabel_fact (rho_gc gc0) fsrc)).
   assert (Hrelsrc_bare :
             RelabelCorrect.bare_program
               (RelabelCorrect.relabel_program (rho_gc gc0) (iota_gc gc0) (source_program layout))).
   { unfold RelabelCorrect.bare_program. apply Forall_forall. intros r Hr.
-    apply (proj1 (Forall_forall _ _) (canonical_renamed_bare layout Hbl)).
-    apply (proj2 (canonical_renamed_eq_relabel_source layout fps fcs g fuel ninfos r Hcomp Hbsrc HSsrc)).
+    apply (proj1 (Forall_forall _ _) (canonical_renamed_bare llayout Hbl)).
+    apply (proj2 (canonical_renamed_eq_relabel_source layout llayout r Hgrl Hbsrc HSsrc)).
     exact Hr. }
-  rewrite (prog_impl_set_iff (canonical_program (compile_renamed_layout layout))
+  rewrite (prog_impl_set_iff (canonical_program llayout)
              (RelabelCorrect.relabel_program (rho_gc gc0) (iota_gc gc0) (source_program layout))
              (RelabelCorrect.relabel_Q (rho_gc gc0) Qsrc)
              (RelabelCorrect.relabel_fact (rho_gc gc0) fsrc)
-             (canonical_renamed_bare layout Hbl) Hrelsrc_bare
-             (fun r Hr => proj1 (canonical_renamed_eq_relabel_source layout fps fcs g fuel ninfos r Hcomp Hbsrc HSsrc) Hr)
-             (fun r Hr => proj2 (canonical_renamed_eq_relabel_source layout fps fcs g fuel ninfos r Hcomp Hbsrc HSsrc) Hr)).
+             (canonical_renamed_bare llayout Hbl) Hrelsrc_bare
+             (fun r Hr => proj1 (canonical_renamed_eq_relabel_source layout llayout r Hgrl Hbsrc HSsrc) Hr)
+             (fun r Hr => proj2 (canonical_renamed_eq_relabel_source layout llayout r Hgrl Hbsrc HSsrc) Hr)).
   exact (RelabelCorrect.prog_impl_relabel (rho_gc gc0) (iota_gc gc0) (Sdom gc0)
            (rho_gc_injective_collect layout) (source_program layout) Qsrc fsrc Hbsrc HSsrc HSQ HSf).
 Qed.

@@ -62,8 +62,6 @@ Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_
 
 Context {node_info_map : map.map node_id node_info}.
 
-Definition rule_layout := list (node_id * list rule).
-Definition lowered_rule_layout := list (node_id * list lowered_rule).
 Definition topology := Graph (Node := Node).
 
 Record global_context := {
@@ -588,11 +586,6 @@ Fixpoint compute_variable_ordering_ordered_h (ctx : ordering_context)
     end
   end.
 
-Definition compute_variable_ordering (g : var_graph) : list var :=
-  List.rev
-    (compute_variable_ordering_h (initial_ordering_context g)
-       (List.length (map.keys g.(nodes)))).(order).
-
 Definition compute_variable_ordering_ordered (g : var_graph) (hyps : list lowered_fact) : list var :=
   let candidates := hyp_var_order hyps in
   List.rev
@@ -1012,45 +1005,6 @@ Definition attach_forwarding_tables (ninfos : list node_info)
      (List.filter
         (fun n => negb (List.existsb (fun ninfo => node_id_eqb ninfo.(nid) n) ninfos))
         (map.keys ftables)).
-
-(* The renamed (numeric-id) layout that [compile] works on internally, exposed as a standalone
-   computable definition so correctness statements can name it (and run the bareness / node-validity
-   checks on it).  When [compile] succeeds these are exactly the [llayout]/[gcontext] it uses. *)
-Definition compile_renamed_layout (layout : layout_map) : lowered_layout_map :=
-  match global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context) with
-  | Success ll => ll
-  | Failure _ => map.empty
-  end.
-
-(* The renamed (numeric-id) fact-producer locations [compile] works on internally, exposed as a
-   standalone def so the streaming input model can name them.  On success these are exactly the
-   [lfact_producers] compile uses. *)
-Definition compile_renamed_fact_producers (layout : layout_map) (fact_producers : fact_locations)
-    : lowered_fact_locations :=
-  match global_rename_fact_locations fact_producers (collect_global_names_layout layout initial_global_context) with
-  | Success lfp => lfp
-  | Failure _ => map.empty
-  end.
-
-(* The renamed (numeric-id) fact-consumer / OUTPUT-sink locations, exposed for the streaming model. *)
-Definition compile_renamed_fact_consumers (layout : layout_map) (fact_consumers : fact_locations)
-    : lowered_fact_locations :=
-  match global_rename_fact_locations fact_consumers (collect_global_names_layout layout initial_global_context) with
-  | Success lfc => lfc
-  | Failure _ => map.empty
-  end.
-
-Definition compile_global_context (layout : layout_map)
-    (fact_producers fact_consumers : fact_locations) : global_context :=
-  let gcontext := collect_global_names_layout layout initial_global_context in
-  match global_rename_fact_locations fact_producers gcontext with
-  | Success lfp =>
-      match global_rename_fact_locations fact_consumers gcontext with
-      | Success lfc => collect_global_dependencies (compile_renamed_layout layout) lfp lfc gcontext
-      | Failure _ => gcontext
-      end
-  | Failure _ => gcontext
-  end.
 
 (* every node the layout assigns to is a real graph node. *)
 Definition layout_in_graphb (g : node_graph) (llayout : lowered_layout_map) : bool :=
