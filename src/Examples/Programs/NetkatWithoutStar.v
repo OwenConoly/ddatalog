@@ -22,7 +22,6 @@ Import StringDatalogParams.
 (* Plain (non-fancy) helpers replacing the old FancyNotations: NetKAT term constructors
    are just function symbols ([fun_expr]) and the two relations ([Term], [rewrite]) are
    plain [clause]s.  [v "x"] is a variable. *)
-Local Definition clause := Datalog.clause rel var fn.
 Local Definition v (s : string) : expr := var_expr s.
 Local Definition Disj (a b : expr) : expr := fun_expr "Disj" [a; b].
 Local Definition Conj (a b : expr) : expr := fun_expr "Conj" [a; b].
@@ -395,22 +394,16 @@ Definition netkat_program : list rule :=
 
 (* Temp fix, may use typeclasses later *)
 Definition get_program_dependencies (p : list rule) :=
-  DependencyGenerator.get_program_dependencies
-    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
-    (rel_eqb := rel_eqb) (expr_compatible := expr_compatible)
+  DependencyGenerator.get_program_dependencies (expr_compatible := expr_compatible)
     p.
 
 Definition get_rule_dependencies (p : list rule) (r : rule) :=
-  DependencyGenerator.get_rule_dependencies
-    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
-    (rel_eqb := rel_eqb) (expr_compatible := expr_compatible)
+  DependencyGenerator.get_rule_dependencies (expr_compatible := expr_compatible)
     p r.
 
 Definition get_program_dependencies_flat (p : list rule) :=
   DependencyGenerator.get_program_dependencies_flat
-    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
-    (aggregator_eqb := aggregator_eqb) (rel_eqb := rel_eqb)
-    (expr_compatible := expr_compatible) (fn_eqb := fn_eqb) (var_eqb := var_eqb)
+    (expr_compatible := expr_compatible)
     p.
 
 (* Example computations *)

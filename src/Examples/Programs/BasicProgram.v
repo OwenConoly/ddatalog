@@ -17,7 +17,7 @@ Definition edge_path_rule : rule :=
 (* Constants *)
 
 (* Helper to create a constant (as a nullary function) *)
-Definition const (c : fn) : expr := fun_expr c [].
+Definition const (c : string) : expr := fun_expr c [].
 
 (* Example: edge(x, 42) :- node(x) 
    This represents "for all x, if x is a node, then there's an edge from x to node 42" *)

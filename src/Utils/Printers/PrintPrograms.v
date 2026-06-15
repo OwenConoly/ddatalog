@@ -7,27 +7,27 @@ From DatalogRocq Require Import BasicProgram Family Examples.Programs.Graph (* M
 (* Local JSON encoders for the *source* datalog AST, decoupled from the broken [Datalog.JSON]
    submodule file.  (Mirrors how [PrintHardwareEncoding] defines encoders for the hardware AST.) *)
 Section SourceEncoders.
-Context {rel var fn aggregator : Type}.
+Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 Context `{JEncode rel} `{JEncode var} `{JEncode fn} `{JEncode aggregator}.
 
-Fixpoint encode_dexpr (e : Datalog.expr var fn) : json :=
+Fixpoint encode_dexpr (e : expr) : json :=
   match e with
   | var_expr v => JSON__Object [("var_expr", encode v)]
   | fun_expr f args =>
       JSON__Object [("fun_expr", encode f);
                     ("args", JSON__Array (List.map encode_dexpr args))]
   end.
-#[global] Instance JEncode__dexpr : JEncode (Datalog.expr var fn) := encode_dexpr.
+#[global] Instance JEncode__dexpr : JEncode (expr) := encode_dexpr.
 
-#[global] Instance JEncode__dclause : JEncode (Datalog.clause rel var fn) := fun c =>
+#[global] Instance JEncode__dclause : JEncode (clause) := fun c =>
   JSON__Object [("clause_rel", encode c.(clause_rel));
                 ("clause_args", encode c.(clause_args))].
 
-#[global] Instance JEncode__dmeta_clause : JEncode (Datalog.meta_clause rel var fn) := fun c =>
+#[global] Instance JEncode__dmeta_clause : JEncode (meta_clause) := fun c =>
   JSON__Object [("meta_clause_rel", encode c.(meta_clause_rel));
                 ("meta_clause_args", encode c.(meta_clause_args))].
 
-#[global] Instance JEncode__drule : JEncode (Datalog.rule rel var fn aggregator) := fun r =>
+#[global] Instance JEncode__drule : JEncode (rule) := fun r =>
   match r with
   | normal_rule concls hyps =>
       JSON__Object [("normal_rule",

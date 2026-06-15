@@ -15,7 +15,6 @@ Import StringDatalogParams.
 Notation node_id     := GridTopology.node_id.
 Notation node_id_map := GridTopology.node_id_map.
 Notation destination := (@DistributedHardwareProgram.destination node_id).
-Notation lowered_rule := (@HardwareProgram.lowered_rule var).
 
 (* [make_layout_map program layout] : a [node -> rules] map from an indexed layout
    (a list of [(node_id, rule_index_list)] pairs over the [program]). *)
@@ -25,7 +24,7 @@ Definition make_layout_map
     : node_id_map (list rule) :=
   List.fold_left
     (fun acc '(nid, idxs) =>
-      let empty_rule := Datalog.normal_rule [] [] in
+      let empty_rule := normal_rule [] [] in
       let rules := List.map (fun i => List.nth i program empty_rule) idxs in
       map.put acc nid rules)
     layout map.empty.
@@ -34,8 +33,8 @@ Definition make_layout_map
 Definition compile_program
     (program        : list rule)
     (layout         : list (node_id * list nat))
-    (fact_producers : fact_locations (rel := rel) (node_id := node_id))
-    (fact_consumers : fact_locations (rel := rel) (node_id := node_id))
+    (fact_producers : fact_locations (node_id := node_id))
+    (fact_consumers : fact_locations (node_id := node_id))
     (topo_dims      : GridGraph.Dimensions)
     (fuel           : nat)
     : _ :=
@@ -43,7 +42,6 @@ Definition compile_program
     (Node               := node_id)
     (node_id            := node_id)
     (node_id_eqb        := GridTopology.node_id_eqb)
-    (var_eqb            := var_eqb)
     (node_id_set        := node_id_map unit)
     (node_id_edge_set   := node_id_map (node_id_map unit))
     (var_node_set       := StringDatalog.var_node_set)
@@ -53,7 +51,7 @@ Definition compile_program
     (fn_id_map          := StringDatalog.fn_id_map)
     (rel_relid_map      := StringDatalog.rel_relid_map)
     (layout_map         := node_id_map (list rule))
-    (lowered_layout_map := node_id_map (list lowered_rule))
+    (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
     (var_idx_map        := StringDatalog.var_idx_map)
     (node_ftable_map    := node_id_map (SortedListNat.map (list destination)))
     (make_layout_map program layout) fact_producers fact_consumers

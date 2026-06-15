@@ -9,22 +9,20 @@
    instance; so is any other topology we care to build. *)
 
 From Stdlib Require Import List Bool.
-From Datalog Require Import Datalog.
+From Datalog Require Import Datalog Eqb.
 From DatalogRocq Require Import DistributedDatalog Topologies.Graph.
-From coqutil Require Import Map.Interface.
+From coqutil Require Import Map.Interface Eqb Tactics.destr.
 Import ListNotations.
 
 Section ConnectedTopology.
-  Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
+  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+  Context `{sig : signature fn aggregator T}.
+  Context {context : map.map exprvar T} {context_ok : map.ok context}.
   Context {Node : Type}.
   Context {node_eqb : Node -> Node -> bool}
           {node_eqb_spec : forall x y : Node, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
 
-  Definition rule := Datalog.rule rel var fn aggregator.
-  Context {rule_eqb : rule -> rule -> bool}.
-  Context {rule_eqb_spec : forall r1 r2 : rule, BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2)}.
+  Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 
   (* The abstract interface: every fact about a topology that [good_network] depends on, and
      nothing else.  All program-/layout-dependent obligations are theorem hypotheses below;
@@ -32,7 +30,7 @@ Section ConnectedTopology.
   Record connected_topology := {
     ct_graph    : Graph (Node := Node);
     ct_forward  : Node -> rel -> list Node;
-    ct_input    : Node -> Datalog.fact rel T -> Prop;
+    ct_input    : Node -> fact -> Prop;
     ct_output   : Node -> rel -> Prop;
     (* a finite enumeration of the graph's nodes *)
     ct_all_nodes      : list Node;
@@ -71,9 +69,9 @@ Section ConnectedTopology.
      (1) every rule placed on a node is a program rule, and
      (2) every program rule is placed on some node. *)
   Definition node_rules_ok (L : Node -> list rule) (program : list rule) (n : Node) : bool :=
-    forallb (fun r => existsb (rule_eqb r) program) (L n).
+    forallb (fun r => existsb (eqb r) program) (L n).
   Definition rule_in_layout (all : list Node) (L : Node -> list rule) (r : rule) : bool :=
-    existsb (fun n => existsb (rule_eqb r) (L n)) all.
+    existsb (fun n => existsb (eqb r) (L n)) all.
   Definition check_layout (ct : connected_topology) (L : Node -> list rule) (program : list rule) : bool :=
     forallb (node_rules_ok L program) (ct_all_nodes ct) &&
     forallb (rule_in_layout (ct_all_nodes ct) L) program.
@@ -96,7 +94,7 @@ Section ConnectedTopology.
       destruct H_layout as [n [H_n_in_nodes H_r_in_layout]].
       rewrite existsb_exists in H_r_in_layout.
       destruct H_r_in_layout as [r' [Hin H_r_eq]].
-      exists n. destruct (rule_eqb_spec r r').
+      exists n. cbv [eqb] in H_r_eq. destr (rule_eqb r r').
       + subst. split; [apply (ct_all_nodes_spec ct); exact H_n_in_nodes | exact Hin].
       + discriminate H_r_eq.
     - intros n r H0. split.
@@ -107,7 +105,7 @@ Section ConnectedTopology.
         unfold node_rules_ok in H_nodes_ok. rewrite forallb_forall in H_nodes_ok.
         specialize (H_nodes_ok r H0). rewrite existsb_exists in H_nodes_ok.
         destruct H_nodes_ok as [r' [Hin H_r_eq]].
-        destruct (rule_eqb_spec r r'); [subst; exact Hin | discriminate H_r_eq].
+        cbv [eqb] in H_r_eq. destr (rule_eqb r r'); [subst; exact Hin | discriminate H_r_eq].
   Qed.
 
   (* THE GENERIC THEOREM: any topology satisfying [connected_topology], run with any layout that
@@ -148,7 +146,7 @@ Section ConnectedTopology.
              { destruct H as [rl [Hin_layout _]]. apply (Hvalid n rl Hin_layout). }
              split.
              --- exact Hn.
-             --- apply (ct_output_total ct n (Datalog.rel_of f) Hn).
+             --- apply (ct_output_total ct n (rel_of f) Hn).
   Qed.
 
   (* The original [good_network_ct]: discharge [good_layout] from the decidable checker. *)
@@ -198,17 +196,17 @@ Section ConnectedTopology.
   (* The streaming dataflow network for layout [L] and base facts [Q]: identical to [net_of]
      except its input injects each base fact [f] at the input node for [f]'s relation. *)
   Definition net_of_streaming (ct : connected_topology) (L : Node -> list rule)
-      (Q : Datalog.fact rel T -> Prop) : DataflowNetwork :=
+      (Q : fact -> Prop) : DataflowNetwork :=
     {| DistributedDatalog.graph   := ct_graph ct;
        DistributedDatalog.forward := ct_forward ct;
-       DistributedDatalog.input   := fun n f => Q f /\ n = ct_input_node ct (Datalog.rel_of f);
+       DistributedDatalog.input   := fun n f => Q f /\ n = ct_input_node ct (rel_of f);
        DistributedDatalog.output  := ct_output ct;
        DistributedDatalog.layout  := L |}.
 
   (* In a connected topology every (real) node is a good source for every relation: by
      connectivity it reaches every (real) consumer, and by [ct_output_total] it itself outputs. *)
   Lemma good_source_ct (ct : connected_topology) (L : Node -> list rule)
-      (Q : Datalog.fact rel T -> Prop) (n : Node) (R : rel) :
+      (Q : fact -> Prop) (n : Node) (R : rel) :
     layout_valid_nodes ct L ->
     (ct_graph ct).(nodes) n ->
     good_source (net_of_streaming ct L Q) n R.
@@ -225,7 +223,7 @@ Section ConnectedTopology.
      [good_network_streaming] for any base facts [Q] -- base facts enter at the per-relation input
      nodes and forward to every consumer. *)
   Theorem good_network_streaming_ct (ct : connected_topology) (L : Node -> list rule)
-      (program : list rule) (Q : Datalog.fact rel T -> Prop) :
+      (program : list rule) (Q : fact -> Prop) :
     layout_valid_nodes ct L ->
     check_layout ct L program = true ->
     good_network_streaming (net_of_streaming ct L Q) program Q.
@@ -241,13 +239,13 @@ Section ConnectedTopology.
       apply (good_source_ct ct L Q n_prod R Hvalid Hn_prod_real).
     - split.
       + intros n f [HQ _]. exact HQ.
-      + intros f HQ. exists (ct_input_node ct (Datalog.rel_of f)). split.
+      + intros f HQ. exists (ct_input_node ct (rel_of f)). split.
         * split; [exact HQ | reflexivity].
-        * apply (good_source_ct ct L Q _ (Datalog.rel_of f) Hvalid (ct_input_node_real ct (Datalog.rel_of f))).
+        * apply (good_source_ct ct L Q _ (rel_of f) Hvalid (ct_input_node_real ct (rel_of f))).
   Qed.
 
   Theorem good_network_streaming_canonical (ct : connected_topology) (L : Node -> list rule)
-      (Q : Datalog.fact rel T -> Prop) :
+      (Q : fact -> Prop) :
     layout_valid_nodes ct L ->
     good_network_streaming (net_of_streaming ct L Q) (canonical_program ct L) Q.
   Proof.
@@ -262,9 +260,9 @@ Section ConnectedTopology.
       apply (good_source_ct ct L Q n_prod R Hvalid Hn_prod_real).
     - split.
       + intros n f [HQ _]. exact HQ.
-      + intros f HQ. exists (ct_input_node ct (Datalog.rel_of f)). split.
+      + intros f HQ. exists (ct_input_node ct (rel_of f)). split.
         * split; [exact HQ | reflexivity].
-        * apply (good_source_ct ct L Q _ (Datalog.rel_of f) Hvalid (ct_input_node_real ct (Datalog.rel_of f))).
+        * apply (good_source_ct ct L Q _ (rel_of f) Hvalid (ct_input_node_real ct (rel_of f))).
   Qed.
 
 End ConnectedTopology.

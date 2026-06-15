@@ -13,17 +13,10 @@ Open Scope string_scope.
 (* Souffle relation/variable names are strings; we use string for       *)
 (* rel, var, and fn.  aggregator = unit (aggregation not supported).    *)
 (* ------------------------------------------------------------------ *)
-Definition rel         := string.
-Definition var         := string.
-Definition fn          := string.
-Definition aggregator  := unit.
 
-Definition rule     := Datalog.rule     rel var fn aggregator.
-Definition expr     := Datalog.expr     var fn.
-Definition fact     := Datalog.clause     rel var fn.
 
 (* Nullary function application = constant value *)
-Definition const (c : fn) : expr := fun_expr c [].
+Definition const (c : string) : expr := fun_expr c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -37,19 +30,19 @@ Definition const (c : fn) : expr := fun_expr c [].
 
 (* null(X, Y) :- nullEdge(X, Y). *)
 Definition rule_0 : rule :=
-Datalog.normal_rule ([
-      {| Datalog.clause_rel := "null"; Datalog.clause_args := [(var_expr "X"); (var_expr "Y")] |}
+normal_rule ([
+      {| clause_rel := "null"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
     ]) ([
-      {| Datalog.clause_rel := "nullEdge"; Datalog.clause_args := [(var_expr "X"); (var_expr "Y")] |}
+      {| clause_rel := "nullEdge"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
     ]).
 
 (* null(X, Y) :- null(X, W), arc(W, Y). *)
 Definition rule_1 : rule :=
-Datalog.normal_rule ([
-      {| Datalog.clause_rel := "null"; Datalog.clause_args := [(var_expr "X"); (var_expr "Y")] |}
+normal_rule ([
+      {| clause_rel := "null"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
     ]) ([
-      {| Datalog.clause_rel := "null"; Datalog.clause_args := [(var_expr "X"); (var_expr "W")] |};
-      {| Datalog.clause_rel := "arc"; Datalog.clause_args := [(var_expr "W"); (var_expr "Y")] |}
+      {| clause_rel := "null"; clause_args := [(var_expr "X"); (var_expr "W")] |};
+      {| clause_rel := "arc"; clause_args := [(var_expr "W"); (var_expr "Y")] |}
     ]).
 
 Definition program : list rule :=
@@ -61,24 +54,18 @@ Print computed_program.
 
 (* Temp fix, may use typeclasses later *)
 Definition get_program_dependencies (p : list rule) :=
-  DependencyGenerator.get_program_dependencies
-    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
-    (rel_eqb := rel_eqb) (expr_compatible := expr_compatible)
+  DependencyGenerator.get_program_dependencies (expr_compatible := expr_compatible)
     p.
 
 Definition get_rule_dependencies (p : list rule) (r : rule) :=
-  DependencyGenerator.get_rule_dependencies
-    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
-    (rel_eqb := rel_eqb) (expr_compatible := expr_compatible)
+  DependencyGenerator.get_rule_dependencies (expr_compatible := expr_compatible)
     p r.
 
 Definition get_program_dependencies_flat (p : list rule) :=
   DependencyGenerator.get_program_dependencies_flat
-    (rel := rel) (var := var) (fn := fn) (aggregator := aggregator)
-    (aggregator_eqb := aggregator_eqb) (rel_eqb := rel_eqb)
-    (expr_compatible := expr_compatible) (fn_eqb := fn_eqb) (var_eqb := var_eqb)
+    (expr_compatible := expr_compatible)
     p.
-    
+
 Compute get_program_dependencies computed_program.
 Compute get_rule_dependencies
         computed_program

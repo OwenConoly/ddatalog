@@ -1,7 +1,7 @@
 From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith.
-From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result.
-From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Topologies.Graph ComputableGraph EqbSpec.
+From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result Eqb.
+From DatalogRocq Require Import DependencyGenerator SortedListNat Topologies.Graph ComputableGraph.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
@@ -13,26 +13,12 @@ Module Import RM := ResultMonadNotations.
 
 Section EncodeLayout.
 
-Context {rel var fn aggregator T : Type}.
-Context {var_eqb : var -> var -> bool} {var_eqb_spec : forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
-Context {var_eq_dec : forall x y : var, {x = y} + {x <> y}}.
-Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : forall r1 r2 : rel, BoolSpec (r1 = r2) (r1 <> r2) (rel_eqb r1 r2)}.
+Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+Context {var_eqb : Eqb var}.
 Context {Node : Type}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
-
-(* Instantiating short names from HardwareProgram *)
-
-Definition fact := @HardwareProgram.fact rel var fn.
-Definition rule := @HardwareProgram.rule rel var fn aggregator.
-Definition expr := @HardwareProgram.expr var fn.
-Definition program := @HardwareProgram.program rel var fn aggregator.
-
-Definition lowered_expr := @HardwareProgram.lowered_expr var.
-Definition lowered_fact := @HardwareProgram.lowered_fact var.
-Definition lowered_rule := @HardwareProgram.lowered_rule var aggregator.
-Definition lowered_program := @HardwareProgram.lowered_program var aggregator.
 
 Notation destination := (@DistributedHardwareProgram.destination node_id).
 Notation destination_eqb := (@DistributedHardwareProgram.destination_eqb node_id node_id_eqb).
@@ -137,13 +123,13 @@ Definition update_global_context_with_rel (r : rel) (gcontext : global_context) 
     |}
   end.
 
-Definition collect_global_names_fact (f : fact) (gcontext : global_context) : global_context :=
+Definition collect_global_names_fact (f : clause) (gcontext : global_context) : global_context :=
   fold_left (fun acc arg => collect_global_names_expr arg acc)
-    f.(Datalog.clause_args) (update_global_context_with_rel f.(Datalog.clause_rel) gcontext).
+    f.(clause_args) (update_global_context_with_rel f.(clause_rel) gcontext).
 
 Definition collect_global_names_rule (r : rule) (gcontext : global_context) : global_context :=
   match r with
-  | Datalog.normal_rule rconcls rhyps =>
+  | normal_rule rconcls rhyps =>
     let info := fold_left (fun acc f => collect_global_names_fact f acc) rhyps gcontext in
     fold_left (fun acc f => collect_global_names_fact f acc) rconcls info
   | _ => gcontext
@@ -182,20 +168,20 @@ Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_
   | None => error:("global_rename_rel: relation not found in global context")
   end.
 
-Definition global_rename_fact (f : fact) (gcontext : global_context) : result lowered_fact :=
-  r_id <- global_rename_rel f.(Datalog.clause_rel) gcontext ;;
+Definition global_rename_fact (f : clause) (gcontext : global_context) : result lowered_fact :=
+  r_id <- global_rename_rel f.(clause_rel) gcontext ;;
   rargs <- fold_left (fun acc arg =>
     rargs <- acc ;;
     rarg <- global_rename_expr arg gcontext ;;
     Success (rarg :: rargs)
-  ) f.(Datalog.clause_args) (Success []) ;;
-  Success {| Datalog.clause_rel := r_id; Datalog.clause_args := List.rev rargs |}.
+  ) f.(clause_args) (Success []) ;;
+  Success {| clause_rel := r_id; clause_args := List.rev rargs |}.
 
 (* the compiler only handles the bare fragment: rename the concls/hyps of a
    [normal_rule] (meta/agg rules are rejected). *)
 Definition global_rename_rule (r : rule) (gcontext : global_context) : result lowered_rule :=
   match r with
-  | Datalog.normal_rule rconcls rhyps =>
+  | normal_rule rconcls rhyps =>
     hyps <- fold_left (fun acc f =>
       rfs <- acc ;;
       rf <- global_rename_fact f gcontext ;;
@@ -206,7 +192,7 @@ Definition global_rename_rule (r : rule) (gcontext : global_context) : result lo
       rf <- global_rename_fact f gcontext ;;
       Success (rf :: rfs)
     ) rconcls (Success []) ;;
-    Success (Datalog.normal_rule (List.rev concls) (List.rev hyps))
+    Success (normal_rule (List.rev concls) (List.rev hyps))
   | _ => error:("global_rename_rule: aggregation/meta rules are not supported")
   end.
 
@@ -236,7 +222,7 @@ Definition global_rename_fact_locations (fact_locations : fact_locations) (gcont
 (*----Collecting Info About Layout----*)
 
 Definition lowered_fact_contains_rel (f : lowered_fact) (r_id : rel_id) : bool :=
-  Nat.eqb r_id f.(Datalog.clause_rel).
+  Nat.eqb r_id f.(clause_rel).
 
 Definition lowered_facts_contains_rel (facts : list lowered_fact) (r_id : rel_id) : bool :=
   List.existsb (fun f => lowered_fact_contains_rel f r_id) facts.
@@ -244,14 +230,14 @@ Definition lowered_facts_contains_rel (facts : list lowered_fact) (r_id : rel_id
 Definition lowered_program_produces_rel (program : lowered_program) (r_id : rel_id) : bool :=
   List.existsb (fun rule =>
     match rule with
-    | Datalog.normal_rule concls _ => lowered_facts_contains_rel concls r_id
+    | normal_rule concls _ => lowered_facts_contains_rel concls r_id
     | _ => false
     end) program.
 
 Definition lowered_program_consumes_rel (program : lowered_program) (r_id : rel_id) : bool :=
   List.existsb (fun rule =>
     match rule with
-    | Datalog.normal_rule _ hyps => lowered_facts_contains_rel hyps r_id
+    | normal_rule _ hyps => lowered_facts_contains_rel hyps r_id
     | _ => false
     end) program.
 
@@ -357,7 +343,7 @@ Fixpoint collect_vars_expr (e : lowered_expr) : list var :=
   end.
 
 Definition collect_vars_fact (f : lowered_fact) : list var :=
-  List.flat_map collect_vars_expr f.(Datalog.clause_args).
+  List.flat_map collect_vars_expr f.(clause_args).
 
 Definition collect_vars_hyps (hyps : list lowered_fact) : list var :=
   List.flat_map collect_vars_fact hyps.
@@ -414,7 +400,7 @@ Fixpoint add_args_edges (args : list lowered_expr) (g : var_graph) (seen : var_n
   end.
 
 Definition add_hyp_edges (hyp : lowered_fact) (g : var_graph) : var_graph :=
-  add_args_edges hyp.(Datalog.clause_args) g map.empty.
+  add_args_edges hyp.(clause_args) g map.empty.
 
 Definition empty_var_graph : var_graph :=
   {| nodes := map.empty; edges := map.empty |}.
@@ -564,7 +550,7 @@ Definition vars_of_arg (arg : lowered_expr) : list var :=
   end.
 
 Definition compute_var_order (lf : lowered_fact) : list var :=
-  List.flat_map vars_of_arg lf.(Datalog.clause_args).
+  List.flat_map vars_of_arg lf.(clause_args).
 
 Context {var_idx_map : map.map var nat}.
 
@@ -622,7 +608,7 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
     (existing_tries : list trie) (gcontext : global_context)
     (ncontext : node_context) : trie * node_context :=
   let perm := compute_permutation (compute_var_order hyp) rule_var_order in
-  let rel_id := hyp.(Datalog.clause_rel) in
+  let rel_id := hyp.(clause_rel) in
   match List.find (fun t =>
     Nat.eqb t.(trel) rel_id && permutation_eqb t.(tperm) perm) existing_tries with
   | Some t => (t, ncontext)
@@ -657,7 +643,7 @@ Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lower
         fold_left (fun inner_acc arg_idx =>
           let '(ts', levels', cs') := inner_acc in
           (t.(tid) :: ts', List.nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
-          (get_hyp_arg_indices hyp.(Datalog.clause_args) v 0) (ts, levels, cs)
+          (get_hyp_arg_indices hyp.(clause_args) v 0) (ts, levels, cs)
       in
       (ts', levels', cs', S clause))
       (List.combine tries_by_hyp hyps) ([], [], [], 0)
@@ -697,8 +683,8 @@ Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
       Success (idx :: idxs)
     | fun_expr _ _ => Success (0 :: idxs)
     end
-  ) concl.(Datalog.clause_args) (Success []) ;;
-  Success {| output_rel := concl.(Datalog.clause_rel);
+  ) concl.(clause_args) (Success []) ;;
+  Success {| output_rel := concl.(clause_rel);
              output_var_indices := List.rev var_indices |}.
 
 Definition compile_concls (concls : list lowered_fact) (gcontext : global_context)
@@ -715,14 +701,14 @@ Definition compile_concls (concls : list lowered_fact) (gcontext : global_contex
 Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
     (ncontext : node_context) : result (hardware_rule * node_context) :=
   match rule with
-  | Datalog.normal_rule rconcls rhyps =>
+  | normal_rule rconcls rhyps =>
     let dep_g := create_dependency_graph rhyps in
     let rule_var_order := compute_variable_ordering_ordered dep_g rhyps in  (* pass hyps for ordering *)
     let '(query, ncontext) :=
       compile_hyps rhyps rule_var_order ncontext.(nctries) gcontext ncontext in
     concls <- compile_concls rconcls gcontext rule_var_order ;;
     Success ({| hhyps := query; hconcls := concls;
-                hsig := List.map (fun h => (h.(Datalog.clause_rel), List.length h.(Datalog.clause_args))) rhyps |}, ncontext)
+                hsig := List.map (fun h => (h.(clause_rel), List.length h.(clause_args))) rhyps |}, ncontext)
   | _ => error:("compile_rule: aggregation/meta rules are not supported")
   end.
 
@@ -890,5 +876,5 @@ Compute generate_join
   [ {| tid := 0; trel := 0; tperm := [0; 1] |} ;
     {| tid := 1; trel := 0; tperm := [1; 0] |} ]
   1
-  [ {| Datalog.clause_rel := 0; Datalog.clause_args := [var_expr 0; var_expr 1] |} ;
-    {| Datalog.clause_rel := 0; Datalog.clause_args := [var_expr 1; var_expr 2] |} ].
+  [ {| clause_rel := 0; clause_args := [var_expr 0; var_expr 1] |} ;
+    {| clause_rel := 0; clause_args := [var_expr 1; var_expr 2] |} ].

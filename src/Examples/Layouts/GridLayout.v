@@ -1,24 +1,16 @@
 From Stdlib Require Import List Bool Lia.
-From Datalog Require Import Datalog.
+From Datalog Require Import Datalog Eqb.
 From DatalogRocq Require Import DistributedDatalog Topologies.Graph GridGraph ConnectedTopology.
-From coqutil Require Import Map.Interface.
+From coqutil Require Import Map.Interface Eqb Tactics.destr.
 Import ListNotations.
 
 Section GridLayout.
-  Context {rel var fn aggregator T : Type}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
+  Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+  Context `{sig : signature fn aggregator T}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
-  Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : forall x0 y0 : rel, BoolSpec (x0 = y0) (x0 <> y0) (rel_eqb x0 y0)}.
-  Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : forall x0 y0 : fn, BoolSpec (x0 = y0) (x0 <> y0) (fn_eqb x0 y0)}.
-  Context {aggregator_eqb : aggregator -> aggregator -> bool}
-          {aggregator_eqb_spec : forall x0 y0 : aggregator, BoolSpec (x0 = y0) (x0 <> y0) (aggregator_eqb x0 y0)}.
 
-  Definition rule := Datalog.rule rel var fn aggregator.
 
-  Context {rule_eqb : rule -> rule -> bool}.
-  Context {rule_eqb_spec : forall r1 r2 : rule,
-                            BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2)}.
+  Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 
   Definition mk_grid_graph (dims : list nat) : Graph := GridGraph dims.
 
@@ -41,7 +33,7 @@ Section GridLayout.
   Definition mk_always_forward_table (dims : list nat) (n : Node) : rel -> list Node :=
     fun f => filter (GridGraph.is_neighbor dims n) (all_nodes_h dims).
 
-  Definition mk_no_input_fn (n : Node) (f : Datalog.fact rel T) : Prop := False.
+  Definition mk_no_input_fn (n : Node) (f : fact) : Prop := False.
 
   Definition mk_all_output_fn (n : Node) (f : rel) : Prop := True.
 
@@ -59,11 +51,11 @@ Section GridLayout.
     |}.
 
   Definition rule_in_layout (r : rule) (layout : Node -> list rule) (dims : list nat): bool :=
-    existsb (fun n => existsb (rule_eqb r) (layout n))
+    existsb (fun n => existsb (eqb r) (layout n))
             (all_nodes_h dims).
 
   Definition node_rules_ok (n : Node) (layout : Node -> list rule) (program : list rule): bool :=
-    forallb (fun r => existsb (rule_eqb r) program)
+    forallb (fun r => existsb (eqb r) program)
             (layout n).
 
   Definition check_layout (dims : list nat) (layout : Node -> list rule) (program : list rule) : bool :=
@@ -99,7 +91,7 @@ Proof.
       rewrite existsb_exists in H_r_in_layout.
       destruct H_r_in_layout as [r H_r_eq].
       exists n. destruct H_r_eq as [Hin H_r_eq]. 
-      destruct (rule_eqb_spec x r).
+      cbv [eqb] in H_r_eq. destr (rule_eqb x r).
       + subst. split; auto. apply all_nodes_correct. apply H_n_in_nodes.
       + discriminate H_r_eq.
     - intros.
@@ -118,7 +110,7 @@ Proof.
         rewrite existsb_exists in H_nodes_ok.
         destruct H_nodes_ok as [r' H_r'_in_program].
         destruct H_r'_in_program as [Hin H_r_eq].
-        destruct (rule_eqb_spec r r').
+        cbv [eqb] in H_r_eq. destr (rule_eqb r r').
         * subst. auto.
         * discriminate H_r_eq.
 Qed.
@@ -292,22 +284,22 @@ Theorem grid_good_network (dims : Dimensions) (input_node : Node)
     (Hinput : (GridGraph dims).(nodes) input_node)
     (L : Node -> list rule) (program : list rule) :
   ConnectedTopology.layout_valid_nodes (grid_topology dims input_node Hinput) L ->
-  ConnectedTopology.check_layout (rule_eqb := rule_eqb) (grid_topology dims input_node Hinput) L program = true ->
+  ConnectedTopology.check_layout (grid_topology dims input_node Hinput) L program = true ->
   DistributedDatalog.good_network (net_of (grid_topology dims input_node Hinput) L) program.
 Proof.
-  intros Hvalid Hcheck. apply (good_network_ct (rule_eqb := rule_eqb)); assumption.
+  intros Hvalid Hcheck. apply (good_network_ct); assumption.
 Qed.
 
 (* [good_network_streaming] for the grid, for any base facts [Q] entering at [input_node]. *)
 Theorem grid_good_network_streaming (dims : Dimensions) (input_node : Node)
     (Hinput : (GridGraph dims).(nodes) input_node)
-    (L : Node -> list rule) (program : list rule) (Q : Datalog.fact rel T -> Prop) :
+    (L : Node -> list rule) (program : list rule) (Q : fact -> Prop) :
   ConnectedTopology.layout_valid_nodes (grid_topology dims input_node Hinput) L ->
-  ConnectedTopology.check_layout (rule_eqb := rule_eqb) (grid_topology dims input_node Hinput) L program = true ->
+  ConnectedTopology.check_layout (grid_topology dims input_node Hinput) L program = true ->
   DistributedDatalog.good_network_streaming
     (net_of_streaming (grid_topology dims input_node Hinput) L Q) program Q.
 Proof.
-  intros Hvalid Hcheck. apply (good_network_streaming_ct (rule_eqb := rule_eqb)); assumption.
+  intros Hvalid Hcheck. apply (good_network_streaming_ct); assumption.
 Qed.
 
 (* (The grid's bespoke soundness/completeness convenience theorems were removed: they duplicated

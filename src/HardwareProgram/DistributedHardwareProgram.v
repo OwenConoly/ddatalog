@@ -1,5 +1,5 @@
 From Stdlib Require Import List String Bool ZArith.
-From DatalogRocq Require Import HardwareProgram EqbSpec.
+From DatalogRocq Require Import HardwareProgram.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
 
 Section DistributedHardwareProgram.

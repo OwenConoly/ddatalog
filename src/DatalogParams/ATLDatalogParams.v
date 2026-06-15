@@ -1,7 +1,6 @@
 (* ATL to Datalog broken so we're skipping for now *)
 
 (* From Datalog Require Import Datalog ATLToDatalog.
-From DatalogRocq Require Import EqbSpec.
 From Stdlib Require Import List String Bool ZArith.
 Import ListNotations.
 Open Scope bool_scope.
