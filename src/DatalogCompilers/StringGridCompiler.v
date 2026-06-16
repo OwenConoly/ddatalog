@@ -35,17 +35,15 @@ Definition make_layout_map
     layout map.empty.
 
 (* The end-to-end compiler: wire the string datalog backend and the grid topology into the
-   fuelled compiler core [compile_fueled].  ([compile] computes the fuel itself; this wrapper
-   keeps the explicit [fuel] for callers that still pass one, e.g. the pipeline.) *)
+   fuel-free [compile], which computes the routing fuel (= #grid-nodes) itself. *)
 Definition compile_program
     (program        : list rule)
     (layout         : list (node_id * list nat))
     (fact_producers : rel_locs_map)
     (fact_consumers : rel_locs_map)
     (topo_dims      : GridGraph.Dimensions)
-    (fuel           : nat)
     : _ :=
-  compile_fueled
+  compile
     (Node               := node_id)
     (node_id            := node_id)
     (node_id_eqb        := GridTopology.node_id_eqb)
@@ -65,15 +63,7 @@ Definition compile_program
     (var_idx_map        := StringDatalog.var_idx_map)
     (node_ftable_map    := node_id_map (SortedListNat.map (list destination)))
     (make_layout_map program layout) fact_producers fact_consumers
-    (GridTopology.make_topo_graph topo_dims) fuel.
-
-(* A computed routing fuel, replacing the old hand-tuned magic constant. The only thing [fuel]
-   bounds is the BFS path search [get_path] over the topology; BFS visits each node at most once,
-   so the number of grid nodes is always enough. Sufficiency is now proven, for any valid graph:
-   [ComputableGraphComplete.bfs_graph_fuel_stable] / [AdequateFuel.adequate_fuel]. (The fuel-free
-   compiler entry point [compile] uses this same #nodes bound internally.) *)
-Definition grid_fuel (topo_dims : GridGraph.Dimensions) : nat :=
-  List.length (GridGraph.all_nodes_h topo_dims).
+    (GridTopology.make_topo_graph topo_dims).
 
 (* PLACEHOLDER fact-locations: make EVERY grid node an input AND output node for EVERY relation
    appearing in [program].  Useful for examples that have not (yet) designated real input/output

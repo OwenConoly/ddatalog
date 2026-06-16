@@ -23,6 +23,6 @@ Definition topo_dims : GridGraph.Dimensions := [3; 3].
    don't cover every produced relation under the output-sink gate), so this uses
    [all_io_locations] -- every grid node is an input AND output for every relation.
    Replace with the real input/output nodes. *)
-Definition compiled_triangle := compile_program program_to_compile layout (all_io_locations program_to_compile layout topo_dims) (all_io_locations program_to_compile layout topo_dims) topo_dims (grid_fuel topo_dims).
+Definition compiled_triangle := compile_program program_to_compile layout (all_io_locations program_to_compile layout topo_dims) (all_io_locations program_to_compile layout topo_dims) topo_dims.
 
 Eval vm_compute in compiled_triangle.

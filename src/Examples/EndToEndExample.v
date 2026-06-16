@@ -2,7 +2,7 @@
    discharge the (decidable) side checks BY COMPUTATION, and obtain a PROOF OF EQUIVALENCE between
    the compiled distributed hardware network and the original program.
 
-   The headline theorem [DistributedDatalogToHardwareCompilerCorrect.compile_fueled_implements_source] is
+   The headline theorem [DistributedDatalogToHardwareCompilerCorrect.compile_implements_source] is
    stated generically (over arbitrary map instances).  Here we:
      1. pin every instance to the string-datalog / grid-topology backend ([grid_equiv]);
      2. give a concrete program  J(x,y) :- A(x,y), B(y,x)  and a one-node indexed layout;
@@ -50,13 +50,13 @@ Definition rule_eqb_spec := @DependencyGenerator.rule_eqb_spec string string str
   StringDatalogParams.aggregator_eqb StringDatalogParams.aggregator_eqb_spec.
 
 (*==========================================================================*)
-(*  [grid_equiv]: [compile_fueled_implements_source] with every instance pinned to   *)
+(*  [grid_equiv]: [compile_implements_source] with every instance pinned to   *)
 (*  the string-datalog / grid-topology backend.  A reusable, instance-free    *)
 (*  statement quantified only over the program / layout / facts.              *)
 (*==========================================================================*)
 
 Definition grid_equiv :=
-  @compile_fueled_implements_source
+  @compile_implements_source
     string string string unit string
     StringDatalogParams.var_eqb StringDatalogParams.var_eqb_spec
     sig_hw
@@ -117,7 +117,7 @@ Notation lowerJ := (@DistributedDatalogToHardwareCompiler.lower_inputs
 (*  ([match ... => True] never forces the sorted-map proofs, so this is cheap.)*)
 (*==========================================================================*)
 
-Definition compiled_J := Eval vm_compute in compile_program P idx_layout FPS FPS topo 100.
+Definition compiled_J := Eval vm_compute in compile_program P idx_layout FPS FPS topo.
 Definition lowered_J  := Eval vm_compute in lowerJ LAYOUT FPS FPS.
 
 Example compiled_J_ok : match compiled_J with Success _ => True | _ => False end := I.
@@ -149,7 +149,7 @@ Theorem end_to_end_equiv
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
             StringDatalog.fn_id_map StringDatalog.rel_relid_map)
     (Qsrc : Datalog.fact string string -> Prop) (fsrc : Datalog.fact string string) :
-  compile_program P idx_layout FPS FPS topo 100 = Success ninfos ->
+  compile_program P idx_layout FPS FPS topo = Success ninfos ->
   lowerJ LAYOUT FPS FPS = Success (ll, lfp, lfc, gc) ->
   In (Datalog.rel_of fsrc) (program_rels P) ->
   @edb_routable_src string string node_id (SortedListString.map (list node_id)) FPS Qsrc ->
@@ -162,7 +162,7 @@ Theorem end_to_end_equiv
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
   intros Hcompile Hlower Hin Hedb.
-  apply (grid_equiv LAYOUT FPS FPS G 100 ninfos ll lfp lfc gc rule_eqb rule_eqb_spec P Qsrc fsrc
+  apply (grid_equiv LAYOUT FPS FPS G ninfos ll lfp lfc gc rule_eqb rule_eqb_spec P Qsrc fsrc
            Hcompile Hlower);
     [ vm_compute; reflexivity   (* bare_layoutb LAYOUT = true *)
     | vm_compute; reflexivity   (* layout_distributes_programb rule_eqb P LAYOUT = true *)
@@ -197,7 +197,7 @@ Definition FPS_r    := all_io_locations Preach idx_layout_r topo_r.
 Definition G_r      := GridTopology.make_topo_graph topo_r.
 
 (* The compiler and its relabel pass run and SUCCEED (cheap head-constructor check). *)
-Definition compiled_R := Eval vm_compute in compile_program Preach idx_layout_r FPS_r FPS_r topo_r 100.
+Definition compiled_R := Eval vm_compute in compile_program Preach idx_layout_r FPS_r FPS_r topo_r.
 Definition lowered_R  := Eval vm_compute in lowerJ LAYOUT_r FPS_r FPS_r.
 Example compiled_R_ok : match compiled_R with Success _ => True | _ => False end := I.
 Example lowered_R_ok  : match lowered_R  with Success _ => True | _ => False end := I.
@@ -216,7 +216,7 @@ Theorem end_to_end_equiv_reach
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
             StringDatalog.fn_id_map StringDatalog.rel_relid_map)
     (Qsrc : Datalog.fact string string -> Prop) (fsrc : Datalog.fact string string) :
-  compile_program Preach idx_layout_r FPS_r FPS_r topo_r 100 = Success ninfos ->
+  compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
   lowerJ LAYOUT_r FPS_r FPS_r = Success (ll, lfp, lfc, gc) ->
   In (Datalog.rel_of fsrc) (program_rels Preach) ->
   @edb_routable_src string string node_id (SortedListString.map (list node_id)) FPS_r Qsrc ->
@@ -229,7 +229,7 @@ Theorem end_to_end_equiv_reach
   <-> Datalog.prog_impl Preach Qsrc fsrc.
 Proof.
   intros Hcompile Hlower Hin Hedb.
-  apply (grid_equiv LAYOUT_r FPS_r FPS_r G_r 100 ninfos ll lfp lfc gc rule_eqb rule_eqb_spec
+  apply (grid_equiv LAYOUT_r FPS_r FPS_r G_r ninfos ll lfp lfc gc rule_eqb rule_eqb_spec
            Preach Qsrc fsrc Hcompile Hlower);
     [ vm_compute; reflexivity   (* bare_layoutb LAYOUT_r = true *)
     | vm_compute; reflexivity   (* layout_distributes_programb rule_eqb Preach LAYOUT_r = true *)

@@ -17,6 +17,6 @@ Definition topo_dims : GridGraph.Dimensions := [3; 3].
 Definition compiled_basic_program :=
   compile_program program_to_compile layout
     (all_io_locations program_to_compile layout topo_dims)
-    (all_io_locations program_to_compile layout topo_dims) topo_dims (grid_fuel topo_dims).
+    (all_io_locations program_to_compile layout topo_dims) topo_dims.
 
 Eval vm_compute in compiled_basic_program.

@@ -41,7 +41,7 @@ Definition jtopo   : GridGraph.Dimensions           := [1; 1]%nat.              
 Definition jio                                       := all_io_locations jprog jlayout jtopo.
 
 (* Run the real end-to-end compiler. *)
-Definition jcompiled := compile_program jprog jlayout jio jio jtopo 100.
+Definition jcompiled := compile_program jprog jlayout jio jio jtopo.
 
 (* The tries and trie-join program the compiler emitted for the (only) node. *)
 Definition gen_tries : list trie :=

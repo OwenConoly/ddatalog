@@ -15,6 +15,6 @@ Definition generated_layout : list (list nat * list nat) :=
 Definition compiled_family :=
   StringGridCompiler.compile_program family_program generated_layout
     (StringGridCompiler.all_io_locations family_program generated_layout [3; 3])
-    (StringGridCompiler.all_io_locations family_program generated_layout [3; 3]) [3; 3] (StringGridCompiler.grid_fuel [3; 3]).
+    (StringGridCompiler.all_io_locations family_program generated_layout [3; 3]) [3; 3].
 
 Eval vm_compute in compiled_family.
