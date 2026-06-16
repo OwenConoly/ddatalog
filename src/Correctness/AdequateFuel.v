@@ -1,13 +1,14 @@
 (* Adequate fuel for the distributed compiler.
 
-   The only way [fuel] enters [compile] is as the bound on the topology path search
-   [get_path] (= ComputableGraph.bfs) inside the forwarding-table construction and the
-   route-completeness gates.  ComputableGraphComplete proves that bfs is fuel-stable above
-   [graph_fuel g = #nodes(g)] -- a quantity computed from an ARBITRARY graph's node set, not a
-   grid-specific constant.  Propagating that through the gates shows [compile] is fuel-stable
-   above [graph_fuel], so the computed [graph_fuel] is always adequate: whatever a larger fuel
-   compiles, [graph_fuel] compiles identically -- and [compile_implements_source] then holds at
-   the computed fuel.  (grid_fuel is just the grid instance of [graph_fuel].) *)
+   The only way [fuel] enters the fuelled core [compile_fueled] is as the bound on the topology
+   path search [get_path] (= ComputableGraph.bfs) inside the forwarding-table construction and the
+   route-completeness gates.  ComputableGraphComplete proves bfs is fuel-stable above
+   [graph_fuel g = #nodes(g)] -- a quantity read off an ARBITRARY graph's node set, not a
+   grid-specific constant.  Propagating that through the gates ([compile_stable]) shows
+   [compile_fueled] is fuel-stable above [graph_fuel], so the computed fuel is always adequate:
+   whatever a larger fuel compiles, [graph_fuel] compiles identically ([adequate_fuel]).  The
+   fuel-free entry point [compile := compile_fueled _ (graph_fuel _)] therefore never fails for
+   lack of fuel.  (grid_fuel is just the grid instance of [graph_fuel].) *)
 
 From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith Lia.
@@ -98,7 +99,7 @@ Lemma fold_left_ext {A B} (f1 f2 : A -> B -> A) (l : list B) (a : A) :
   (forall acc x, f1 acc x = f2 acc x) -> fold_left f1 l a = fold_left f2 l a.
 Proof. intros H. revert a. induction l; cbn; intros; [reflexivity | rewrite H; apply IHl]. Qed.
 
-(* ----- each fuel-using gate of compile only touches fuel inside [get_path], so it is
+(* ----- each fuel-using gate of compile_fueled only touches fuel inside [get_path], so it is
    fuel-stable above graph_fuel ----- *)
 
 Lemma routes_validb_stable (gcontext : global_context) (g : node_graph)
@@ -154,6 +155,10 @@ Notation compile_lowered :=
   (@DistributedDatalogToHardwareCompiler.compile_lowered rel var fn aggregator var_eqb Node node_id node_id_eqb
      node_id_set forwarding_table rel_dependency_map fn_id_map rel_relid_map lowered_layout_map lowered_fact_locations_map var_node_set
      var_edge_set node_id_edge_set var_idx_map node_ftable_map).
+Notation compile_fueled :=
+  (@DistributedDatalogToHardwareCompiler.compile_fueled rel var fn aggregator var_eqb Node node_id node_id_eqb node_id_set forwarding_table
+     rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map var_node_set
+     var_edge_set node_id_edge_set var_idx_map node_ftable_map).
 Notation compile :=
   (@DistributedDatalogToHardwareCompiler.compile rel var fn aggregator var_eqb Node node_id node_id_eqb node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map var_node_set
@@ -194,7 +199,7 @@ Proof.
   rewrite (gft_stable gcontext ninfos g f f' Hv Hnz Hf Hf'). reflexivity.
 Qed.
 
-(* ----- compile itself is fuel-stable above graph_fuel ----- *)
+(* ----- compile_fueled itself is fuel-stable above graph_fuel ----- *)
 
 Lemma compile_lowered_stable (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
     (gcontext0 : global_context) (g : node_graph) (f f' : nat) :
@@ -218,37 +223,41 @@ Qed.
 
 Lemma compile_stable (layout : layout_map) (fps fcs : fact_locations) (g : node_graph) (f f' : nat) :
   check_graph_valid g = true -> 0 < graph_fuel g -> graph_fuel g <= f -> graph_fuel g <= f' ->
-  compile layout fps fcs g f = compile layout fps fcs g f'.
+  compile_fueled layout fps fcs g f = compile_fueled layout fps fcs g f'.
 Proof.
-  intros Hv Hnz Hf Hf'. unfold DistributedDatalogToHardwareCompiler.compile.
+  intros Hv Hnz Hf Hf'. unfold DistributedDatalogToHardwareCompiler.compile_fueled.
   destruct (lower_inputs layout fps fcs) as [[[[llayout lfp] lfc] gcontext0]|e]; [|reflexivity].
   cbn match. apply compile_lowered_stable; assumption.
 Qed.
 
-(* ADEQUATE FUEL: whatever any fuel >= graph_fuel compiles, the COMPUTED graph_fuel compiles
-   identically.  This discharges the [compile ... fuel = Success ninfos] hypothesis of
-   [compile_implements_source] at the computed fuel -- no hand-tuned fuel constant needed. *)
+(* THE PAYOFF: the fuel-free entry point [compile] returns EXACTLY what the fuelled compiler
+   returns at any fuel >= #nodes -- dropping the fuel parameter loses nothing.  This is where the
+   fuel-stability of [compile_fueled] is cashed in. *)
+Lemma compile_eq_compile_fueled (layout : layout_map) (fps fcs : fact_locations) (g : node_graph) (f : nat) :
+  check_graph_valid g = true -> 0 < graph_fuel g -> graph_fuel g <= f ->
+  compile layout fps fcs g = compile_fueled layout fps fcs g f.
+Proof.
+  intros Hv Hnz Hf. unfold DistributedDatalogToHardwareCompiler.compile.
+  apply (compile_stable layout fps fcs g (graph_fuel g) f Hv Hnz (le_n (graph_fuel g)) Hf).
+Qed.
+
+(* ADEQUATE FUEL (the Success form): compiling at ANY adequate fuel [f] yields the SAME success as
+   the fuel-free [compile], so the computed #nodes fuel is never too small -- [compile] never fails
+   where some larger fuel would have succeeded. *)
 Corollary adequate_fuel (layout : layout_map) (fps fcs : fact_locations) (g : node_graph)
     (f : nat) (ninfos : list node_info) :
   check_graph_valid g = true -> 0 < graph_fuel g -> graph_fuel g <= f ->
-  compile layout fps fcs g f = Success ninfos ->
-  compile layout fps fcs g (graph_fuel g) = Success ninfos.
+  compile_fueled layout fps fcs g f = Success ninfos ->
+  compile layout fps fcs g = Success ninfos.
 Proof.
   intros Hv Hnz Hf Hcomp.
-  rewrite (compile_stable layout fps fcs g (graph_fuel g) f Hv Hnz (le_n (graph_fuel g)) Hf).
-  exact Hcomp.
+  rewrite (compile_eq_compile_fueled layout fps fcs g f Hv Hnz Hf). exact Hcomp.
 Qed.
 
-(* This is the capstone the top-level theorem needs.  [compile_implements_source] is conditioned on
-   [compile layout fps fcs g fuel = Success ninfos]; [adequate_fuel] discharges exactly that
-   hypothesis at the COMPUTED fuel [graph_fuel g].  So, given a run that compiles at some adequate
-   fuel [f] (>= #nodes), the end-to-end correctness theorem holds verbatim at [graph_fuel g] -- with
-   no hand-tuned fuel constant -- by:
-
-     apply (compile_implements_source layout fps fcs g (graph_fuel g) ninfos ...);
-       [ apply (adequate_fuel layout fps fcs g f ninfos Hv Hnz Hf Hcomp) | assumption.. ].
-
-   (We do not restate it as a standalone theorem here only because [compile_implements_source]'s
-   conclusion uses section-Local notations like [run_ninfos] that don't escape [CompileTop].) *)
+(* The fuel-free top-level theorem itself is
+   [DistributedDatalogToHardwareCompilerCorrect.compile_implements_source] -- the fuelled
+   [compile_fueled_implements_source] specialized at [graph_fuel].  [adequate_fuel] above is the
+   complementary guarantee that this computed fuel is large enough: [compile] succeeds whenever any
+   fuel would. *)
 
 End AdequateFuel.

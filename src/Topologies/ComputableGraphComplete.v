@@ -1,17 +1,18 @@
-(* BFS completeness for the topology path-finder (get_path = bfs).
+(* Fuel-stability for the topology path-finder (get_path = bfs).
 
    ComputableGraph.v proves SOUNDNESS (a returned path is a real edge-walk: [get_path_spec]).
-   This file builds the COMPLETENESS side: with enough fuel, bfs finds a path whenever one exists,
-   and "enough" is computable (the number of graph nodes) -- which justifies StringGridCompiler.grid_fuel.
+   This file proves the BFS path search is INSENSITIVE to fuel above a computable bound:
+   [graph_fuel g = #nodes(g)] is always enough, so raising the fuel never changes the answer.  That
+   justifies fixing the routing fuel to #nodes -- both StringGridCompiler.grid_fuel and the fuel-free
+   compiler entry point [compile] (see [bfs_graph_fuel_stable]).
 
    Strategy (potential argument):
      Phi(st) := (#nodes(g) - #visited(st)) + length(queue(st)).
      Each non-terminal bfs_step pops one entry (queue -1) and enqueues the popped node's k UNVISITED
      neighbors, marking them visited (queue +k, visited +k). So Phi changes by (-k) + (k-1) = -1: it
      drops by EXACTLY 1 each step, starts at #nodes (visited={start}, queue=[start]), and is >= 0.
-     Hence #steps <= #nodes, so fuel >= #nodes never runs out. Combined with a reachability invariant
-     (every reachable-but-unvisited node is still reachable from some queue node), a reachable target
-     is found before the queue empties. *)
+     Hence the queue empties (or the target is found) within #nodes steps -- so with fuel >= #nodes the
+     search never stops early for lack of fuel, and any larger fuel yields the same result. *)
 
 From coqutil Require Import Map.Interface Map.Properties.
 From Stdlib Require Import List Lia PeanoNat.
@@ -33,34 +34,6 @@ Local Notation bfs_state := (@bfs_state Node node_set).
 Local Notation bfs_step := (@bfs_step Node node_eqb node_set edge_set).
 Local Notation bfs_aux := (@bfs_aux Node node_eqb node_set edge_set).
 Local Notation bfs := (@bfs Node node_eqb node_set edge_set).
-
-(* ----- fuel monotonicity: more fuel never loses a result (fully proven) ----- *)
-
-Lemma bfs_aux_fuel_monotone (g : ComputableGraph) (target : Node) :
-  forall fuel state path,
-  bfs_aux g target state fuel = Some path ->
-  bfs_aux g target state (S fuel) = Some path.
-Proof.
-  induction fuel as [|fuel IH]; intros state path H; cbn in H |- *; [discriminate|].
-  destruct (bfs_step g target state) as [state'|p0].
-  - destruct (bs_queue state') as [|e q]; [discriminate H|]. apply IH. exact H.
-  - exact H.
-Qed.
-
-Lemma bfs_aux_fuel_monotone_le (g : ComputableGraph) (target : Node) :
-  forall f f' state path,
-  f <= f' ->
-  bfs_aux g target state f = Some path ->
-  bfs_aux g target state f' = Some path.
-Proof.
-  intros f f' state path Hle H. induction Hle as [|m Hle IH].
-  - exact H.
-  - apply bfs_aux_fuel_monotone. exact IH.
-Qed.
-
-Corollary bfs_fuel_monotone_le (g : ComputableGraph) (s target : Node) :
-  forall f f' path, f <= f' -> bfs g s target f = Some path -> bfs g s target f' = Some path.
-Proof. intros f f' path Hle H. eapply bfs_aux_fuel_monotone_le; eauto. Qed.
 
 (* ----- node-set cardinality (for the potential) ----- *)
 

@@ -34,7 +34,9 @@ Definition make_layout_map
       map.put acc nid rules)
     layout map.empty.
 
-(* The end-to-end compiler: wire the string datalog backend and the grid topology into [compile]. *)
+(* The end-to-end compiler: wire the string datalog backend and the grid topology into the
+   fuelled compiler core [compile_fueled].  ([compile] computes the fuel itself; this wrapper
+   keeps the explicit [fuel] for callers that still pass one, e.g. the pipeline.) *)
 Definition compile_program
     (program        : list rule)
     (layout         : list (node_id * list nat))
@@ -43,7 +45,7 @@ Definition compile_program
     (topo_dims      : GridGraph.Dimensions)
     (fuel           : nat)
     : _ :=
-  compile
+  compile_fueled
     (Node               := node_id)
     (node_id            := node_id)
     (node_id_eqb        := GridTopology.node_id_eqb)
@@ -65,10 +67,11 @@ Definition compile_program
     (make_layout_map program layout) fact_producers fact_consumers
     (GridTopology.make_topo_graph topo_dims) fuel.
 
-(* A computed routing fuel, to replace the hand-tuned magic constant. The only thing [fuel] bounds
-   is the BFS path search [get_path] over the topology; BFS visits each node at most once, so the
-   number of grid nodes is always enough. (Sufficiency theorem forthcoming -- this computes the
-   value now; the proof that it always suffices follows.) *)
+(* A computed routing fuel, replacing the old hand-tuned magic constant. The only thing [fuel]
+   bounds is the BFS path search [get_path] over the topology; BFS visits each node at most once,
+   so the number of grid nodes is always enough. Sufficiency is now proven, for any valid graph:
+   [ComputableGraphComplete.bfs_graph_fuel_stable] / [AdequateFuel.adequate_fuel]. (The fuel-free
+   compiler entry point [compile] uses this same #nodes bound internally.) *)
 Definition grid_fuel (topo_dims : GridGraph.Dimensions) : nat :=
   List.length (GridGraph.all_nodes_h topo_dims).
 

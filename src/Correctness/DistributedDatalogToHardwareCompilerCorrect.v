@@ -2359,6 +2359,10 @@ Notation collect_global_names_layout :=
 Notation initial_global_context :=
   (@DistributedDatalogToHardwareCompiler.initial_global_context rel fn Node node_id node_id_set rel_dependency_map fn_id_map
      rel_relid_map).
+Notation compile_fueled :=
+  (@DistributedDatalogToHardwareCompiler.compile_fueled rel var fn aggregator var_eqb Node node_id node_id_eqb node_id_set forwarding_table
+     rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map var_node_set
+     var_edge_set node_id_edge_set var_idx_map node_ftable_map).
 Notation compile :=
   (@DistributedDatalogToHardwareCompiler.compile rel var fn aggregator var_eqb Node node_id node_id_eqb node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map var_node_set
@@ -3604,7 +3608,7 @@ Lemma compile_success_extract (layout : layout_map) (fps fcs : fact_locations)
     (g : node_graph) (fuel : nat) (ninfos : list node_info)
     (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations) (gcontext : global_context) :
   lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
-  compile layout fps fcs g fuel = Success ninfos ->
+  compile_fueled layout fps fcs g fuel = Success ninfos ->
   exists ninfos0 ftables,
     ninfos = attach_forwarding_tables ninfos0 ftables /\
     compile_all_nodes llayout (collect_global_dependencies llayout lfp lfc gcontext)
@@ -3620,7 +3624,7 @@ Lemma compile_success_extract (layout : layout_map) (fps fcs : fact_locations)
     check_graph_valid g = true /\
     layout_in_graphb g llayout = true.
 Proof.
-  intros Hlow H. unfold DistributedDatalogToHardwareCompiler.compile in H.
+  intros Hlow H. unfold DistributedDatalogToHardwareCompiler.compile_fueled in H.
   rewrite Hlow in H. cbn beta iota in H.
   unfold DistributedDatalogToHardwareCompiler.compile_lowered in H. cbv zeta in H.
   destruct (check_graph_valid g) eqn:Hcgv; cbn beta iota in H; [|discriminate].
@@ -3920,7 +3924,7 @@ Theorem compile_distributed_correct
     (ninfos : list node_info) (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
     (gcontext : global_context) (Q : Datalog.fact rel_id T -> Prop) :
   lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
-  compile layout fps fcs g fuel = Success ninfos ->
+  compile_fueled layout fps fcs g fuel = Success ninfos ->
   bare_layoutb llayout = true ->
   edb_routable lfp Q ->
   forall f, run_ninfos ninfos
@@ -4938,7 +4942,7 @@ Qed.
 (*  No relabel-equality / injectivity hyps (discharged); "inputs in scope" is ABSORBED by      *)
 (*  [edb_routable]; the query-in-scope condition is the plain "[rel_of fsrc] is in [P]".         *)
 (*========================================================================================*)
-Theorem compile_implements_source
+Theorem compile_fueled_implements_source
     (layout : layout_map) (fps fcs : fact_locations) (g : node_graph) (fuel : nat)
     (ninfos : list node_info) (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
     (gcontext : global_context)
@@ -4949,7 +4953,7 @@ Theorem compile_implements_source
     (P : program)
     (Qsrc : Datalog.fact rel T -> Prop) (fsrc : Datalog.fact rel T) :
   (* the compiler succeeds *)
-  compile layout fps fcs g fuel = Success ninfos ->
+  compile_fueled layout fps fcs g fuel = Success ninfos ->
   (* renaming of inputs to numbers *)
   lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
   (* the source layout only has variables (no functions) *)
@@ -5039,22 +5043,18 @@ Proof.
 Qed.
 
 (* ============================================================================ *)
-(*  Fuel-free entry point.                                                       *)
-(*  The only role of [fuel] is to bound the topology BFS [get_path]; BFS visits  *)
-(*  each node at most once, so [graph_fuel g = #nodes(g)] (a quantity read off    *)
-(*  the topology, not a hand-tuned constant) is always enough.  [compile_auto]    *)
-(*  fixes that choice, so the end-to-end theorem carries over with NO fuel        *)
-(*  parameter.  (Adequacy -- that this fixed fuel never fails where a larger one  *)
-(*  would succeed -- is [AdequateFuel.adequate_fuel].)                            *)
+(*  Top-level correctness for the FUEL-FREE entry point [compile].               *)
+(*  The only role of fuel is to bound the topology BFS [get_path]; BFS visits     *)
+(*  each node at most once, so [compile] uses [graph_fuel g = #nodes(g)] (read    *)
+(*  off the topology, not a hand-tuned constant), and the end-to-end theorem      *)
+(*  carries over with NO fuel parameter -- it is just [compile_fueled_implements_  *)
+(*  source] at the computed fuel.  (Adequacy -- that this fixed fuel never fails   *)
+(*  where a larger one would succeed -- is [AdequateFuel.adequate_fuel].)         *)
 (* ============================================================================ *)
 
 Notation graph_fuel := (@ComputableGraphComplete.graph_fuel node_id node_id_set node_id_edge_set).
 
-Definition compile_auto (layout : layout_map) (fps fcs : fact_locations) (g : node_graph)
-    : result (list node_info) :=
-  compile layout fps fcs g (graph_fuel g).
-
-Theorem compile_auto_implements_source
+Theorem compile_implements_source
     (layout : layout_map) (fps fcs : fact_locations) (g : node_graph)
     (ninfos : list node_info) (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
     (gcontext : global_context)
@@ -5062,7 +5062,7 @@ Theorem compile_auto_implements_source
     (rule_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rule_eqb x y))
     (P : program)
     (Qsrc : Datalog.fact rel T -> Prop) (fsrc : Datalog.fact rel T) :
-  compile_auto layout fps fcs g = Success ninfos ->
+  compile layout fps fcs g = Success ninfos ->
   lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
   bare_layoutb layout = true ->
   layout_distributes_programb rule_eqb P layout = true ->
@@ -5074,8 +5074,8 @@ Theorem compile_auto_implements_source
     (RelabelCorrect.relabel_fact (rho_gc gcontext) fsrc)
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
-  intros Hca Hlow Hbl Hdist Hin Hedb. unfold compile_auto in Hca.
-  apply (compile_implements_source layout fps fcs g (graph_fuel g) ninfos llayout lfp lfc gcontext
+  intros Hc Hlow Hbl Hdist Hin Hedb. unfold DistributedDatalogToHardwareCompiler.compile in Hc.
+  apply (compile_fueled_implements_source layout fps fcs g (graph_fuel g) ninfos llayout lfp lfc gcontext
            rule_eqb rule_eqb_spec P Qsrc fsrc); assumption.
 Qed.
 

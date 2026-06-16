@@ -2,6 +2,7 @@ From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result.
 From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Topologies.Graph ComputableGraph EqbSpec.
+From DatalogRocq Require Topologies.ComputableGraphComplete.   (* qualified: graph_fuel = #nodes for the fuel-free entry point *)
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
@@ -1046,12 +1047,20 @@ Definition compile_lowered (llayout : lowered_layout_map)
         else error:("compile: an input/EDB location cannot reach an output/sink node")) ;;
   Success (attach_forwarding_tables ninfos ftables).
 
-(* THE ENTRY POINT: relabel the source inputs, then compile the lowered program.  "We relabel,
-   then compile." *)
-Definition compile (layout : layout_map) (fact_producers : fact_locations) (fact_consumers : fact_locations) (g : node_graph) (fuel : nat)
+(* relabel the source inputs, then compile the lowered program, with an EXPLICIT routing fuel.
+   [compile] (below) is the entry point and computes the fuel itself; this is the fuelled core
+   kept for the correctness development (which reasons about an arbitrary fuel). *)
+Definition compile_fueled (layout : layout_map) (fact_producers : fact_locations) (fact_consumers : fact_locations) (g : node_graph) (fuel : nat)
     : result (list node_info) :=
   '(llayout, lfact_producers, lfact_consumers, gcontext) <- lower_inputs layout fact_producers fact_consumers ;;
   compile_lowered llayout lfact_producers lfact_consumers gcontext g fuel.
+
+(* THE ENTRY POINT: no fuel parameter.  The only role of fuel is to bound the topology BFS
+   [get_path], which visits each node at most once, so [graph_fuel g = #nodes(g)] (read off the
+   topology) is always enough -- adequacy is [AdequateFuel.adequate_fuel]. *)
+Definition compile (layout : layout_map) (fact_producers : fact_locations) (fact_consumers : fact_locations) (g : node_graph)
+    : result (list node_info) :=
+  compile_fueled layout fact_producers fact_consumers g (ComputableGraphComplete.graph_fuel g).
 
 End DistributedDatalogToHardwareCompiler.
 

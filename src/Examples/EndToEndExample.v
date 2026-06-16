@@ -2,7 +2,7 @@
    discharge the (decidable) side checks BY COMPUTATION, and obtain a PROOF OF EQUIVALENCE between
    the compiled distributed hardware network and the original program.
 
-   The headline theorem [DistributedDatalogToHardwareCompilerCorrect.compile_implements_source] is
+   The headline theorem [DistributedDatalogToHardwareCompilerCorrect.compile_fueled_implements_source] is
    stated generically (over arbitrary map instances).  Here we:
      1. pin every instance to the string-datalog / grid-topology backend ([grid_equiv]);
      2. give a concrete program  J(x,y) :- A(x,y), B(y,x)  and a one-node indexed layout;
@@ -50,13 +50,13 @@ Definition rule_eqb_spec := @DependencyGenerator.rule_eqb_spec string string str
   StringDatalogParams.aggregator_eqb StringDatalogParams.aggregator_eqb_spec.
 
 (*==========================================================================*)
-(*  [grid_equiv]: [compile_implements_source] with every instance pinned to   *)
+(*  [grid_equiv]: [compile_fueled_implements_source] with every instance pinned to   *)
 (*  the string-datalog / grid-topology backend.  A reusable, instance-free    *)
 (*  statement quantified only over the program / layout / facts.              *)
 (*==========================================================================*)
 
 Definition grid_equiv :=
-  @compile_implements_source
+  @compile_fueled_implements_source
     string string string unit string
     StringDatalogParams.var_eqb StringDatalogParams.var_eqb_spec
     sig_hw
