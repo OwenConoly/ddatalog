@@ -65,6 +65,13 @@ Definition compile_program
     (make_layout_map program layout) fact_producers fact_consumers
     (GridTopology.make_topo_graph topo_dims) fuel.
 
+(* A computed routing fuel, to replace the hand-tuned magic constant. The only thing [fuel] bounds
+   is the BFS path search [get_path] over the topology; BFS visits each node at most once, so the
+   number of grid nodes is always enough. (Sufficiency theorem forthcoming -- this computes the
+   value now; the proof that it always suffices follows.) *)
+Definition grid_fuel (topo_dims : GridGraph.Dimensions) : nat :=
+  List.length (GridGraph.all_nodes_h topo_dims).
+
 (* PLACEHOLDER fact-locations: make EVERY grid node an input AND output node for EVERY relation
    appearing in [program].  Useful for examples that have not (yet) designated real input/output
    nodes, so they still satisfy the compiler's input/output routing gates.
