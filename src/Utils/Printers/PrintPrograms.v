@@ -4,42 +4,9 @@ From Stdlib Require Import List String.
 Import ListNotations.
 From DatalogRocq Require Import BasicProgram Family Examples.Programs.Graph (* Matmul : ATL *) NetkatWithoutStar Csda Cspa Po1 Po2 Po3 Po4 Po5 Pointsto Ranpo Reach Tc Trans Triangle X9 Unitprop1.
 
-(* Local JSON encoders for the *source* datalog AST, decoupled from the broken [Datalog.JSON]
-   submodule file.  (Mirrors how [PrintHardwareEncoding] defines encoders for the hardware AST.) *)
-Section SourceEncoders.
-Context {rel var fn aggregator : Type}.
-Context `{JEncode rel} `{JEncode var} `{JEncode fn} `{JEncode aggregator}.
-
-Fixpoint encode_dexpr (e : Datalog.expr var fn) : json :=
-  match e with
-  | var_expr v => JSON__Object [("var_expr", encode v)]
-  | fun_expr f args =>
-      JSON__Object [("fun_expr", encode f);
-                    ("args", JSON__Array (List.map encode_dexpr args))]
-  end.
-#[global] Instance JEncode__dexpr : JEncode (Datalog.expr var fn) := encode_dexpr.
-
-#[global] Instance JEncode__dclause : JEncode (Datalog.clause rel var fn) := fun c =>
-  JSON__Object [("clause_rel", encode c.(clause_rel));
-                ("clause_args", encode c.(clause_args))].
-
-#[global] Instance JEncode__dmeta_clause : JEncode (Datalog.meta_clause rel var fn) := fun c =>
-  JSON__Object [("meta_clause_rel", encode c.(meta_clause_rel));
-                ("meta_clause_args", encode c.(meta_clause_args))].
-
-#[global] Instance JEncode__drule : JEncode (Datalog.rule rel var fn aggregator) := fun r =>
-  match r with
-  | normal_rule concls hyps =>
-      JSON__Object [("normal_rule",
-        JSON__Object [("concls", encode concls); ("hyps", encode hyps)])]
-  | meta_rule concls hyps =>
-      JSON__Object [("meta_rule",
-        JSON__Object [("concls", encode concls); ("hyps", encode hyps)])]
-  | agg_rule cr agg hr =>
-      JSON__Object [("agg_rule",
-        JSON__Object [("concl_rel", encode cr); ("agg", encode agg); ("hyp_rel", encode hr)])]
-  end.
-End SourceEncoders.
+(* The source-AST JSON encoders now live in EncodeProgram.v so they can be reused (e.g. by the
+   pipeline's emit driver) without importing the example programs. *)
+From DatalogRocq Require Import EncodeProgram.
 
 Redirect "json_examples/basic_program" Eval compute in (to_string (encode basic_program)).
 Redirect "json_examples/family_program" Eval compute in (to_string (encode family_program)).
