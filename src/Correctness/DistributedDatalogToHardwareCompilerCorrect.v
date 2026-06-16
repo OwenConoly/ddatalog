@@ -22,6 +22,7 @@ From coqutil Require Import Datatypes.List Map.Interface Map.Properties Datatype
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
 From DatalogRocq Require Import ForwardingCorrect RelabelCorrect.
+From DatalogRocq Require Topologies.ComputableGraphComplete.   (* qualified: graph_fuel for the fuel-free entry point *)
 
 Import ListNotations.
 
@@ -5035,6 +5036,47 @@ Proof.
              (fun r Hr => proj2 (canonical_renamed_eq_relabel_source layout llayout r Hgrl Hbsrc HSsrc) Hr)).
   exact (RelabelCorrect.prog_impl_relabel (rho_gc gc0) (iota_gc gc0) (Sdom gc0)
            (rho_gc_injective_collect layout) (source_program layout) Qsrc fsrc Hbsrc HSsrc HSQ HSf).
+Qed.
+
+(* ============================================================================ *)
+(*  Fuel-free entry point.                                                       *)
+(*  The only role of [fuel] is to bound the topology BFS [get_path]; BFS visits  *)
+(*  each node at most once, so [graph_fuel g = #nodes(g)] (a quantity read off    *)
+(*  the topology, not a hand-tuned constant) is always enough.  [compile_auto]    *)
+(*  fixes that choice, so the end-to-end theorem carries over with NO fuel        *)
+(*  parameter.  (Adequacy -- that this fixed fuel never fails where a larger one  *)
+(*  would succeed -- is [AdequateFuel.adequate_fuel].)                            *)
+(* ============================================================================ *)
+
+Notation graph_fuel := (@ComputableGraphComplete.graph_fuel node_id node_id_set node_id_edge_set).
+
+Definition compile_auto (layout : layout_map) (fps fcs : fact_locations) (g : node_graph)
+    : result (list node_info) :=
+  compile layout fps fcs g (graph_fuel g).
+
+Theorem compile_auto_implements_source
+    (layout : layout_map) (fps fcs : fact_locations) (g : node_graph)
+    (ninfos : list node_info) (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
+    (gcontext : global_context)
+    (rule_eqb : @HardwareProgram.rule rel var fn aggregator -> @HardwareProgram.rule rel var fn aggregator -> bool)
+    (rule_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rule_eqb x y))
+    (P : program)
+    (Qsrc : Datalog.fact rel T -> Prop) (fsrc : Datalog.fact rel T) :
+  compile_auto layout fps fcs g = Success ninfos ->
+  lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
+  bare_layoutb layout = true ->
+  layout_distributes_programb rule_eqb P layout = true ->
+  In (Datalog.rel_of fsrc) (program_rels P) ->
+  edb_routable_src fps Qsrc ->
+  run_ninfos ninfos
+    (fun n f0 => RelabelCorrect.relabel_Q (rho_gc gcontext) Qsrc f0 /\ In n (rel_locs lfp (Datalog.rel_of f0)))
+    (fun n R => In n (rel_locs lfc R))
+    (RelabelCorrect.relabel_fact (rho_gc gcontext) fsrc)
+  <-> Datalog.prog_impl P Qsrc fsrc.
+Proof.
+  intros Hca Hlow Hbl Hdist Hin Hedb. unfold compile_auto in Hca.
+  apply (compile_implements_source layout fps fcs g (graph_fuel g) ninfos llayout lfp lfc gcontext
+           rule_eqb rule_eqb_spec P Qsrc fsrc); assumption.
 Qed.
 
 
