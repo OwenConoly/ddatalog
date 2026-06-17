@@ -23,7 +23,7 @@
 
 From Datalog Require Import Datalog.
 From Stdlib Require Import List Bool ZArith.
-From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
+From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
 From DatalogRocq Require Import HardwareProgram.
 
 Import ListNotations.
@@ -32,22 +32,21 @@ Section NodeHardwareSemantics.
 
 (* Relation and function names are already numeric ([rel_id]/[fn_id] = [nat]) at this
    stage; only variables and the value type stay abstract. *)
-Context {var aggregator T : Type}.
+Context {var : exprvarT} {aggregator : aggregatorT} {T : valueT}.
 Context `{sig : signature nat aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
-Context {var_eqb : var -> var -> bool}
-        {var_eqb_spec : forall x y : var, BoolSpec (x = y) (x <> y) (var_eqb x y)}.
+Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 
 (* The reference programs this node is verified against are ordinary [Datalog] programs over
    the numeric ids the hardware uses.  NodeHardwareSemantics never mentions the compiler's [lowered_rule]
    AST: the hardware program is compared directly to a [Datalog] program.  (Turning a compiled
    [lowered_rule] into such a [dl_rule], and proving the compiled hardware matches it, is the
    compiler's job in [DistributedDatalogToHardwareCompilerCorrect].) *)
-Notation dl_rule := (Datalog.rule rel_id var nat aggregator).
+Notation dl_rule := (@Datalog.rule rel_id var nat aggregator).
 Notation dl_program := (list dl_rule).
 (* Ground/runtime facts are [Datalog.fact]s ([normal_fact R args]); the bare fragment
    never produces [meta_fact]s. *)
-Notation dl_fact := (Datalog.fact rel_id T).
+Notation dl_fact := (@Datalog.fact rel_id T).
 
 (*============================================================================*)
 (*  Trie-join (hardware) semantics on a single node                           *)

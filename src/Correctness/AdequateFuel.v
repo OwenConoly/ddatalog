@@ -12,7 +12,7 @@
 
 From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith Lia.
-From coqutil Require Import Map.Interface Map.Properties Result.
+From coqutil Require Import Map.Interface Map.Properties Result Eqb.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler ComputableGraph Topologies.ComputableGraphComplete.
 From DatalogRocq Require Import Correctness.DistributedDatalogToHardwareCompilerCorrect.
 Import ListNotations.
@@ -21,9 +21,8 @@ Section AdequateFuel.
 
 (* CompileTop's context (verbatim), PLUS the two map.ok instances the BFS proofs need
    (the grid topology supplies them). *)
-Context {rel var fn aggregator T : Type}.
-Context {var_eqb : var -> var -> bool}
-        {var_eqb_spec : forall x y : var, BoolSpec (x = y) (x <> y) (var_eqb x y)}.
+Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 Context `{sig : signature nat aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
 Context {var_idx_map : map.map var nat} {var_idx_map_ok : map.ok var_idx_map}.

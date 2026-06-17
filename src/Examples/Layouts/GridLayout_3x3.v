@@ -12,7 +12,7 @@ Section SmallExample.
   Definition fn := ATLDatalogParams.fn.
   Definition aggregator := ATLDatalogParams.aggregator.
   Definition T := ATLDatalogParams.T.
-  Definition rule := Datalog.rule rel var fn aggregator.
+  Definition rule := Datalog.rule (exprvar := var).
 
   Context {context : map.map var T}.
   Context {context_ok : map.ok context}.
@@ -67,26 +67,19 @@ End SmallExample. *)
 (*  ATLToDatalog submodule file.                                                *)
 (* ============================================================================ *)
 
-From Stdlib Require Import List Bool.
+From Stdlib Require Import List Bool String.
 From Datalog Require Import Datalog.
-From DatalogRocq Require Import DistributedDatalog GridGraph DependencyGenerator
+From DatalogRocq Require Import DistributedDatalog GridGraph
   GridLayout StringDatalogParams Family.
 From coqutil Require Import Map.Interface.
 Import ListNotations.
 Import StringDatalogParams.
 
 Section FamilyExample.
-  Definition rel := StringDatalogParams.rel.
-  Definition var := StringDatalogParams.var.
-  Definition fn := StringDatalogParams.fn.
-  Definition aggregator := StringDatalogParams.aggregator.
-  Definition T := StringDatalogParams.T.
-  Definition rule := Datalog.rule rel var fn aggregator.
-
-  (* Semantics parameters are kept abstract: the layout/forwarding checks are structural. *)
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {sig : signature fn aggregator T}.
-  Context {query_sig : query_signature rel}.
+  (* The semantics (interpretation) parameters are kept abstract; only T/sig/context
+     are needed (the layout/forwarding facts are structural). *)
+  Context {context : map.map string string} {context_ok : map.ok context}.
+  Context {sig : signature string unit string}.
 
   Definition dims : list nat := [3; 3].
   Definition program : list rule := family_program.
@@ -96,27 +89,17 @@ Section FamilyExample.
     [ ([0;0], [0]); ([0;1], [1]); ([0;2], [2]); ([1;0], [3]);
       ([1;1], [4]); ([1;2], [5]); ([2;0], [6]); ([2;1], [7]); ([2;2], []) ].
 
-  Definition rule_eqb : rule -> rule -> bool :=
-    @DependencyGenerator.rule_eqb rel var fn aggregator var_eqb rel_eqb fn_eqb aggregator_eqb.
+  Definition family_3x3 := GridLayout.mk_dataflow_network dims indexed_layout program.
 
-  Definition family_3x3 := @GridLayout.mk_dataflow_network rel var fn aggregator T dims indexed_layout program.
-
-  (* The layout passes the checker (should compute to [true]). *)
-  Compute (@GridLayout.check_layout rel var fn aggregator rule_eqb dims
-             (@GridLayout.mk_layout_from_indexed_layout rel var fn aggregator dims indexed_layout program)
-             program).
-
-  Definition rule_eqb_spec :
-    forall r1 r2 : rule, BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2) :=
-    @DependencyGenerator.rule_eqb_spec rel var fn aggregator
-      var_eqb var_eqb_spec rel_eqb rel_eqb_spec fn_eqb fn_eqb_spec aggregator_eqb aggregator_eqb_spec.
+  (* The layout passes the checker (should compute to [true]); [rule]'s [Eqb] is inferred. *)
+  Compute GridLayout.check_layout dims
+            (GridLayout.mk_layout_from_indexed_layout dims indexed_layout program) program.
 
   (* The grid network built from this layout is well-formed. *)
   Theorem family_3x3_good_network :
     DistributedDatalog.good_network family_3x3 program.
   Proof.
-    apply (GridLayout.good_network (rule_eqb := rule_eqb) (rule_eqb_spec := rule_eqb_spec)).
-    vm_compute. reflexivity.
+    apply GridLayout.good_network. vm_compute. reflexivity.
   Qed.
 
   (* Soundness: every fact the distributed grid network derives is derivable by the

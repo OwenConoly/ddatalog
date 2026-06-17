@@ -1,20 +1,19 @@
 From Stdlib Require Import List Bool Lia.
 From Datalog Require Import Datalog.
 From DatalogRocq Require Import DistributedDatalog Topologies.Graph GridGraph.
-From coqutil Require Import Map.Interface.
+From coqutil Require Import Map.Interface Eqb.
 Import ListNotations.
 
 Section GridLayout.
-  Context {rel var fn aggregator T : Type}.
+  Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool} {var_eqb_spec :  forall x0 y0 : var, BoolSpec (x0 = y0) (x0 <> y0) (var_eqb x0 y0)}.
-  Context {rel_eqb : rel -> rel -> bool} {rel_eqb_spec : forall x0 y0 : rel, BoolSpec (x0 = y0) (x0 <> y0) (rel_eqb x0 y0)}.
-  Context {fn_eqb : fn -> fn -> bool} {fn_eqb_spec : forall x0 y0 : fn, BoolSpec (x0 = y0) (x0 <> y0) (fn_eqb x0 y0)}.
-  Context {aggregator_eqb : aggregator -> aggregator -> bool}
-          {aggregator_eqb_spec : forall x0 y0 : aggregator, BoolSpec (x0 = y0) (x0 <> y0) (aggregator_eqb x0 y0)}.
+  Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
+  Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+  Context {aggregator_eqb : Eqb aggregator} {aggregator_eqb_ok : Eqb_ok aggregator_eqb}.
 
-  Definition rule := Datalog.rule rel var fn aggregator.
+  Definition rule := @Datalog.rule rel var fn aggregator.
 
   Context {rule_eqb : rule -> rule -> bool}.
   Context {rule_eqb_spec : forall r1 r2 : rule,
@@ -41,7 +40,7 @@ Section GridLayout.
   Definition mk_always_forward_table (dims : list nat) (n : Node) : rel -> list Node :=
     fun f => filter (GridGraph.is_neighbor dims n) (all_nodes_h dims).
 
-  Definition mk_no_input_fn (n : Node) (f : Datalog.fact rel T) : Prop := False.
+  Definition mk_no_input_fn (n : Node) (f : @Datalog.fact rel T) : Prop := False.
 
   Definition mk_all_output_fn (n : Node) (f : rel) : Prop := True.
 

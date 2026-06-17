@@ -7,30 +7,27 @@ Import ListNotations.
 
 Section DistributedDatalog.
 
-  Context {rel var fn aggregator T : Type}.
+  Context {rel : relT} {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
-  Context `{query_sig : query_signature rel}.
-  Context {context : map.map var T}.
+  Context {context : map.map exprvar T}.
   Context {context_ok : map.ok context}.
   Context {Node Info : Type}.
   Context {node_eqb : Node -> Node -> bool}.
   Context {node_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
 
   (* An atom in a rule is a [clause]; a rule is the [normal_rule | meta_rule | agg_rule]
-     inductive; a ground/runtime fact is a [Datalog.fact] ([normal_fact R args]). *)
-  Definition rule := Datalog.rule rel var fn aggregator.
-  Notation dfact := (Datalog.fact rel T).
+     inductive; a ground/runtime fact is a [fact] ([normal_fact R args]). *)
 
   (* One-step firing in the non-meta fragment (normal rules AND aggregation rules):
      rule [r] produces the normal fact [f] from hypothesis facts [hyps]. This is
      environment-free ([non_meta_rule_impl] carries no [env]); supporting [meta_rule]s
-     later means switching to [Datalog.rule_impl env] and threading [env]. *)
-  Definition fires (r : rule) (f : dfact) (hyps : list dfact) : Prop :=
-    exists R args, f = Datalog.normal_fact R args /\ Datalog.non_meta_rule_impl r R args hyps.
+     later means switching to [rule_impl env] and threading [env]. *)
+  Definition fires (r : rule) (f : fact) (hyps : list fact) : Prop :=
+    exists R args, f = normal_fact R args /\ non_meta_rule_impl r R args hyps.
 
   Definition ForwardingTable := rel -> list Node.
   Definition ForwardingFn := Node -> ForwardingTable.
-  Definition InputFn := Node -> dfact -> Prop.
+  Definition InputFn := Node -> fact -> Prop.
   Definition OutputFn := Node -> rel -> Prop.
   Definition Layout := Node -> list rule.
 
@@ -43,10 +40,10 @@ Section DistributedDatalog.
   }.
 
 Inductive network_prop :=
-  | FactOnNode (n : Node) (f : dfact)
-  | Output (n : Node) (f : dfact).
+  | FactOnNode (n : Node) (f : fact)
+  | Output (n : Node) (f : fact).
 
-Fixpoint get_facts_on_node (nps : list (network_prop)) : list (Node * dfact) :=
+Fixpoint get_facts_on_node (nps : list (network_prop)) : list (Node * fact) :=
   match nps with
   | [] => []
   | FactOnNode n f :: t => (n, f) :: get_facts_on_node t
@@ -63,24 +60,24 @@ Inductive network_step (net : DataflowNetwork) : network_prop -> list (network_p
       fires r f (map snd (get_facts_on_node hyps)) ->
       network_step net (FactOnNode n f) (hyps)
   | Forward n n' f :
-      In n' (net.(forward) n (Datalog.rel_of f)) ->
+      In n' (net.(forward) n (rel_of f)) ->
       network_step net (FactOnNode n' f) [FactOnNode n f]
   | OutputStep n f :
-      net.(output) n (Datalog.rel_of f) ->
+      net.(output) n (rel_of f) ->
       network_step net (Output n f) [FactOnNode n f].
 
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps) (fun _ => False).
 
-Definition network_prog_impl_fact (net : DataflowNetwork) : dfact -> Prop :=
+Definition network_prog_impl_fact (net : DataflowNetwork) : fact -> Prop :=
   fun f => exists n, network_pftree net (Output n f).
 
 (* "f is derivable from [program] given the base/EDB facts [Q]" in the non-meta fragment: the
    proof-tree closure whose leaves are base facts ([Q]) and whose every internal node fires some
    program rule.  For programs without [meta_rule]s this coincides with the reference
-   [Datalog.prog_impl program Q]; we keep this env-free form so soundness/completeness need no
+   [prog_impl program Q]; we keep this env-free form so soundness/completeness need no
    environment bookkeeping.  ([Q := fun _ => False] recovers the pure (no-input) derivability.) *)
-Definition prog_impl_fact (program : list rule) (Q : dfact -> Prop) : dfact -> Prop :=
+Definition prog_impl_fact (program : list rule) (Q : fact -> Prop) : fact -> Prop :=
   pftree (fun f hyps => Exists (fun r => fires r f hyps) program) Q.
 
 (* A good layout has every program rule on a node somewhere AND only assigns rules from
@@ -92,12 +89,12 @@ Definition good_layout (layout : Layout) (nodes : Node -> Prop) (program : list 
 (* n produces facts of relation [rel] -- some rule on n has [rel] among its conclusion
    relations ([concl_rels] handles normal/meta/agg uniformly). *)
 Definition node_produces (layout : Layout) (n : Node) (r : rel) : Prop :=
-  exists rule, In rule (layout n) /\ In r (Datalog.concl_rels rule).
+  exists rule, In rule (layout n) /\ In r (concl_rels rule).
 
 (* n consumes facts of relation [rel] -- some rule on n has [rel] among its hypothesis
    relations ([hyp_rels] handles normal/meta/agg uniformly). *)
 Definition node_consumes (layout : Layout) (n : Node) (r : rel) : Prop :=
-  exists rule, In rule (layout n) /\ In r (Datalog.hyp_rels rule).
+  exists rule, In rule (layout n) /\ In r (hyp_rels rule).
 
 (* There exists a forwarding path for relation r from n1 to n2 *)
 Definition forwards_rel (forward : ForwardingFn) (n1 n2 : Node) (r : rel) : Prop :=
@@ -220,9 +217,9 @@ Definition good_input (input : InputFn) (program : list rule) : Prop :=
     exists r, In r program /\ fires r f [].
 
 Definition good_output (net : DataflowNetwork) : Prop :=
-  forall (n : Node) (f : dfact),
-    node_produces (layout net) n (Datalog.rel_of f) ->
-    exists n_out, net.(graph).(nodes) n_out /\ net.(output) n_out (Datalog.rel_of f).
+  forall (n : Node) (f : fact),
+    node_produces (layout net) n (rel_of f) ->
+    exists n_out, net.(graph).(nodes) n_out /\ net.(output) n_out (rel_of f).
 
 Definition good_network (net : DataflowNetwork) (program : list rule) : Prop :=
   good_graph net.(graph) /\
@@ -341,14 +338,14 @@ Qed.
 (* Streaming input: the network's input facts are *exactly* the base facts [Q], and each base
    fact is injected at an input node that is a good source for its relation (so it forwards to
    every consumer and to an output node -- the "per-relation input node + forwarding"). *)
-Definition good_input_streaming (net : DataflowNetwork) (Q : dfact -> Prop) : Prop :=
+Definition good_input_streaming (net : DataflowNetwork) (Q : fact -> Prop) : Prop :=
   (forall n f, net.(input) n f -> Q f) /\
-  (forall f, Q f -> exists n, net.(input) n f /\ good_source net n (Datalog.rel_of f)).
+  (forall f, Q f -> exists n, net.(input) n f /\ good_source net n (rel_of f)).
 
 (* The streaming well-formedness side condition: graph / layout / forwarding-soundness as before,
    every producer is a good source (forwarding completeness, bundling prod->cons and prod->output),
    and the input is the streaming distribution of [Q]. *)
-Definition good_network_streaming (net : DataflowNetwork) (program : list rule) (Q : dfact -> Prop) : Prop :=
+Definition good_network_streaming (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) : Prop :=
   good_graph net.(graph) /\
   good_layout net.(layout) net.(graph).(nodes) program /\
   good_forwarding_sound net.(forward) net.(graph).(nodes) net.(graph).(edge) /\
@@ -357,7 +354,7 @@ Definition good_network_streaming (net : DataflowNetwork) (program : list rule) 
 
 Lemma Forall_get_facts_on_node :
   forall (l : list network_prop)
-         (P : Node * dfact -> Prop)
+         (P : Node * fact -> Prop)
          (Q : network_prop -> Prop),
     (forall n f, Q (FactOnNode n f) -> P (n, f)) ->
     Forall Q l ->
@@ -389,19 +386,19 @@ Qed.
 
 (* [pftree] induction predicate for the network: every derivable network proposition's
    carried fact is derivable from the program given the base facts [Q]. *)
-Definition np_sound (program : list rule) (Q : dfact -> Prop) (np : network_prop) : Prop :=
+Definition np_sound (program : list rule) (Q : fact -> Prop) (np : network_prop) : Prop :=
   match np with
   | FactOnNode _ f => prog_impl_fact program Q f
   | Output _ f => prog_impl_fact program Q f
   end.
 
-Theorem soundness'' (net : DataflowNetwork) (program : list rule) (Q : dfact -> Prop) :
+Theorem soundness'' (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) :
   (forall n f, net.(input) n f -> Q f) ->
   good_layout net.(layout) net.(graph).(nodes) program ->
   forall np, network_pftree net np -> np_sound program Q np.
 Proof.
   intros HinQ [Hlc Hls]. unfold network_pftree.
-  apply (Datalog.pftree_ind (fun fact_node hyps => network_step net fact_node hyps)
+  apply (pftree_ind (fun fact_node hyps => network_step net fact_node hyps)
            (fun _ => False) (np_sound program Q)).
   - intros x [].
   - intros np l Hstep _ IH. inversion Hstep; subst; simpl in *.
@@ -433,7 +430,7 @@ Proof.
       specialize (IH (FactOnNode n f)). simpl in IH. apply IH. left. reflexivity.
 Qed.
 
-Theorem soundness (net : DataflowNetwork) (program : list rule) (Q : dfact -> Prop) :
+Theorem soundness (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) :
   forall f,
   (forall n f, net.(input) n f -> Q f) ->
   good_layout net.(layout) net.(graph).(nodes) program ->
@@ -452,7 +449,7 @@ Qed.
 Lemma forwarding_lifts :
   forall net n1 n2 f,
     network_pftree net (FactOnNode n1 f) ->
-    forwarding_reachable net.(forward) (Datalog.rel_of f) n1 n2 ->
+    forwarding_reachable net.(forward) (rel_of f) n1 n2 ->
     network_pftree net (FactOnNode n2 f).
 Proof.
   intros net n1 n2 f Hpf Hreach.
@@ -498,15 +495,15 @@ Qed.
 
 (* interp_clause exposes the relation: an interpreted clause is a normal fact whose
    relation is the clause's relation. *)
-Lemma interp_clause_rel ctx (c : Datalog.clause rel var fn) (f : dfact) :
-  Datalog.interp_clause ctx c f -> Datalog.rel_of f = c.(Datalog.clause_rel).
+Lemma interp_clause_rel ctx (c : clause) (f : fact) :
+  interp_clause ctx c f -> rel_of f = c.(clause_rel).
 Proof. intros [args' [_ ->]]. reflexivity. Qed.
 
 (* If a rule fires producing f, [rel_of f] is one of the rule's conclusion relations. *)
 Lemma fires_produces_rel :
-  forall (r : rule) (f : dfact) (hyps : list dfact),
+  forall (r : rule) (f : fact) (hyps : list fact),
     fires r f hyps ->
-    In (Datalog.rel_of f) (Datalog.concl_rels r).
+    In (rel_of f) (concl_rels r).
 Proof.
   intros r f hyps [R [args [-> Hnm]]]. simpl. inversion Hnm; subst; simpl.
   - (* normal_rule_impl *)
@@ -519,10 +516,10 @@ Qed.
 
 (* If a rule fires consuming f', [rel_of f'] is one of the rule's hypothesis relations. *)
 Lemma fires_consumes_rel :
-  forall (r : rule) (f : dfact) (hyps : list dfact) (f' : dfact),
+  forall (r : rule) (f : fact) (hyps : list fact) (f' : fact),
     fires r f hyps ->
     In f' hyps ->
-    In (Datalog.rel_of f') (Datalog.hyp_rels r).
+    In (rel_of f') (hyp_rels r).
 Proof.
   intros r f hyps f' [R [args [-> Hnm]]] Hin. inversion Hnm; subst; simpl in *.
   - (* normal_rule_impl: hyps interpreted from clauses *)
@@ -537,10 +534,10 @@ Qed.
 
 (* If a rule fires producing f at node n, n is a producer of [rel_of f] *)
 Lemma fires_node_produces :
-  forall (r : rule) (f : dfact) (hyps : list dfact) (n : Node) (net : DataflowNetwork),
+  forall (r : rule) (f : fact) (hyps : list fact) (n : Node) (net : DataflowNetwork),
     fires r f hyps ->
     In r (layout net n) ->
-    node_produces (layout net) n (Datalog.rel_of f).
+    node_produces (layout net) n (rel_of f).
 Proof.
   intros r f hyps n net Hfires Hin_layout.
   exists r. split; [exact Hin_layout |]. eapply fires_produces_rel; eauto.
@@ -548,11 +545,11 @@ Qed.
 
 (* If a rule fires consuming f' at node n, n is a consumer of [rel_of f'] *)
 Lemma fires_node_consumes :
-  forall (r : rule) (f : dfact) (hyps : list dfact) (f' : dfact) (n : Node) (net : DataflowNetwork),
+  forall (r : rule) (f : fact) (hyps : list fact) (f' : fact) (n : Node) (net : DataflowNetwork),
     fires r f hyps ->
     In f' hyps ->
     In r (layout net n) ->
-    node_consumes (layout net) n (Datalog.rel_of f').
+    node_consumes (layout net) n (rel_of f').
 Proof.
   intros r f hyps f' n net Hfires Hf'in Hin_layout.
   exists r. split; [exact Hin_layout |]. eapply fires_consumes_rel; eauto.
@@ -561,10 +558,10 @@ Qed.
 (* If a fact is at a producer, it can be forwarded to any consumer *)
 (* A fact at a good source for its relation can be carried to any consumer of that relation. *)
 Lemma fact_at_source_consumer :
-  forall (net : DataflowNetwork) (f : dfact) (n n_cons : Node),
+  forall (net : DataflowNetwork) (f : fact) (n n_cons : Node),
     network_pftree net (FactOnNode n f) ->
-    good_source net n (Datalog.rel_of f) ->
-    node_consumes (layout net) n_cons (Datalog.rel_of f) ->
+    good_source net n (rel_of f) ->
+    node_consumes (layout net) n_cons (rel_of f) ->
     network_pftree net (FactOnNode n_cons f).
 Proof.
   intros net f n n_cons Hpf [Hcons _] Hc.
@@ -575,19 +572,19 @@ Qed.
 
 (* Every derivable fact (from base facts [Q]) exists at a node that is a good source for its
    relation -- a producer for a derived fact, or the input node for a base fact. *)
-Lemma completeness_with_source (net : DataflowNetwork) (program : list rule) (Q : dfact -> Prop) :
+Lemma completeness_with_source (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) :
   good_network_streaming net program Q ->
   forall f, prog_impl_fact program Q f ->
-    exists n, network_pftree net (FactOnNode n f) /\ good_source net n (Datalog.rel_of f).
+    exists n, network_pftree net (FactOnNode n f) /\ good_source net n (rel_of f).
 Proof.
   intros Hnet.
   destruct Hnet as [Hgraph [[Hlc Hls] [Hfwds [Hprodsrc [HinQ_s HinQ_c]]]]].
   rewrite Forall_forall in Hlc.
-  apply (Datalog.pftree_ind
+  apply (pftree_ind
            (fun f hyps => Exists (fun r => fires r f hyps) program)
            Q
            (fun f => exists n, network_pftree net (FactOnNode n f) /\
-                               good_source net n (Datalog.rel_of f))).
+                               good_source net n (rel_of f))).
   - (* leaf: a base fact is injected at its input node, which is a good source *)
     intros f HQ. destruct (HinQ_c f HQ) as [n [Hin Hsrc]].
     exists n. split; [|exact Hsrc].
@@ -596,15 +593,15 @@ Proof.
     intros f l Hexists _ IH.
     apply Exists_exists in Hexists. destruct Hexists as [r [Hr_in Hfires]].
     destruct (Hlc r Hr_in) as [n_r [Hn_r_node Hn_r_layout]].
-    assert (Hprod : node_produces (layout net) n_r (Datalog.rel_of f))
+    assert (Hprod : node_produces (layout net) n_r (rel_of f))
       by (eapply fires_node_produces; eauto).
-    assert (Hsrc : good_source net n_r (Datalog.rel_of f)) by (apply Hprodsrc; exact Hprod).
+    assert (Hsrc : good_source net n_r (rel_of f)) by (apply Hprodsrc; exact Hprod).
     exists n_r. split; [|exact Hsrc].
     (* every hypothesis is available at [n_r] (forwarded from its own source to this consumer) *)
     assert (Hlifted : Forall (fun f' => network_pftree net (FactOnNode n_r f')) l).
     { rewrite Forall_forall in IH |- *. intros f' Hf'in.
       destruct (IH f' Hf'in) as [n' [Hpf' Hsrc']].
-      assert (Hcons : node_consumes (layout net) n_r (Datalog.rel_of f'))
+      assert (Hcons : node_consumes (layout net) n_r (rel_of f'))
         by (eapply fires_node_consumes; eauto).
       eapply fact_at_source_consumer; eauto. }
     eapply pftree_step with (l := List.map (FactOnNode n_r) l).
@@ -622,12 +619,12 @@ Qed.
 (* Derivability depends only on the rule SET: a larger program derives at least as much.  Used to
    relate a non-distributed program [P] to the canonical union of the distributed per-node rules
    (same set => same derivable facts). *)
-Lemma prog_impl_fact_subset (p1 p2 : list rule) (Q : dfact -> Prop) (f : dfact) :
+Lemma prog_impl_fact_subset (p1 p2 : list rule) (Q : fact -> Prop) (f : fact) :
   (forall r, In r p1 -> In r p2) ->
   prog_impl_fact p1 Q f -> prog_impl_fact p2 Q f.
 Proof.
   intros Hsub. unfold prog_impl_fact.
-  apply (Datalog.pftree_ind
+  apply (pftree_ind
            (fun f hyps => Exists (fun r => fires r f hyps) p1) Q
            (fun f => pftree (fun f hyps => Exists (fun r => fires r f hyps) p2) Q f)).
   - intros f0 HQ. apply pftree_leaf. exact HQ.
@@ -636,7 +633,7 @@ Proof.
     apply Exists_exists. exists r. split; [apply Hsub; exact Hr | exact Hf].
 Qed.
 
-Theorem completeness (net : DataflowNetwork) (program : list rule) (Q : dfact -> Prop) :
+Theorem completeness (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) :
   good_network_streaming net program Q ->
   forall f, prog_impl_fact program Q f -> network_prog_impl_fact net f.
 Proof.

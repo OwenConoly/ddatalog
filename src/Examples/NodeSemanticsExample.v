@@ -29,13 +29,13 @@ Import ListNotations.
 Open Scope string_scope.
 
 (* J(x, y) :- A(x, y), B(y, x).  Head first, then the two body clauses. *)
-Definition ruleJ : StringDatalogParams.rule :=
+Definition ruleJ : @Datalog.rule string string string unit :=
   Datalog.normal_rule
     [ {| Datalog.clause_rel := "J"; Datalog.clause_args := [Datalog.var_expr "x"; Datalog.var_expr "y"] |} ]
     [ {| Datalog.clause_rel := "A"; Datalog.clause_args := [Datalog.var_expr "x"; Datalog.var_expr "y"] |} ;
       {| Datalog.clause_rel := "B"; Datalog.clause_args := [Datalog.var_expr "y"; Datalog.var_expr "x"] |} ].
 
-Definition jprog   : list StringDatalogParams.rule := [ruleJ].
+Definition jprog   : list (@Datalog.rule string string string unit) := [ruleJ].
 Definition jlayout : list (node_id * list nat)      := [ ([0; 0]%nat, [0]%nat) ].  (* rule 0 -> node (0,0) *)
 Definition jtopo   : GridGraph.Dimensions           := [1; 1]%nat.                  (* a 1x1 grid *)
 Definition jio                                       := all_io_locations jprog jlayout jtopo.
@@ -80,10 +80,10 @@ Proof. vm_compute. reflexivity. Qed.
 (*  type), so we instantiate the run with [nat] values for readability.       *)
 (*==========================================================================*)
 
-Definition factA : Datalog.fact rel_id nat := Datalog.normal_fact 0 [7; 8].  (* A(7,8) *)
-Definition factB : Datalog.fact rel_id nat := Datalog.normal_fact 1 [8; 7].  (* B(8,7) *)
-Definition hyps' : list (Datalog.fact rel_id nat) := [factA; factB].
-Definition factJ : Datalog.fact rel_id nat := Datalog.normal_fact 2 [7; 8].  (* J(7,8) *)
+Definition factA : @Datalog.fact rel_id nat := Datalog.normal_fact 0 [7; 8].  (* A(7,8) *)
+Definition factB : @Datalog.fact rel_id nat := Datalog.normal_fact 1 [8; 7].  (* B(8,7) *)
+Definition hyps' : list (@Datalog.fact rel_id nat) := [factA; factB].
+Definition factJ : @Datalog.fact rel_id nat := Datalog.normal_fact 2 [7; 8].  (* J(7,8) *)
 
 (*==========================================================================*)
 (*  Layer 1: the permutation reads ([inv_perm_index] / [trie_read]).          *)
@@ -142,7 +142,7 @@ Qed.
 (*==========================================================================*)
 
 (* The single rule fires from any fact set that holds A(7,8) and B(8,7) as leaves. *)
-Lemma node_run_from (Q : Datalog.fact rel_id nat -> Prop) :
+Lemma node_run_from (Q : @Datalog.fact rel_id nat -> Prop) :
   Q factA -> Q factB -> node_run tries hp Q factJ.
 Proof.
   intros HA HB. eapply pftree_step.
@@ -155,7 +155,7 @@ Proof.
 Qed.
 
 (* The base facts delivered to this node. *)
-Definition inputs : Datalog.fact rel_id nat -> Prop := fun f => f = factA \/ f = factB.
+Definition inputs : @Datalog.fact rel_id nat -> Prop := fun f => f = factA \/ f = factB.
 
 Example J_in_node_run : node_run tries hp inputs factJ.
 Proof. apply node_run_from; [left | right]; reflexivity. Qed.
@@ -178,7 +178,7 @@ Definition node00 : node_id := [0; 0]%nat.
 
 (* The runtime EDB: deliver A(7,8) and B(8,7) at node (0,0).  The output sink: node (0,0)
    answers for J (relation id 2). *)
-Definition dinput : node_id -> Datalog.fact rel_id nat -> Prop :=
+Definition dinput : node_id -> @Datalog.fact rel_id nat -> Prop :=
   fun n f => n = node00 /\ (f = factA \/ f = factB).
 Definition doutput : node_id -> rel_id -> Prop :=
   fun n r => n = node00 /\ r = 2.

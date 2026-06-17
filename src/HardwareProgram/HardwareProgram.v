@@ -1,7 +1,7 @@
 From Datalog Require Import Datalog.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
-From DatalogRocq Require Import EqbSpec DependencyGenerator SortedListNat Topologies.Graph ComputableGraph EqbSpec.
+From DatalogRocq Require Import DependencyGenerator SortedListNat Topologies.Graph ComputableGraph.
 
 Open Scope bool_scope.
 Import ListNotations.
@@ -23,7 +23,7 @@ Import ListNotations.
 
 Section HardwareProgram.
 
-Context {rel var fn aggregator : Type}.
+Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 
 Definition var_id := nat.
 Definition trie_id := nat.
@@ -31,11 +31,6 @@ Definition rel_id := nat.
 Definition fn_id := nat.
 Definition clause_id := nat.
 
-(* An expr-carrying atom in a rule is a [Datalog.clause] (the old [fact]); a
-   ground/runtime fact is [Datalog.fact] ([normal_fact R args]). *)
-Definition fact := Datalog.clause rel var fn.
-Definition rule := Datalog.rule rel var fn aggregator.
-Definition expr := Datalog.expr var fn.
 Definition program := list rule.
 Definition permutation := list nat.
 
@@ -47,18 +42,18 @@ Record trie := {
 
 (* The "lowered" program is a [Datalog] program whose relations/functions are numeric ids
    ([rel_id]/[fn_id]) but whose variables/aggregator are the source's -- it is NOT a separate
-   AST.  So [Datalog.interp_clause]/[prog_impl] apply to it directly and NO [lowered -> Datalog]
+   AST.  So [interp_clause]/[prog_impl] apply to it directly and NO [lowered -> Datalog]
    conversion is ever needed (the compiler produces these rules in their final type).
 
    The lowered aggregator is the source's [aggregator] (NOT [unit]), so a [lowered_rule] is
    literally the rule the trie-join semantics verifies -- no retyping adapter.  Aggregation is
    still unsupported: the lowering ([DistributedDatalogToHardwareCompiler.global_rename_rule]/[compile_rule]) only ever
    emits [normal_rule]s and ERRORS (result monad) on [meta_rule]/[agg_rule], so a lowered program
-   is normal by construction.  A lowered atom is a [Datalog.clause] ([clause_rel]/[clause_args]);
-   a ground lowered fact is a [Datalog.fact] ([normal_fact]). *)
-Definition lowered_expr := Datalog.expr var fn_id.
-Definition lowered_fact := Datalog.clause rel_id var fn_id.
-Definition lowered_rule := Datalog.rule rel_id var fn_id aggregator.
+   is normal by construction.  A lowered atom is a [clause] ([clause_rel]/[clause_args]);
+   a ground lowered fact is a [fact] ([normal_fact]). *)
+Definition lowered_expr := expr (fn := fn_id).
+Definition lowered_fact := clause (rel := rel_id) (fn := fn_id).
+Definition lowered_rule := rule (rel := rel_id) (fn := fn_id).
 Definition lowered_program := list lowered_rule.
 
 Record join :=

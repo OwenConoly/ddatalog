@@ -35,19 +35,21 @@ Open Scope string_scope.
 
 (* Trivial value-signatures for the bare fragment (no functions / no aggregation). *)
 #[local] Instance sig_hw  : signature nat    unit string :=
-  {| interp_fun := fun _ _ => None; interp_agg := fun _ _ => "" |}.
+  {| interp_fun := fun _ _ => None;
+     get_nat := fun _ => 0; agg_bop := fun _ x _ => x; agg_id := fun _ => "" |}.
 #[local] Instance sig_src : signature string unit string :=
-  {| interp_fun := fun _ _ => None; interp_agg := fun _ _ => "" |}.
+  {| interp_fun := fun _ _ => None;
+     get_nat := fun _ => 0; agg_bop := fun _ x _ => x; agg_id := fun _ => "" |}.
 
-(* A concrete, spec-correct equality on source rules (drives the distribution check). *)
-Definition rule_eqb := @DependencyGenerator.rule_eqb string string string unit
-  StringDatalogParams.rel_eqb StringDatalogParams.var_eqb StringDatalogParams.fn_eqb
-  StringDatalogParams.aggregator_eqb.
-Definition rule_eqb_spec := @DependencyGenerator.rule_eqb_spec string string string unit
-  StringDatalogParams.rel_eqb StringDatalogParams.rel_eqb_spec
-  StringDatalogParams.var_eqb StringDatalogParams.var_eqb_spec
-  StringDatalogParams.fn_eqb StringDatalogParams.fn_eqb_spec
-  StringDatalogParams.aggregator_eqb StringDatalogParams.aggregator_eqb_spec.
+(* A concrete, spec-correct equality on source rules (drives the distribution check).
+   [rule]'s [Eqb] instance lives in [EqbSpec]; recover the [BoolSpec] form from [eqb_spec]. *)
+Definition rule_eqb : @Datalog.rule string string string unit -> @Datalog.rule string string string unit -> bool := eqb.
+Lemma rule_eqb_spec (x y : @Datalog.rule string string string unit) :
+  BoolSpec (x = y) (x <> y) (rule_eqb x y).
+Proof.
+  unfold rule_eqb. pose proof (eqb_spec x y) as H.
+  destruct (eqb x y); [apply BoolSpecT | apply BoolSpecF]; exact H.
+Qed.
 
 (*==========================================================================*)
 (*  [grid_equiv]: [compile_implements_source] with every instance pinned to   *)
@@ -58,7 +60,7 @@ Definition rule_eqb_spec := @DependencyGenerator.rule_eqb_spec string string str
 Definition grid_equiv :=
   @compile_implements_source
     string string string unit string
-    StringDatalogParams.var_eqb StringDatalogParams.var_eqb_spec
+    _ _
     sig_hw
     (SortedListString.map string) (SortedListString.ok string)
     StringDatalog.var_idx_map  (SortedListString.ok nat)
@@ -69,8 +71,8 @@ Definition grid_equiv :=
     (SortedListNat.map (list (@DistributedHardwareProgram.destination GridTopology.node_id)))
     (SortedListNat.map (GridTopology.node_id_map unit))
     StringDatalog.fn_id_map StringDatalog.rel_relid_map
-    (GridTopology.node_id_map (list StringDatalogParams.rule)) (GridTopology.node_id_map_ok _)
-    (GridTopology.node_id_map (list (@HardwareProgram.lowered_rule StringDatalogParams.var StringDatalogParams.aggregator)))
+    (GridTopology.node_id_map (list rule)) (GridTopology.node_id_map_ok _)
+    (GridTopology.node_id_map (list (lowered_rule)))
         (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map (SortedListNat.map (list (@DistributedHardwareProgram.destination GridTopology.node_id))))
     (SortedListString.map (list GridTopology.node_id)) (SortedListString.ok _)
@@ -81,20 +83,20 @@ Definition grid_equiv :=
     (GridTopology.node_id_map_ok _)
     sig_src
     (SortedListString.ok _)
-    StringDatalogParams.rel_eqb StringDatalogParams.rel_eqb_spec.
+    _ _.
 
 (*==========================================================================*)
 (*  The concrete program and indexed layout.                                  *)
 (*==========================================================================*)
 
 (* J(x, y) :- A(x, y), B(y, x). *)
-Definition ruleJ : StringDatalogParams.rule :=
+Definition ruleJ : rule :=
   Datalog.normal_rule
     [ {| Datalog.clause_rel := "J"; Datalog.clause_args := [Datalog.var_expr "x"; Datalog.var_expr "y"] |} ]
     [ {| Datalog.clause_rel := "A"; Datalog.clause_args := [Datalog.var_expr "x"; Datalog.var_expr "y"] |} ;
       {| Datalog.clause_rel := "B"; Datalog.clause_args := [Datalog.var_expr "y"; Datalog.var_expr "x"] |} ].
 
-Definition P : list StringDatalogParams.rule := [ruleJ].
+Definition P : list rule := [ruleJ].
 Definition idx_layout : list (node_id * list nat) := [ ([0; 0]%nat, [0]%nat) ].  (* rule 0 -> node (0,0) *)
 Definition topo : GridGraph.Dimensions := [1; 1]%nat.                            (* a 1x1 grid *)
 
@@ -108,8 +110,8 @@ Notation lowerJ := (@DistributedDatalogToHardwareCompiler.lower_inputs
   string string string unit node_id node_id
   (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
   StringDatalog.fn_id_map StringDatalog.rel_relid_map
-  (GridTopology.node_id_map (list StringDatalogParams.rule))
-  (GridTopology.node_id_map (list (@HardwareProgram.lowered_rule StringDatalogParams.var StringDatalogParams.aggregator)))
+  (GridTopology.node_id_map (list rule))
+  (GridTopology.node_id_map (list (lowered_rule)))
   (SortedListString.map (list node_id)) (SortedListNat.map (list node_id))).
 
 (*==========================================================================*)
@@ -142,13 +144,13 @@ Example check_distributes : layout_distributes_programb rule_eqb P LAYOUT = true
 Theorem end_to_end_equiv
     (ninfos : list (@node_info node_id (SortedListNat.map (list destination))))
     (ll  : GridTopology.node_id_map
-             (list (@HardwareProgram.lowered_rule StringDatalogParams.var StringDatalogParams.aggregator)))
+             (list (lowered_rule)))
     (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
                  (SortedListNat.map (list node_id)))
     (gc : @DistributedDatalogToHardwareCompiler.global_context string string node_id node_id
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
             StringDatalog.fn_id_map StringDatalog.rel_relid_map)
-    (Qsrc : Datalog.fact string string -> Prop) (fsrc : Datalog.fact string string) :
+    (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
   lowerJ LAYOUT FPS FPS = Success (ll, lfp, lfc, gc) ->
   In (Datalog.rel_of fsrc) (program_rels P) ->
@@ -179,14 +181,14 @@ Qed.
 (*  [grid_equiv] is program/layout-agnostic, so it is reused verbatim.         *)
 (*==========================================================================*)
 
-Definition Path (x y : string) : Datalog.clause string string string :=
+Definition Path (x y : string) : @Datalog.clause string string string :=
   {| Datalog.clause_rel := "Path"; Datalog.clause_args := [Datalog.var_expr x; Datalog.var_expr y] |}.
-Definition Edge (x y : string) : Datalog.clause string string string :=
+Definition Edge (x y : string) : @Datalog.clause string string string :=
   {| Datalog.clause_rel := "Edge"; Datalog.clause_args := [Datalog.var_expr x; Datalog.var_expr y] |}.
 
-Definition r0 : StringDatalogParams.rule := Datalog.normal_rule [Path "x" "y"] [Edge "x" "y"].
-Definition r1 : StringDatalogParams.rule := Datalog.normal_rule [Path "x" "z"] [Edge "x" "y"; Path "y" "z"].
-Definition Preach : list StringDatalogParams.rule := [r0; r1].
+Definition r0 : rule := Datalog.normal_rule [Path "x" "y"] [Edge "x" "y"].
+Definition r1 : rule := Datalog.normal_rule [Path "x" "z"] [Edge "x" "y"; Path "y" "z"].
+Definition Preach : list rule := [r0; r1].
 
 Definition idx_layout_r : list (node_id * list nat) :=
   [ ([0; 0]%nat, [0]%nat); ([1; 0]%nat, [1]%nat) ].  (* rule 0 -> (0,0), rule 1 -> (1,0) *)
@@ -209,13 +211,13 @@ Example check_distributes_r : layout_distributes_programb rule_eqb Preach LAYOUT
 Theorem end_to_end_equiv_reach
     (ninfos : list (@node_info node_id (SortedListNat.map (list destination))))
     (ll  : GridTopology.node_id_map
-             (list (@HardwareProgram.lowered_rule StringDatalogParams.var StringDatalogParams.aggregator)))
+             (list (lowered_rule)))
     (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
                  (SortedListNat.map (list node_id)))
     (gc : @DistributedDatalogToHardwareCompiler.global_context string string node_id node_id
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
             StringDatalog.fn_id_map StringDatalog.rel_relid_map)
-    (Qsrc : Datalog.fact string string -> Prop) (fsrc : Datalog.fact string string) :
+    (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
   lowerJ LAYOUT_r FPS_r FPS_r = Success (ll, lfp, lfc, gc) ->
   In (Datalog.rel_of fsrc) (program_rels Preach) ->

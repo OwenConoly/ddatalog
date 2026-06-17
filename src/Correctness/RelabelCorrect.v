@@ -11,19 +11,18 @@
 
 From Datalog Require Import Datalog.
 From Stdlib Require Import List.
-From coqutil Require Import Map.Interface.
+From coqutil Require Import Map.Interface Eqb.
 Import ListNotations.
 
 (* A normal rule's [rule_impl] is just [simple_rule_impl] over a [non_meta_rule_impl] (the meta
    constructor needs a [meta_rule]).  Generic over the Datalog params, so it serves both the source
    and the relabeled instances. *)
 Section NormalInv.
-  Context {rel var fn aggregator T : Type}.
+  Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context `{qsig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool}
-          {var_eqb_spec : forall x y : var, BoolSpec (x = y) (x <> y) (var_eqb x y)}.
+  Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 
   Lemma rule_impl_normal_inv (env : list (@Datalog.fact rel T) -> rel -> list T -> Prop)
       (cs hs : list (@Datalog.clause rel var fn)) (f : @Datalog.fact rel T)
@@ -37,14 +36,13 @@ Section NormalInv.
 End NormalInv.
 
 Section RelabelCorrect.
-  Context {rel rel' var fn fn' aggregator T : Type}.
+  Context {rel : relT} {rel' : relT} {var : exprvarT} {fn : fnT} {fn' : fnT} {aggregator : aggregatorT} {T : valueT}.
   Context `{sig : signature fn aggregator T}.
   Context `{sig' : signature fn' aggregator T}.
   Context `{qsig : query_signature rel}.
   Context `{qsig' : query_signature rel'}.
   Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {var_eqb : var -> var -> bool}
-          {var_eqb_spec : forall x y : var, BoolSpec (x = y) (x <> y) (var_eqb x y)}.
+  Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
   Context (rho : rel -> rel') (iota : fn -> fn').
   (* [rho] need only be injective on the relations [S] that actually occur in the program/EDB --
      the compiler's relation map is injective only on the names it collected, not globally, and for

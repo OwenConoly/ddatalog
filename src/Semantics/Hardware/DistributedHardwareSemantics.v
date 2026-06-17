@@ -16,7 +16,7 @@
 
 From Datalog Require Import Datalog.
 From Stdlib Require Import List Bool ZArith.
-From coqutil Require Import Datatypes.List Map.Interface Map.Properties.
+From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
 From DatalogRocq Require Import HardwareProgram DistributedHardwareProgram NodeHardwareSemantics.
 
 Import ListNotations.
@@ -24,7 +24,7 @@ Import ListNotations.
 Section DistributedHardwareSemantics.
 
 (* Relations/functions are numeric ids at this layer; only variables and values are abstract. *)
-Context {var aggregator T : Type}.
+Context {var : exprvarT} {aggregator : aggregatorT} {T : valueT}.
 Context `{sig : signature nat aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
 (* The node-identifier type is a parameter (was the hardcoded [nat*nat]). *)
@@ -33,7 +33,7 @@ Context {node_id : Type}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 
 (* ground/runtime facts at this (numeric-id) layer *)
-Notation dl_fact := (Datalog.fact rel_id T).
+Notation dl_fact := (@Datalog.fact rel_id T).
 
 (*============================================================================*)
 (*  OPERATIONAL hardware semantics: a standalone small-step machine that just  *)
