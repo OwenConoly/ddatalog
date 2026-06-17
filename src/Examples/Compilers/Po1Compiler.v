@@ -1,5 +1,5 @@
 From Stdlib Require Import List ZArith Lia String.
-From DatalogRocq Require Import Examples.SouffleGeneratedRocq.Po1 DistributedDatalogToHardwareCompiler StringDatalogParams StringGridCompiler.
+From DatalogRocq Require Import Examples.Programs.Po1 DistributedDatalogToHardwareCompiler StringDatalogParams StringGridCompiler.
 Import ListNotations.
 
 (* Compilation *)

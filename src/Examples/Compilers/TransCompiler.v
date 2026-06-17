@@ -1,5 +1,5 @@
 From Stdlib Require Import List ZArith Lia String.
-From DatalogRocq Require Import Examples.SouffleGeneratedRocq.X9 DistributedDatalogToHardwareCompiler StringDatalogParams StringGridCompiler.
+From DatalogRocq Require Import Examples.Programs.Trans DistributedDatalogToHardwareCompiler StringDatalogParams StringGridCompiler.
 Import ListNotations.
 
 (* Compilation *)
@@ -7,16 +7,15 @@ Import ListNotations.
 Definition program_to_compile : list rule := computed_program.
 
 (* No Input Facts *)
-(* Definition layout : list (node_id * list nat) := [ ([0;0], [1]); ([0;1], [0]) ].
+(* Definition layout : list (node_id * list nat) := [ ([0;2], [0]) ].
 
 Definition empty_fact_producers : fact_locations (rel := rel) (node_id := node_id) := []. *)
 
 (* For purposes of benchmarking this is so we can also compile to a single node *)
-Definition one_node_layout : list (node_id * list nat) := [ ([0;0], [0; 1]) ].
+Definition one_node_layout : list (node_id * list nat) := [ ([0;0], [0]) ].
 
 (* Actual compiler assigned layout *)
-Definition layout : list (node_id * list nat) := 
-  [ ([0;0], [0]); ([1;0], [1]) ].
+Definition layout : list (node_id * list nat) := [ ([0;2], [0]) ].
 
 Definition topo_dims : GridGraph.Dimensions := [3; 3].
 
@@ -24,6 +23,6 @@ Definition topo_dims : GridGraph.Dimensions := [3; 3].
    don't cover every produced relation under the output-sink gate), so this uses
    [all_io_locations] -- every grid node is an input AND output for every relation.
    Replace with the real input/output nodes. *)
-Definition compiled_x9 := compile_program program_to_compile layout (all_io_locations program_to_compile layout topo_dims) (all_io_locations program_to_compile layout topo_dims) topo_dims.
+Definition compiled_trans := compile_program program_to_compile layout (all_io_locations program_to_compile layout topo_dims) (all_io_locations program_to_compile layout topo_dims) topo_dims.
 
-Eval vm_compute in compiled_x9.
+Eval vm_compute in compiled_trans.
