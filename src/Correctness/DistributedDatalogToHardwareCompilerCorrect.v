@@ -60,7 +60,7 @@ Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var
 
 (* the tuple of a (normal) ground fact; meta facts (never produced by the bare fragment)
    read as []. *)
-Definition nfargs (f : @Datalog.fact rel_id T) : list T :=
+Definition nfargs (f : Datalog.fact (rel := rel_id)) : list T :=
   match f with Datalog.normal_fact _ a => a | _ => [] end.
 
 (*----Trie-generation facts (toward hooking up compile_rule)----*)
@@ -89,8 +89,8 @@ Qed.
 (* A [normal_rule] fires (env-free, since its conclusion is a [normal_fact]) exactly when some
    context interprets all its hypothesis clauses to [hyps'] and one conclusion clause to [f]. *)
 Lemma lrule_impl_iff (concls hyps : list lowered_fact)
-    (env : list (@Datalog.fact rel_id T) -> rel_id -> list T -> Prop)
-    (f : @Datalog.fact rel_id T) (hyps' : list (@Datalog.fact rel_id T)) :
+    (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop)
+    (f : Datalog.fact (rel := rel_id)) (hyps' : list (Datalog.fact (rel := rel_id))) :
   rule_impl env (Datalog.normal_rule concls hyps) f hyps' <->
   exists R args ctx,
     f = Datalog.normal_fact R args /\
@@ -195,7 +195,7 @@ Proof.
 Qed.
 
 (* Hence the whole [join_output_fact] in terms of the projected tuple. *)
-Lemma join_output_fact_spec (vals : list T) (jo : join_output) (f : @Datalog.fact rel_id T) :
+Lemma join_output_fact_spec (vals : list T) (jo : join_output) (f : Datalog.fact (rel := rel_id)) :
   join_output_fact vals jo = Some f
   <-> exists out, f = Datalog.normal_fact jo.(output_rel) out /\
                   Forall2 (fun idx v => nth_error vals idx = Some v)
@@ -214,7 +214,7 @@ Qed.
 (*----Conclusion projection: join_output_fact <-> interp_fact (bare concls)----*)
 
 Lemma interp_var_iff (ctx : context) (v : var) (x : T) :
-  interp_expr ctx (var_expr v : @Datalog.expr var nat) x <-> map.get ctx v = Some x.
+  interp_expr ctx (var_expr v : Datalog.expr (fn := nat)) x <-> map.get ctx v = Some x.
 Proof.
   split.
   - intros H; inversion H; subst; assumption.
@@ -264,7 +264,7 @@ Qed.
    [compile_concl] establishes for bare conclusions (each output index is the ordering
    index of the corresponding variable). *)
 Lemma join_output_fact_interp (concl : lowered_fact) (ord : list var) (vals : list T)
-    (ctx : context) (jo : join_output) (f : @Datalog.fact rel_id T) :
+    (ctx : context) (jo : join_output) (f : Datalog.fact (rel := rel_id)) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   jo.(output_rel) = concl.(Datalog.clause_rel) ->
   Forall2 (fun e idx => exists v, e = var_expr v /\ nth_error ord idx = Some v)
@@ -765,7 +765,7 @@ Qed.
      back the matching tuple column by the same [trie_read_NoDup] identity. *)
 Theorem generate_query_correct
     (ord : list var) (hyps : list lowered_fact) (tb : list trie) (tries : list trie)
-    (vals : list T) (hyps' : list (@Datalog.fact rel_id T)) (dt : trie) (dh : lowered_fact) :
+    (vals : list T) (hyps' : list (Datalog.fact (rel := rel_id))) (dt : trie) (dh : lowered_fact) :
   NoDup ord ->
   Forall bare_fact hyps ->
   length tb = length hyps ->
@@ -954,7 +954,7 @@ Definition concl_corr (ord : list var) (c : lowered_fact) (jo : join_output) : P
 (* Lifting [join_output_fact_interp] over the whole conclusion list: under the induced context,
    the trie-join's conclusion outputs are exactly the lowered rule's conclusion facts. *)
 Lemma concl_exists_iff (ord : list var) (vals : list T) (ctx : context)
-    (concls : list lowered_fact) (jos : list join_output) (f : @Datalog.fact rel_id T) :
+    (concls : list lowered_fact) (jos : list join_output) (f : Datalog.fact (rel := rel_id)) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   Forall2 (concl_corr ord) concls jos ->
   ( Exists (fun jo => join_output_fact vals jo = Some f) jos <->
@@ -983,7 +983,7 @@ Qed.
 (* Transport an [Exists interp_fact] over the conclusion list across two contexts that agree on
    the ordering (the conclusion variables, by [concl_corr], are all in the ordering). *)
 Lemma exists_interp_transport (concls : list lowered_fact) (jos : list join_output)
-    (ord : list var) (ctx ctx' : context) (f : @Datalog.fact rel_id T) :
+    (ord : list var) (ctx ctx' : context) (f : Datalog.fact (rel := rel_id)) :
   Forall2 (concl_corr ord) concls jos ->
   (forall v, In v ord -> map.get ctx v = map.get ctx' v) ->
   Exists (fun c => interp_clause ctx (c) f) concls ->
@@ -1014,7 +1014,7 @@ Qed.
 (*----per-hypothesis relation/arity facts----*)
 
 (* the per-clause [hsig] shape check, exactly as in [NodeHardwareSemantics.hw_rule_impl]. *)
-Notation hsig_ok := (fun (sg : rel_id * nat) (fct : @Datalog.fact rel_id T) =>
+Notation hsig_ok := (fun (sg : rel_id * nat) (fct : Datalog.fact (rel := rel_id)) =>
   match fct with
   | Datalog.normal_fact R args => R = fst sg /\ length args = snd sg
   | _ => False
@@ -1023,7 +1023,7 @@ Notation hsig_ok := (fun (sg : rel_id * nat) (fct : @Datalog.fact rel_id T) =>
 (* Each hypothesis fact is the [normal_fact] with the clause's relation and arity, read off
    from [interp_clause]. *)
 Lemma interp_hyp_arity (ctx : context) (rule_hyps : list lowered_fact)
-    (hyps' : list (@Datalog.fact rel_id T)) (dh : lowered_fact) (i : nat) :
+    (hyps' : list (Datalog.fact (rel := rel_id))) (dh : lowered_fact) (i : nat) :
   Forall2 (interp_clause ctx) (rule_hyps) hyps' ->
   i < length rule_hyps ->
   exists tup, nth i hyps' (Datalog.normal_fact 0 []) =
@@ -1044,7 +1044,7 @@ Qed.
 
 (* The [hsig] shape check is exactly what [interp_clause] over the hypotheses provides. *)
 Lemma interp_hyps_hsig (ctx : context) (rule_hyps : list lowered_fact)
-    (hyps' : list (@Datalog.fact rel_id T)) :
+    (hyps' : list (Datalog.fact (rel := rel_id))) :
   Forall2 (interp_clause ctx) (rule_hyps) hyps' ->
   Forall2 hsig_ok
           (map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) rule_hyps) hyps'.
@@ -1059,7 +1059,7 @@ Proof.
 Qed.
 
 (* Conversely, the [hsig] shape check yields the per-hypothesis relation/arity facts. *)
-Lemma hsig_length (rule_hyps : list lowered_fact) (hyps' : list (@Datalog.fact rel_id T)) :
+Lemma hsig_length (rule_hyps : list lowered_fact) (hyps' : list (Datalog.fact (rel := rel_id))) :
   Forall2 hsig_ok
           (map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) rule_hyps) hyps' ->
   length hyps' = length rule_hyps.
@@ -1067,7 +1067,7 @@ Proof.
   intros HF. apply Forall2_length in HF. rewrite length_map in HF. symmetry; exact HF.
 Qed.
 
-Lemma hsig_arity (rule_hyps : list lowered_fact) (hyps' : list (@Datalog.fact rel_id T))
+Lemma hsig_arity (rule_hyps : list lowered_fact) (hyps' : list (Datalog.fact (rel := rel_id)))
     (dh : lowered_fact) (i : nat) :
   Forall2 hsig_ok
           (map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) rule_hyps) hyps' ->
@@ -1099,7 +1099,7 @@ Qed.
    [concl_exists_iff] (conclusions). *)
 Theorem hw_rule_correct
     (concls hyps : list lowered_fact) (hr : hardware_rule)
-    (env : list (@Datalog.fact rel_id T) -> rel_id -> list T -> Prop)
+    (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop)
     (ord : list var) (tb : list trie) (tries : list trie) (dt : trie) (dh : lowered_fact) :
   NoDup ord ->
   Forall bare_fact hyps ->
@@ -2179,7 +2179,7 @@ Notation compile_node :=
    [hw_rule_correct] from the ordering / hypothesis / conclusion / registration lemmas. *)
 Lemma compile_rule_matches (rule : lowered_rule) (gc : global_context) (nc nc' : node_context)
     (hr : hardware_rule) (tries : list trie)
-    (env : list (@Datalog.fact rel_id T) -> rel_id -> list T -> Prop) :
+    (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop) :
   bare_rule rule ->
   wf_nc nc ->
   compile_rule rule gc nc = Success (hr, nc') ->
@@ -2237,7 +2237,7 @@ Qed.
 (* The [compile_node] fold: every compiled rule matches its datalog rule against the node's
    final trie table (each rule's tries are a subset of the final table, by monotonicity). *)
 Lemma compile_node_fold_matches (gc : global_context) (tries : list trie) (prog : lowered_program)
-    (env : list (@Datalog.fact rel_id T) -> rel_id -> list T -> Prop) :
+    (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop) :
   forall (rules0 : list hardware_rule) (nc0 : node_context)
          (compiled_rev : list hardware_rule) (nc_final : node_context),
   fold_left (fun acc rule =>
@@ -2269,7 +2269,7 @@ Proof.
 Qed.
 
 Lemma Forall2_map_lrule (tries : list trie) (prog : lowered_program) (hrs : list hardware_rule)
-    (env : list (@Datalog.fact rel_id T) -> rel_id -> list T -> Prop) :
+    (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop) :
   Forall2 (fun rule hr => hw_rule_matches tries env rule hr) prog hrs ->
   Forall2 (hw_rule_matches tries env) (prog) hrs.
 Proof. intros HF. induction HF; simpl; constructor; assumption. Qed.
@@ -2277,7 +2277,7 @@ Proof. intros HF. induction HF; simpl; constructor; assumption. Qed.
 (* Per node: every compiled hardware rule matches its source rule against the node's trie table.
    This is exactly the per-node condition [ninfos_node_rules_match] needs. *)
 Lemma compile_node_matches (node : node_id) (prog : lowered_program) (gc : global_context)
-    (ninfo : node_info) (env : list (@Datalog.fact rel_id T) -> rel_id -> list T -> Prop) :
+    (ninfo : node_info) (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop) :
   Forall bare_rule prog ->
   compile_node node prog gc = Success ninfo ->
   Forall2 (hw_rule_matches ninfo.(ntries) env) (prog) ninfo.(nprogram).
@@ -2682,10 +2682,10 @@ Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
    and function types -- bareness inspects only [var_expr]/[fun_expr], never the relation/function
    identifiers -- so the SAME check applies to the source layout (over [rel]/[fn]) and the renamed
    lowered layout (over [rel_id]/[fn_id]). *)
-Definition bare_factb {Rel Fn} (f : @Datalog.clause Rel var Fn) : bool :=
+Definition bare_factb {Rel Fn} (f : Datalog.clause (rel := Rel) (fn := Fn)) : bool :=
   forallb (fun e => match e with var_expr _ => true | fun_expr _ _ => false end) f.(Datalog.clause_args).
 
-Definition bare_ruleb {Rel Fn} (r : @Datalog.rule Rel var Fn aggregator) : bool :=
+Definition bare_ruleb {Rel Fn} (r : Datalog.rule (rel := Rel) (fn := Fn)) : bool :=
   match r with
   | Datalog.normal_rule concls hyps => forallb bare_factb hyps && forallb bare_factb concls
   | _ => false
@@ -2711,11 +2711,11 @@ Qed.
 (* Decidable check that every program in a layout is bare.  PARAMETRIC over the relation/function
    types and the layout-map instance, so it applies to both the source [layout] and the lowered
    [llayout]. *)
-Definition bare_layoutb {Rel Fn} {M : map.map node_id (list (@Datalog.rule Rel var Fn aggregator))}
+Definition bare_layoutb {Rel Fn} {M : map.map node_id (list (Datalog.rule (rel := Rel) (fn := Fn)))}
     (lay : M) : bool :=
   map.fold (fun acc _ p => acc && forallb bare_ruleb p) true lay.
 
-Lemma bare_layoutb_entry {Rel Fn} {M : map.map node_id (list (@Datalog.rule Rel var Fn aggregator))}
+Lemma bare_layoutb_entry {Rel Fn} {M : map.map node_id (list (Datalog.rule (rel := Rel) (fn := Fn)))}
     {M_ok : map.ok M} (lay : M) :
   bare_layoutb lay = true ->
   forall n p, map.get lay n = Some p -> forallb bare_ruleb p = true.
@@ -3018,7 +3018,7 @@ Qed.
    [good_source].  This is the bridge that lets the [forward_of_ninfos] network inherit the
    [fwd_list] network's well-formedness (no funext). *)
 Lemma good_network_streaming_forward_ext (net1 net2 : DNet)
-    (program : list (@Datalog.rule rel_id var nat aggregator)) (Q : @Datalog.fact rel_id T -> Prop) :
+    (program : list (Datalog.rule (rel := rel_id) (fn := nat))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   net1.(DistributedDatalog.graph)  = net2.(DistributedDatalog.graph) ->
   net1.(DistributedDatalog.layout) = net2.(DistributedDatalog.layout) ->
   net1.(DistributedDatalog.input)  = net2.(DistributedDatalog.input) ->
@@ -3087,9 +3087,9 @@ Notation cg2g := (@ComputableGraph.computable_graph_to_graph node_id node_id_set
 
 (* For a bare (normal) rule, [rule_impl] can only produce a normal fact (the [meta_rule_impl]
    constructor needs a [meta_rule]). *)
-Lemma bare_rule_impl_normal (env : list (@Datalog.fact rel_id T) -> rel_id -> list T -> Prop)
-    (r : @Datalog.rule rel_id var nat aggregator) (f : @Datalog.fact rel_id T)
-    (hyps : list (@Datalog.fact rel_id T)) :
+Lemma bare_rule_impl_normal (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop)
+    (r : Datalog.rule (rel := rel_id) (fn := nat)) (f : Datalog.fact (rel := rel_id))
+    (hyps : list (Datalog.fact (rel := rel_id))) :
   bare_rule r -> Datalog.rule_impl env r f hyps -> exists R args, f = Datalog.normal_fact R args.
 Proof.
   intros Hbare H. destruct r as [concls hyps0 | concls hyps0 | concl agg hyp];
@@ -3101,7 +3101,7 @@ Qed.
      retired declarative bridge; these are the only pieces of it the operational proof needs)----*)
 
 (* A trie-join always concludes a [normal_fact] (it projects a binding through [join_output_fact]). *)
-Lemma hw_rule_impl_concl_normal (tries : list trie) hr (f : @Datalog.fact rel_id T) hyps' :
+Lemma hw_rule_impl_concl_normal (tries : list trie) hr (f : Datalog.fact (rel := rel_id)) hyps' :
   hw_rule_impl tries hr f hyps' -> exists R args, f = Datalog.normal_fact R args.
 Proof.
   intros [_ [vals [_ [jo [_ Hjo]]]]].
@@ -3111,9 +3111,9 @@ Proof.
 Qed.
 
 (* On [normal_fact] conclusions, [rule_impl env] (any [env]) is exactly DistributedDatalog's [fires]. *)
-Lemma rule_impl_iff_fires (env : list (@Datalog.fact rel_id T) -> rel_id -> list T -> Prop)
-      (r : @Datalog.rule rel_id var nat aggregator) (f : @Datalog.fact rel_id T)
-      (hyps : list (@Datalog.fact rel_id T)) :
+Lemma rule_impl_iff_fires (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop)
+      (r : Datalog.rule (rel := rel_id) (fn := nat)) (f : Datalog.fact (rel := rel_id))
+      (hyps : list (Datalog.fact (rel := rel_id))) :
   (exists R args, f = Datalog.normal_fact R args) ->
   (Datalog.rule_impl env r f hyps <-> DistributedDatalog.fires r f hyps).
 Proof.
@@ -3126,8 +3126,8 @@ Qed.
 (* [DistributedDatalog]'s env-free network derivability coincides with the reference
    [Datalog.prog_impl] on the bare/normal fragment the compiler targets: [fires] and [rule_impl]
    agree on normal facts (the only facts a bare program ever derives). *)
-Lemma prog_impl_fact_iff_datalog (program : list (@Datalog.rule rel_id var nat aggregator))
-    (Q : @Datalog.fact rel_id T -> Prop) (f : @Datalog.fact rel_id T) :
+Lemma prog_impl_fact_iff_datalog (program : list (Datalog.rule (rel := rel_id) (fn := nat)))
+    (Q : Datalog.fact (rel := rel_id) -> Prop) (f : Datalog.fact (rel := rel_id)) :
   Forall bare_rule program ->
   DistributedDatalog.prog_impl_fact program Q f <-> Datalog.prog_impl program Q f.
 Proof.
@@ -3156,17 +3156,17 @@ Qed.
 
 (* The single reference program a layout induces: every rule placed on any node. *)
 Definition canonical_program (llayout : lowered_layout_map)
-  : list (@Datalog.rule rel_id var nat aggregator) :=
+  : list (Datalog.rule (rel := rel_id) (fn := nat)) :=
   map.fold (fun acc _ p => acc ++ p) [] llayout.
 
 Lemma canonical_program_in (llayout : lowered_layout_map)
-    (r : @Datalog.rule rel_id var nat aggregator) :
+    (r : Datalog.rule (rel := rel_id) (fn := nat)) :
   In r (canonical_program llayout) <->
   exists n p, map.get llayout n = Some p /\ In r p.
 Proof.
   unfold canonical_program.
   apply (map.fold_spec
-    (fun (m : lowered_layout_map) (acc : list (@Datalog.rule rel_id var nat aggregator)) =>
+    (fun (m : lowered_layout_map) (acc : list (Datalog.rule (rel := rel_id) (fn := nat))) =>
        In r acc <-> exists n p, map.get m n = Some p /\ In r p)).
   - split.
     + intros [].
@@ -3367,7 +3367,7 @@ Qed.
 (* [edb_routable lfp Q]: the base facts [Q] form a routable EDB for the declared input/producer
    locations [lfp] -- every [Q]-fact's relation has at least one declared input node, so the fact can
    actually enter the network.  (This is the EDB side condition of the top correctness theorem.) *)
-Definition edb_routable (lfp : lowered_fact_locations) (Q : @Datalog.fact rel_id T -> Prop) : Prop :=
+Definition edb_routable (lfp : lowered_fact_locations) (Q : Datalog.fact (rel := rel_id) -> Prop) : Prop :=
   forall f, Q f -> exists n, In n (rel_locs lfp (Datalog.rel_of f)).
 
 (* SOURCE-LEVEL EDB routability, the form the top theorem actually takes as its side condition.  It
@@ -3378,7 +3378,7 @@ Definition edb_routable (lfp : lowered_fact_locations) (Q : @Datalog.fact rel_id
    covers [Qsrc].)  [src_rel_locs] is the source twin of [rel_locs] -- a plain [map.get]. *)
 Definition src_rel_locs (fps : fact_locations) (R : rel) : list node_id :=
   match map.get fps R with Some locs => locs | None => [] end.
-Definition edb_routable_src (fps : fact_locations) (Qsrc : @Datalog.fact rel T -> Prop) : Prop :=
+Definition edb_routable_src (fps : fact_locations) (Qsrc : Datalog.fact -> Prop) : Prop :=
   forall f, Qsrc f -> exists n, In n (src_rel_locs fps (Datalog.rel_of f)).
 
 Notation output_routesb :=
@@ -3488,7 +3488,7 @@ Notation input_routes_validb :=
 (* The streaming network whose base facts [Q] enter at the declared fact-producer (input) locations
    and whose OUTPUT nodes are the declared fact-consumer (sink) locations [lfc]. *)
 Definition compiled_base_edb (g : node_graph) (ftables : node_ftable_map)
-    (lfp lfc : lowered_fact_locations) (Q : @Datalog.fact rel_id T -> Prop) : DNet :=
+    (lfp lfc : lowered_fact_locations) (Q : Datalog.fact (rel := rel_id) -> Prop) : DNet :=
   {| DistributedDatalog.graph   := cg2g g;
      DistributedDatalog.forward := fwd_list ftables;
      DistributedDatalog.input   := fun n f => Q f /\ In n (rel_locs lfp (Datalog.rel_of f));
@@ -3551,7 +3551,7 @@ Qed.
 Theorem compiled_good_network_streaming_edb
     (g : node_graph) (gcontext : global_context) (ninfos : list node_info) (fuel : nat)
     (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
-    (program : list (@Datalog.rule rel_id var nat aggregator)) (Q : @Datalog.fact rel_id T -> Prop) :
+    (program : list (Datalog.rule (rel := rel_id) (fn := nat))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   Graph.good_graph (cg2g g) ->
   DistributedDatalog.good_layout (fun n => lprog_of llayout n) (Graph.nodes (cg2g g)) program ->
   construction_routesb gcontext g fuel llayout = true ->
@@ -3683,7 +3683,7 @@ Definition dnet_of_ninfos (ninfos : list node_info) (base : DNet) : DNet :=
 
 (* [get_facts_on_node] shape lemmas. *)
 Lemma get_facts_on_node_in (l : list (@DistributedDatalog.network_prop rel_id T node_id))
-      (n : node_id) (g : @Datalog.fact rel_id T) :
+      (n : node_id) (g : Datalog.fact (rel := rel_id)) :
   In (n, g) (get_facts_on_node l) -> In (FactOnNode n g) l.
 Proof.
   induction l as [| p l IH]; cbn; [intros []|].
@@ -3692,11 +3692,11 @@ Proof.
   - intros Hin; right; apply IH, Hin.
 Qed.
 
-Lemma facts_on_node_map_fst (n : node_id) (l : list (@Datalog.fact rel_id T)) :
+Lemma facts_on_node_map_fst (n : node_id) (l : list (Datalog.fact (rel := rel_id))) :
   Forall (fun n' => n' = n) (map fst (get_facts_on_node (map (FactOnNode n) l))).
 Proof. induction l as [|a l IH]; cbn; [constructor | constructor; [reflexivity | exact IH]]. Qed.
 
-Lemma facts_on_node_map_snd (n : node_id) (l : list (@Datalog.fact rel_id T)) :
+Lemma facts_on_node_map_snd (n : node_id) (l : list (Datalog.fact (rel := rel_id))) :
   map snd (get_facts_on_node (map (FactOnNode n) l)) = l.
 Proof. induction l as [|a l IH]; cbn; [reflexivity | rewrite IH; reflexivity]. Qed.
 
@@ -3711,7 +3711,7 @@ Local Notation Outp := (net.(DistributedDatalog.output)).
 Local Notation present := (DistributedHardwareSemantics.present prog tries Fwd Inp).
 
 (* per-node firing bridge: a node's hardware rules fire iff its matching datalog rules fire *)
-Lemma node_fires_iff (n : node_id) (f : @Datalog.fact rel_id T) (hyps' : list (@Datalog.fact rel_id T)) :
+Lemma node_fires_iff (n : node_id) (f : Datalog.fact (rel := rel_id)) (hyps' : list (Datalog.fact (rel := rel_id))) :
   Exists (fun hr => hw_rule_impl (tries n) hr f hyps') (prog n)
   <-> Exists (fun r => DistributedDatalog.fires r f hyps') (net.(DistributedDatalog.layout) n).
 Proof.
@@ -3732,7 +3732,7 @@ Proof.
 Qed.
 
 (* a single node's [node_run] re-plays as a network proof tree of [FactOnNode]s *)
-Lemma node_run_to_netpft (c : DistributedHardwareSemantics.config) (n : node_id) (f : @Datalog.fact rel_id T) :
+Lemma node_run_to_netpft (c : DistributedHardwareSemantics.config) (n : node_id) (f : Datalog.fact (rel := rel_id)) :
   (forall h, c n h -> network_pftree net (FactOnNode n h)) ->
   node_run (tries n) (prog n) (c n) f ->
   network_pftree net (FactOnNode n f).
@@ -3772,7 +3772,7 @@ Proof.
           [apply DistributedDatalog.Forward; exact Hfwd | constructor; [apply IH; exact Hag | constructor]].
 Qed.
 
-Theorem hw_run_output_to_network (f : @Datalog.fact rel_id T) :
+Theorem hw_run_output_to_network (f : Datalog.fact (rel := rel_id)) :
   DistributedHardwareSemantics.hw_run_output prog tries Fwd Inp Outp f -> network_prog_impl_fact net f.
 Proof.
   intros [n [c [Hr [Hcf Hout]]]]. exists n.
@@ -3831,7 +3831,7 @@ Proof.
     + split; [exact (Forall_inv HR) | exact Hout].
 Qed.
 
-Theorem network_to_hw_run_output (f : @Datalog.fact rel_id T) :
+Theorem network_to_hw_run_output (f : Datalog.fact (rel := rel_id)) :
   network_prog_impl_fact net f -> DistributedHardwareSemantics.hw_run_output prog tries Fwd Inp Outp f.
 Proof.
   intros [n Hpf]. pose proof (netpft_present (Output n f) Hpf) as Hmot.
@@ -3840,7 +3840,7 @@ Proof.
 Qed.
 
 (* ADEQUACY: the operational run of [net]'s data equals the network's derivability. *)
-Theorem hw_run_output_iff_network (f : @Datalog.fact rel_id T) :
+Theorem hw_run_output_iff_network (f : Datalog.fact (rel := rel_id)) :
   DistributedHardwareSemantics.hw_run_output prog tries Fwd Inp Outp f <-> network_prog_impl_fact net f.
 Proof. split; [apply hw_run_output_to_network | apply network_to_hw_run_output]. Qed.
 
@@ -3878,8 +3878,8 @@ Local Notation run_ninfos := (@DistributedHardwareSemantics.run_ninfos _ _ node_
    the [fwd_list]-based [base], pointwise-equal forwarding [forward_of_ninfos_eq]). *)
 Theorem compile_all_distributes_ninfos (llayout : lowered_layout_map) (gc : global_context)
     (ninfos0 : list node_info) (ft : node_ftable_map) (base : DNet)
-    (program : list (@Datalog.rule rel_id var nat aggregator))
-    (Q : @Datalog.fact rel_id T -> Prop) :
+    (program : list (Datalog.rule (rel := rel_id) (fn := nat)))
+    (Q : Datalog.fact (rel := rel_id) -> Prop) :
   compile_all_nodes llayout gc = Success ninfos0 ->
   bare_layoutb llayout = true ->
   base.(DistributedDatalog.layout) = (fun n => lprog_of llayout n) ->
@@ -3933,7 +3933,7 @@ Qed.
 Theorem compile_distributed_correct
     (layout : layout_map) (fps fcs : fact_locations) (g : node_graph) (fuel : nat)
     (ninfos : list node_info) (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
-    (gcontext : global_context) (Q : @Datalog.fact rel_id T -> Prop) :
+    (gcontext : global_context) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
   compile_fueled layout fps fcs g fuel = Success ninfos ->
   bare_layoutb llayout = true ->
@@ -4005,10 +4005,10 @@ Definition Sdom (gc : global_context) (r : rel) : Prop :=
 (* A fact is IN SCOPE for a compiled program when its relation was collected from the layout (i.e. the
    program actually mentions it).  Facts over relations no rule uses can't be named, routed, or queried
    by the compiled network, so the query and the streamed EDB must stay within scope. *)
-Definition fact_in_domain (gc : global_context) (f : @Datalog.fact rel T) : Prop :=
+Definition fact_in_domain (gc : global_context) (f : Datalog.fact) : Prop :=
   Sdom gc (Datalog.rel_of f).
   
-Definition facts_in_domain (gc : global_context) (Q : @Datalog.fact rel T -> Prop) : Prop :=
+Definition facts_in_domain (gc : global_context) (Q : Datalog.fact -> Prop) : Prop :=
   forall h, Q h -> fact_in_domain gc h.
 
 (*========================================================================================*)
@@ -4083,7 +4083,7 @@ Proof.
 Qed.
 
 (* [collect_global_names_expr] leaves the relation side untouched (it only collects functions). *)
-Lemma collect_expr_rel_eq (e : @Datalog.expr var fn) :
+Lemma collect_expr_rel_eq (e : Datalog.expr) :
   forall (gc : global_context), (collect_global_names_expr e gc).(rmap) = gc.(rmap)
           /\ (collect_global_names_expr e gc).(rlast) = gc.(rlast).
 Proof.
@@ -4106,7 +4106,7 @@ Proof.
   exact (Hstep gc a (or_introl eq_refl) HR).
 Qed.
 
-Lemma collect_expr_RelInv (e : @Datalog.expr var fn) (gc : global_context) :
+Lemma collect_expr_RelInv (e : Datalog.expr) (gc : global_context) :
   RelInv gc -> RelInv (collect_global_names_expr e gc).
 Proof.
   intros HR. destruct (collect_expr_rel_eq e gc) as [Hm Hl].
@@ -4191,7 +4191,7 @@ Proof.
   rewrite Hid. reflexivity.
 Qed.
 
-Lemma global_rename_expr_bare (gc : global_context) (e : @Datalog.expr var fn) :
+Lemma global_rename_expr_bare (gc : global_context) (e : Datalog.expr) :
   RelabelCorrect.bare_expr e ->
   global_rename_expr e gc = Success (RelabelCorrect.relabel_expr (iota_gc gc) e).
 Proof. intros [v ->]. reflexivity. Qed.
@@ -4269,7 +4269,7 @@ Proof.
 Qed.
 
 (* renaming a [fun_expr] yields a [fun_expr], so a renamed [var_expr] came from a [var_expr]. *)
-Lemma grn_expr_reflect (gc : global_context) (e : @Datalog.expr var fn) (le : lowered_expr) :
+Lemma grn_expr_reflect (gc : global_context) (e : Datalog.expr) (le : lowered_expr) :
   global_rename_expr e gc = Success le -> (exists v, le = var_expr v) -> (exists v, e = var_expr v).
 Proof.
   destruct e as [v | f0 args]; intros Hren Hle; [exists v; reflexivity|].
@@ -4333,7 +4333,7 @@ Qed.
 
 (* A bare program has no meta conclusions, so [prog_impl] is invariant under reordering/duplication
    of rules -- it depends only on the rule SET. *)
-Lemma bare_meta_concl_rels_nil (p : list (@Datalog.rule rel_id var nat aggregator)) :
+Lemma bare_meta_concl_rels_nil (p : list (Datalog.rule (rel := rel_id) (fn := nat))) :
   RelabelCorrect.bare_program p -> flat_map Datalog.meta_concl_rels p = [].
 Proof.
   intros H. induction p as [| r p IH]; cbn; [reflexivity|].
@@ -4342,8 +4342,8 @@ Proof.
   cbn [Datalog.meta_concl_rels]. apply IH. exact Hp.
 Qed.
 
-Lemma prog_impl_set_iff (p1 p2 : list (@Datalog.rule rel_id var nat aggregator))
-    (Q : @Datalog.fact rel_id T -> Prop) (f : @Datalog.fact rel_id T) :
+Lemma prog_impl_set_iff (p1 p2 : list (Datalog.rule (rel := rel_id) (fn := nat)))
+    (Q : Datalog.fact (rel := rel_id) -> Prop) (f : Datalog.fact (rel := rel_id)) :
   RelabelCorrect.bare_program p1 -> RelabelCorrect.bare_program p2 ->
   incl p1 p2 -> incl p2 p1 ->
   (Datalog.prog_impl p1 Q f <-> Datalog.prog_impl p2 Q f).
@@ -4458,7 +4458,7 @@ Qed.
 (* B3c: the compiled canonical (numeric) program is exactly the RELABEL of the source program,
    AS A RULE SET (so [prog_impl_set_iff] can swap them). *)
 Lemma canonical_renamed_eq_relabel_source (layout : layout_map)
-    (llayout : lowered_layout_map) (r : @Datalog.rule rel_id var nat aggregator) :
+    (llayout : lowered_layout_map) (r : Datalog.rule (rel := rel_id) (fn := nat)) :
   global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context) = Success llayout ->
   RelabelCorrect.bare_program (source_program layout) ->
   RelabelCorrect.Sprogram (Sdom (collect_global_names_layout layout initial_global_context)) (source_program layout) ->
@@ -4495,7 +4495,7 @@ Qed.
 
 (* the file's [bare_rule] (hyps/concls) and [RelabelCorrect.bare_rule] (concls/hyps) agree up to the
    conjunction order. *)
-Lemma corr_bare_iff_relabel (r : @Datalog.rule rel_id var nat aggregator) :
+Lemma corr_bare_iff_relabel (r : Datalog.rule (rel := rel_id) (fn := nat)) :
   bare_rule r -> RelabelCorrect.bare_rule r.
 Proof.
   destruct r as [cs hs | | ]; cbn [bare_rule RelabelCorrect.bare_rule]; [| contradiction | contradiction].
@@ -4552,7 +4552,7 @@ Proof.
   cbn [DistributedDatalogToHardwareCompiler.rel_map]. exists gc.(rlast). apply map.get_put_same.
 Qed.
 
-Lemma collect_expr_Sdom (e : @Datalog.expr var fn) (gc : global_context) (R : rel) :
+Lemma collect_expr_Sdom (e : Datalog.expr) (gc : global_context) (R : rel) :
   Sdom gc R -> Sdom (collect_global_names_expr e gc) R.
 Proof. unfold Sdom. destruct (collect_expr_rel_eq e gc) as [Hm _]. rewrite Hm. exact (fun H => H). Qed.
 
@@ -4662,7 +4662,7 @@ Proof.
 Qed.
 
 (* [relabel_fact] renames only the relation, so [rel_of] commutes with it. *)
-Lemma rel_of_relabel_fact (rho : rel -> rel_id) (f : @Datalog.fact rel T) :
+Lemma rel_of_relabel_fact (rho : rel -> rel_id) (f : Datalog.fact) :
   Datalog.rel_of (RelabelCorrect.relabel_fact rho f) = rho (Datalog.rel_of f).
 Proof. destruct f; reflexivity. Qed.
 
@@ -4752,7 +4752,7 @@ Qed.
    [edb_routable] the proof core uses, because the renamed producer table is just [fps] with keys
    renamed and locations preserved ([grfl_get]). *)
 Lemma edb_routable_src_to_renamed (gc : global_context) (HR : RelInv gc)
-    (fps : fact_locations) (lfp : lowered_fact_locations) (Qsrc : @Datalog.fact rel T -> Prop) :
+    (fps : fact_locations) (lfp : lowered_fact_locations) (Qsrc : Datalog.fact -> Prop) :
   DistributedDatalogToHardwareCompiler.global_rename_fact_locations fps gc = Success lfp ->
   edb_routable_src fps Qsrc ->
   edb_routable lfp (RelabelCorrect.relabel_Q (rho_gc gc) Qsrc).
@@ -4775,7 +4775,7 @@ Proof.
   cbn [Datalog.meta_concl_rels]. apply IH. exact Hp.
 Qed.
 
-Lemma prog_impl_set_iff_src (p1 p2 : program) (Q : @Datalog.fact rel T -> Prop) (f : @Datalog.fact rel T) :
+Lemma prog_impl_set_iff_src (p1 p2 : program) (Q : Datalog.fact -> Prop) (f : Datalog.fact) :
   RelabelCorrect.bare_program p1 -> RelabelCorrect.bare_program p2 ->
   incl p1 p2 -> incl p2 p1 ->
   (Datalog.prog_impl p1 Q f <-> Datalog.prog_impl p2 Q f).
@@ -4843,7 +4843,7 @@ Proof.
 Qed.
 
 (* renaming a plain-variable arg yields a plain-variable arg. *)
-Lemma grn_expr_isvarb_fwd (gc : global_context) (e : @Datalog.expr var fn) (le : lowered_expr) :
+Lemma grn_expr_isvarb_fwd (gc : global_context) (e : Datalog.expr) (le : lowered_expr) :
   (match e with var_expr _ => true | fun_expr _ _ => false end) = true ->
   global_rename_expr e gc = Success le ->
   (match le with var_expr _ => true | fun_expr _ _ => false end) = true.
@@ -4961,7 +4961,7 @@ Theorem compile_fueled_implements_source
     (rule_eqb : rule -> rule -> bool)
     (rule_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rule_eqb x y))
     (P : program)
-    (Qsrc : @Datalog.fact rel T -> Prop) (fsrc : @Datalog.fact rel T) :
+    (Qsrc : Datalog.fact -> Prop) (fsrc : Datalog.fact) :
   (* the compiler succeeds *)
   compile_fueled layout fps fcs g fuel = Success ninfos ->
   (* renaming of inputs to numbers *)
@@ -5071,7 +5071,7 @@ Theorem compile_implements_source
     (rule_eqb : rule -> rule -> bool)
     (rule_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rule_eqb x y))
     (P : program)
-    (Qsrc : @Datalog.fact rel T -> Prop) (fsrc : @Datalog.fact rel T) :
+    (Qsrc : Datalog.fact -> Prop) (fsrc : Datalog.fact) :
   compile layout fps fcs g = Success ninfos ->
   lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
   bare_layoutb layout = true ->
