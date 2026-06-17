@@ -2,7 +2,7 @@ From JSON Require Import Encode Printer.
 From Datalog Require Import Datalog (* JSON FancyNotations CompilerExamples ATLToDatalog : broken *).
 From Stdlib Require Import List String.
 Import ListNotations.
-From DatalogRocq Require Import BasicProgram Family (* Graph: deprecated old non-Souffle version removed; use Examples.Programs.Graph *) (* Matmul : ATL *) NetkatWithoutStar Csda Cspa Po1 Po2 Po3 Po4 Po5 Pointsto Ranpo Reach Tc Trans Triangle X9 Unitprop1.
+From DatalogRocq Require Import Examples.Programs.BasicProgram Examples.Programs.Family (* Graph: deprecated old non-Souffle version removed; use Examples.Programs.Graph *) (* Matmul : ATL *) Examples.Programs.NetkatWithoutStar Examples.Programs.Csda Examples.Programs.Cspa Examples.Programs.Po1 Examples.Programs.Po2 Examples.Programs.Po3 Examples.Programs.Po4 Examples.Programs.Po5 Examples.Programs.Pointsto Examples.Programs.Ranpo Examples.Programs.Reach Examples.Programs.Tc Examples.Programs.Trans Examples.Programs.Triangle Examples.Programs.X9 Examples.Programs.Unitprop1.
 
 (* The source-AST JSON encoders now live in EncodeProgram.v so they can be reused (e.g. by the
    pipeline's emit driver) without importing the example programs. *)

@@ -1,5 +1,5 @@
 From Stdlib Require Import List String.
-From DatalogRocq Require Import Family StringGridCompiler.
+From DatalogRocq Require Import Examples.Programs.Family StringGridCompiler.
 Import ListNotations.
 
 (* The family ("ancestor") program compiled onto a 3x3 grid, end to end, via the modular
