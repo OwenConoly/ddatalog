@@ -61,6 +61,28 @@ Definition compile_program
     (make_layout_map program layout) fact_producers fact_consumers
     (GridTopology.make_topo_graph topo_dims).
 
+(* The rel-name <-> rel-id table [compile_program] assigns internally (first-seen order),
+   exposed for tooling that needs to relate a fact keyed by relation name to the compiled
+   program's numeric [output_rel]/[trel] ids -- e.g. a human-authored/random input-fact
+   workload alongside the compiled program. Reuses [compile_rel_ids] (in turn [lower_inputs]),
+   the exact relabeling pass [compile_program] itself runs, so the ids are guaranteed to match. *)
+Definition compile_program_rel_ids
+    (program        : list rule)
+    (layout         : list (node_id * list nat))
+    (fact_producers : fact_locations (node_id := node_id))
+    (fact_consumers : fact_locations (node_id := node_id))
+    : _ :=
+  compile_rel_ids
+    (Node               := node_id)
+    (node_id            := node_id)
+    (node_id_set        := node_id_map unit)
+    (rel_dependency_map := SortedListNat.map (node_id_map unit))
+    (fn_id_map          := StringDatalog.fn_id_map)
+    (rel_relid_map      := StringDatalog.rel_relid_map)
+    (layout_map         := node_id_map (list rule))
+    (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
+    (make_layout_map program layout) fact_producers fact_consumers.
+
 (* PLACEHOLDER fact-locations: make EVERY grid node an input AND output node for EVERY relation
    appearing in [program].  Useful for examples that have not (yet) designated real input/output
    nodes, so they still satisfy the compiler's input/output routing gates.

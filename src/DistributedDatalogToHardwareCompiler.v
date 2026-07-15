@@ -1008,6 +1008,16 @@ Definition lower_inputs (layout : layout_map) (fact_producers fact_consumers : f
   lfact_consumers <- global_rename_fact_locations fact_consumers gcontext ;;
   Success (llayout, lfact_producers, lfact_consumers, gcontext).
 
+(* The rel-name <-> rel-id table [lower_inputs] assigned (first-seen order over the layout).
+   Reuses [lower_inputs] itself -- the ONLY place relation names are ever numbered -- so this is
+   GUARANTEED to agree with the ids baked into the compiled hardware program's [output_rel]/[trel];
+   no separate/duplicated numbering logic. For tooling that needs to relate a fact keyed by
+   relation name (e.g. a human-authored input workload) to the compiled program's numeric ids. *)
+Definition compile_rel_ids (layout : layout_map) (fact_producers fact_consumers : fact_locations)
+    : result (list (rel * rel_id)) :=
+  '(_, _, _, gcontext) <- lower_inputs layout fact_producers fact_consumers ;;
+  Success (map.tuples gcontext.(rel_map)).
+
 (* THE NUMERIC CORE: compile an ALREADY-LOWERED layout/fact-locations -- NO relabeling.  Computes
    the dependency context, the per-node programs, the forwarding tables, and the routing gates. *)
 Definition compile_lowered (llayout : lowered_layout_map)
