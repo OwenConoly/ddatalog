@@ -43,7 +43,6 @@ Definition compile_program
     (topo_dims      : GridGraph.Dimensions)
     : _ :=
   compile
-    (Node               := node_id)
     (node_id            := node_id)
     (node_id_eqb        := GridTopology.node_id_eqb)
     (node_id_set        := node_id_map unit)
@@ -73,7 +72,6 @@ Definition compile_program_rel_ids
     (fact_consumers : fact_locations (node_id := node_id))
     : _ :=
   compile_rel_ids
-    (Node               := node_id)
     (node_id            := node_id)
     (node_id_set        := node_id_map unit)
     (rel_dependency_map := SortedListNat.map (node_id_map unit))

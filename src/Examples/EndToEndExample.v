@@ -57,7 +57,7 @@ Definition grid_equiv :=
     StringDatalog.var_idx_map  (SortedListString.ok nat)
     StringDatalog.var_node_set (SortedListString.ok unit)
     StringDatalog.var_edge_set
-    GridTopology.node_id GridTopology.node_id GridTopology.node_id_eqb GridTopology.node_id_eqb_spec
+    GridTopology.node_id GridTopology.node_id_eqb GridTopology.node_id_eqb_spec
     _ _
     (GridTopology.node_id_map unit) (GridTopology.node_id_map (GridTopology.node_id_map unit))
     (SortedListNat.map (list (@DistributedHardwareProgram.destination GridTopology.node_id)))
@@ -99,7 +99,7 @@ Definition G      := GridTopology.make_topo_graph topo.
 
 (* The relabel pass with the grid instances pinned -- exactly the [lower_inputs] the theorem uses. *)
 Notation lowerJ := (@DistributedDatalogToHardwareCompiler.lower_inputs
-  string string string unit node_id node_id
+  string string string unit node_id
   (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
   StringDatalog.fn_id_map StringDatalog.rel_relid_map
   (GridTopology.node_id_map (list rule))
@@ -139,7 +139,7 @@ Theorem end_to_end_equiv
              (list (lowered_rule)))
     (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
                  (SortedListNat.map (list node_id)))
-    (gc : @DistributedDatalogToHardwareCompiler.global_context string string node_id node_id
+    (gc : @DistributedDatalogToHardwareCompiler.global_context string string node_id
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
             StringDatalog.fn_id_map StringDatalog.rel_relid_map)
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
@@ -206,7 +206,7 @@ Theorem end_to_end_equiv_reach
              (list (lowered_rule)))
     (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
                  (SortedListNat.map (list node_id)))
-    (gc : @DistributedDatalogToHardwareCompiler.global_context string string node_id node_id
+    (gc : @DistributedDatalogToHardwareCompiler.global_context string string node_id
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
             StringDatalog.fn_id_map StringDatalog.rel_relid_map)
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :

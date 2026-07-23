@@ -1,7 +1,7 @@
 From Datalog Require Import Datalog List Map.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result Eqb.
-From DatalogRocq Require Import DependencyGenerator SortedListNat Topologies.Graph ComputableGraph.
+From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
@@ -14,7 +14,6 @@ Section DistributedDatalogToHardwareCompiler.
 
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context {var_eqb : Eqb var}.
-Context {Node : Type}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
@@ -47,12 +46,9 @@ Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_
 
 Context {node_info_map : map.map node_id node_info}.
 
-Definition topology := Graph (Node := Node).
-
 Record global_context := {
   fn_map : fn_id_map;
   rel_map : rel_relid_map;
-  topo : topology;
   rel_node_consumers : rel_dependency_map;
   rel_node_producers : rel_dependency_map;
   last_fn_id : fn_id;
@@ -94,7 +90,6 @@ Definition update_global_context_with_fn (f : fn) (gcontext : global_context) : 
     {|
       fn_map := map.put gcontext.(fn_map) f gcontext.(last_fn_id);
       rel_map := gcontext.(rel_map);
-      topo := gcontext.(topo);
       rel_node_consumers := gcontext.(rel_node_consumers);
       rel_node_producers := gcontext.(rel_node_producers);
       last_fn_id := S gcontext.(last_fn_id);
@@ -117,7 +112,6 @@ Definition update_global_context_with_rel (r : rel) (gcontext : global_context) 
     {|
       fn_map := gcontext.(fn_map);
       rel_map := map.put gcontext.(rel_map) r gcontext.(last_rel_id);
-      topo := gcontext.(topo);
       rel_node_consumers := gcontext.(rel_node_consumers);
       rel_node_producers := gcontext.(rel_node_producers);
       last_fn_id := gcontext.(last_fn_id);
@@ -289,7 +283,6 @@ Definition add_producer_to_context (r_id : rel_id) (producer : node_id)
   {|
     fn_map := gcontext.(fn_map);
     rel_map := gcontext.(rel_map);
-    topo := gcontext.(topo);
     rel_node_consumers := gcontext.(rel_node_consumers);
     rel_node_producers := rel_node_producers;
     last_fn_id := gcontext.(last_fn_id);
@@ -310,7 +303,6 @@ Definition add_consumer_to_context (r_id : rel_id) (consumer : node_id)
   {|
     fn_map := gcontext.(fn_map);
     rel_map := gcontext.(rel_map);
-    topo := gcontext.(topo);
     rel_node_consumers := rel_node_consumers;
     rel_node_producers := gcontext.(rel_node_producers);
     last_fn_id := gcontext.(last_fn_id);
@@ -891,7 +883,6 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph)
 Definition initial_global_context : global_context :=
   {| fn_map := map.empty;
      rel_map := map.empty;
-     topo := {| Graph.nodes := fun _ => False; Graph.edge := fun _ _ => False |};
      rel_node_consumers := map.empty;
      rel_node_producers := map.empty;
      last_fn_id := 0;
@@ -968,6 +959,12 @@ Definition compile_rel_ids (layout : layout_map) (fact_producers fact_consumers 
 
 (* THE NUMERIC CORE: compile an ALREADY-LOWERED layout/fact-locations -- NO relabeling.  Computes
    the dependency context, the per-node programs, the forwarding tables, and the routing gates. *)
+Print check_graph_valid.
+Print check_edges_valid.
+Print check_edge_valid.
+Print check_node_valid.
+Print layout_in_graphb.
+Print collect_global_dependencies.
 Definition compile_lowered (llayout : lowered_layout_map)
     (lfact_producers lfact_consumers : lowered_fact_locations) (gcontext0 : global_context)
     (g : node_graph) : result (list node_info) :=

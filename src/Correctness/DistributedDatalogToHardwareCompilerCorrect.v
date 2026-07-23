@@ -1241,7 +1241,6 @@ Open Scope result_monad_scope.
 (* DistributedDatalogToHardwareCompiler's parameter context (the subset the relevant definitions use). *)
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
-Context {Node : Type}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
@@ -1254,19 +1253,19 @@ Context {var_idx_map : map.map var nat}.
 Notation lowered_fact := (@HardwareProgram.lowered_fact var).
 Notation lowered_expr := (@HardwareProgram.lowered_expr var).
 Notation global_context :=
-  (@DistributedDatalogToHardwareCompiler.global_context rel fn Node node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
+  (@DistributedDatalogToHardwareCompiler.global_context rel fn node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
 Notation node_context := (@DistributedDatalogToHardwareCompiler.node_context node_id).
 Notation generate_trie :=
-  (@DistributedDatalogToHardwareCompiler.generate_trie rel var fn var_eqb Node node_id node_id_set rel_dependency_map
+  (@DistributedDatalogToHardwareCompiler.generate_trie rel var fn var_eqb node_id node_id_set rel_dependency_map
                                fn_id_map rel_relid_map var_idx_map).
 Notation compile_hyps :=
-  (@DistributedDatalogToHardwareCompiler.compile_hyps rel var fn var_eqb Node node_id node_id_set rel_dependency_map
+  (@DistributedDatalogToHardwareCompiler.compile_hyps rel var fn var_eqb node_id node_id_set rel_dependency_map
                               fn_id_map rel_relid_map var_idx_map).
 Notation compile_concl :=
-  (@DistributedDatalogToHardwareCompiler.compile_concl rel var fn var_eqb Node node_id node_id_set rel_dependency_map
+  (@DistributedDatalogToHardwareCompiler.compile_concl rel var fn var_eqb node_id node_id_set rel_dependency_map
                                fn_id_map rel_relid_map).
 Notation compile_concls :=
-  (@DistributedDatalogToHardwareCompiler.compile_concls rel var fn var_eqb Node node_id node_id_set rel_dependency_map
+  (@DistributedDatalogToHardwareCompiler.compile_concls rel var fn var_eqb node_id node_id_set rel_dependency_map
                                 fn_id_map rel_relid_map).
 Notation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var var_eqb).
 Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var).
@@ -1998,7 +1997,6 @@ Open Scope result_monad_scope.
 
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
-Context {Node : Type}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
@@ -2012,16 +2010,16 @@ Context {var_edge_set : map.map var var_node_set}.
 Context {var_idx_map : map.map var nat}.
 
 Notation global_context :=
-  (@DistributedDatalogToHardwareCompiler.global_context rel fn Node node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
+  (@DistributedDatalogToHardwareCompiler.global_context rel fn node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
 Notation node_context := (@DistributedDatalogToHardwareCompiler.node_context node_id).
 Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation compile_rule :=
-  (@DistributedDatalogToHardwareCompiler.compile_rule rel var fn aggregator var_eqb Node node_id node_id_set rel_dependency_map
+  (@DistributedDatalogToHardwareCompiler.compile_rule rel var fn aggregator var_eqb node_id node_id_set rel_dependency_map
      fn_id_map rel_relid_map var_node_set var_edge_set var_idx_map).
 Notation compile_node :=
-  (@DistributedDatalogToHardwareCompiler.compile_node rel var fn aggregator var_eqb Node node_id node_id_set forwarding_table
+  (@DistributedDatalogToHardwareCompiler.compile_node rel var fn aggregator var_eqb node_id node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map var_node_set var_edge_set var_idx_map).
 
 (* [compile_rule] = [compile_hyps] (which threads the trie context) then [compile_concls]
@@ -2114,7 +2112,6 @@ Context {context : map.map var T} {context_ok : map.ok context}.
 Context {var_idx_map : map.map var nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map var var_node_set}.
-Context {Node : Type}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
@@ -2125,17 +2122,17 @@ Context {fn_id_map : map.map fn fn_id}.
 Context {rel_relid_map : map.map rel rel_id}.
 
 Notation global_context :=
-  (@DistributedDatalogToHardwareCompiler.global_context rel fn Node node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
+  (@DistributedDatalogToHardwareCompiler.global_context rel fn node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
 Notation node_context := (@DistributedDatalogToHardwareCompiler.node_context node_id).
 Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation lowered_fact := (@HardwareProgram.lowered_fact var).
 Notation compile_rule :=
-  (@DistributedDatalogToHardwareCompiler.compile_rule rel var fn aggregator var_eqb Node node_id node_id_set rel_dependency_map
+  (@DistributedDatalogToHardwareCompiler.compile_rule rel var fn aggregator var_eqb node_id node_id_set rel_dependency_map
      fn_id_map rel_relid_map var_node_set var_edge_set var_idx_map).
 Notation compile_node :=
-  (@DistributedDatalogToHardwareCompiler.compile_node rel var fn aggregator var_eqb Node node_id node_id_set forwarding_table
+  (@DistributedDatalogToHardwareCompiler.compile_node rel var fn aggregator var_eqb node_id node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map var_node_set var_edge_set var_idx_map).
 
 (* PER-RULE: a compiled rule (whose post-context tries are all in the node table [tries], which
@@ -2285,7 +2282,6 @@ Context {context : map.map var T} {context_ok : map.ok context}.
 Context {var_idx_map : map.map var nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map var var_node_set}.
-Context {Node : Type}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
@@ -2310,40 +2306,40 @@ Notation program := (@HardwareProgram.program rel var fn aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation global_context :=
-  (@DistributedDatalogToHardwareCompiler.global_context rel fn Node node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
+  (@DistributedDatalogToHardwareCompiler.global_context rel fn node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
 Notation compile_node :=
-  (@DistributedDatalogToHardwareCompiler.compile_node rel var fn aggregator var_eqb Node node_id node_id_set forwarding_table
+  (@DistributedDatalogToHardwareCompiler.compile_node rel var fn aggregator var_eqb node_id node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map var_node_set var_edge_set var_idx_map).
 Notation compile_all_nodes :=
-  (@DistributedDatalogToHardwareCompiler.compile_all_nodes rel var fn aggregator var_eqb Node node_id node_id_set forwarding_table
+  (@DistributedDatalogToHardwareCompiler.compile_all_nodes rel var fn aggregator var_eqb node_id node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map lowered_layout_map var_node_set var_edge_set
      var_idx_map).
 Notation attach_forwarding_tables :=
   (@DistributedDatalogToHardwareCompiler.attach_forwarding_tables node_id node_id_eqb forwarding_table node_ftable_map).
 Notation global_rename_program :=
-  (@DistributedDatalogToHardwareCompiler.global_rename_program rel var fn aggregator Node node_id node_id_set
+  (@DistributedDatalogToHardwareCompiler.global_rename_program rel var fn aggregator node_id node_id_set
      rel_dependency_map fn_id_map rel_relid_map).
 Notation global_rename_rule_layout :=
-  (@DistributedDatalogToHardwareCompiler.global_rename_rule_layout rel var fn aggregator Node node_id node_id_set
+  (@DistributedDatalogToHardwareCompiler.global_rename_rule_layout rel var fn aggregator node_id node_id_set
      rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map).
 Notation fact_locations := (@DistributedDatalogToHardwareCompiler.fact_locations rel node_id fact_locations_map).
 Notation lowered_fact_locations := (@DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id lowered_fact_locations_map).
 Notation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
 Notation collect_global_names_layout :=
-  (@DistributedDatalogToHardwareCompiler.collect_global_names_layout rel var fn aggregator Node node_id node_id_set
+  (@DistributedDatalogToHardwareCompiler.collect_global_names_layout rel var fn aggregator node_id node_id_set
      rel_dependency_map fn_id_map rel_relid_map layout_map).
 Notation initial_global_context :=
-  (@DistributedDatalogToHardwareCompiler.initial_global_context rel fn Node node_id node_id_set rel_dependency_map fn_id_map
+  (@DistributedDatalogToHardwareCompiler.initial_global_context rel fn node_id node_id_set rel_dependency_map fn_id_map
      rel_relid_map).
 Notation compile :=
-  (@DistributedDatalogToHardwareCompiler.compile rel var fn aggregator var_eqb Node node_id node_id_eqb node_id_set forwarding_table
+  (@DistributedDatalogToHardwareCompiler.compile rel var fn aggregator var_eqb node_id node_id_eqb node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map var_node_set
      var_edge_set node_id_edge_set var_idx_map node_ftable_map).
 Notation lower_inputs :=
-  (@DistributedDatalogToHardwareCompiler.lower_inputs rel var fn aggregator Node node_id node_id_set
+  (@DistributedDatalogToHardwareCompiler.lower_inputs rel var fn aggregator node_id node_id_set
      rel_dependency_map fn_id_map rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map).
 Notation compile_lowered :=
-  (@DistributedDatalogToHardwareCompiler.compile_lowered rel var fn aggregator var_eqb Node node_id node_id_eqb
+  (@DistributedDatalogToHardwareCompiler.compile_lowered rel var fn aggregator var_eqb node_id node_id_eqb
      node_id_set forwarding_table rel_dependency_map fn_id_map rel_relid_map lowered_layout_map lowered_fact_locations_map var_node_set
      var_edge_set node_id_edge_set var_idx_map node_ftable_map).
 Notation DNet := (@DistributedDatalog.DataflowNetwork rel_id var nat aggregator T node_id).
@@ -2703,10 +2699,10 @@ Context {node_id_edge_set_ok : map.ok node_id_edge_set}.
 Notation ftable_edges_sound :=
   (@ForwardingCorrect.ftable_edges_sound node_id node_id_set node_id_edge_set forwarding_table node_ftable_map).
 Notation generate_forwarding_table :=
-  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table rel fn Node node_id node_id_eqb node_id_set forwarding_table
+  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table rel fn node_id node_id_eqb node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map node_id_edge_set node_ftable_map).
 Notation update_forwarding_table_for_rel :=
-  (@DistributedDatalogToHardwareCompiler.update_forwarding_table_for_rel rel fn Node node_id node_id_eqb node_id_set forwarding_table
+  (@DistributedDatalogToHardwareCompiler.update_forwarding_table_for_rel rel fn node_id node_id_eqb node_id_set forwarding_table
      rel_dependency_map fn_id_map rel_relid_map node_id_edge_set node_ftable_map).
 
 (* one relation's worth of routing keeps the table edge-sound: every producer/consumer pair is
@@ -2755,7 +2751,7 @@ Qed.
 Notation has_fwd_edge := (@ForwardingCorrect.has_fwd_edge node_id forwarding_table node_ftable_map).
 Notation get_path := (@ComputableGraph.get_path node_id node_id_eqb node_id_set node_id_edge_set).
 Notation get_rel_ids :=
-  (@DistributedDatalogToHardwareCompiler.get_rel_ids rel fn Node node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
+  (@DistributedDatalogToHardwareCompiler.get_rel_ids rel fn node_id node_id_set rel_dependency_map fn_id_map rel_relid_map).
 Notation add_trie_dest :=
   (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 Notation add_path :=
@@ -3283,10 +3279,10 @@ Definition edb_routable_src (fps : fact_locations) (Qsrc : Datalog.fact -> Prop)
   forall f, Qsrc f -> exists n, In n (src_rel_locs fps (Datalog.rel_of f)).
 
 Notation output_routesb :=
-  (@DistributedDatalogToHardwareCompiler.output_routesb rel var fn aggregator Node node_id node_id_eqb
+  (@DistributedDatalogToHardwareCompiler.output_routesb rel var fn aggregator node_id node_id_eqb
      node_id_set rel_dependency_map fn_id_map rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
 Notation input_output_routesb :=
-  (@DistributedDatalogToHardwareCompiler.input_output_routesb rel fn Node node_id node_id_eqb
+  (@DistributedDatalogToHardwareCompiler.input_output_routesb rel fn node_id node_id_eqb
      node_id_set rel_dependency_map fn_id_map rel_relid_map lowered_fact_locations_map node_id_edge_set).
 
 Lemma construction_good_source (gcontext : global_context) (ninfos : list node_info)
@@ -3349,10 +3345,10 @@ Qed.
 (*============================================================================*)
 
 Notation routes_validb :=
-  (@DistributedDatalogToHardwareCompiler.routes_validb rel var fn aggregator Node node_id node_id_eqb
+  (@DistributedDatalogToHardwareCompiler.routes_validb rel var fn aggregator node_id node_id_eqb
      node_id_set rel_dependency_map fn_id_map rel_relid_map lowered_layout_map node_id_edge_set).
 Notation generate_forwarding_table_checked :=
-  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table_checked rel var fn aggregator Node node_id node_id_eqb
+  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table_checked rel var fn aggregator node_id node_id_eqb
      node_id_set forwarding_table rel_dependency_map fn_id_map rel_relid_map lowered_layout_map node_id_edge_set node_ftable_map).
 
 (* The compiler's forwarding gate IS (convertibly) the producer construction checker. *)
@@ -3383,7 +3379,7 @@ Qed.
 (*============================================================================*)
 
 Notation input_routes_validb :=
-  (@DistributedDatalogToHardwareCompiler.input_routes_validb rel var fn aggregator Node node_id node_id_eqb
+  (@DistributedDatalogToHardwareCompiler.input_routes_validb rel var fn aggregator node_id node_id_eqb
      node_id_set rel_dependency_map fn_id_map rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
 
 (* The streaming network whose base facts [Q] enter at the declared fact-producer (input) locations
