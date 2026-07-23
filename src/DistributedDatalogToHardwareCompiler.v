@@ -2,7 +2,6 @@ From Datalog Require Import Datalog List Map.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result Eqb.
 From DatalogRocq Require Import DependencyGenerator SortedListNat Topologies.Graph ComputableGraph.
-From DatalogRocq Require Topologies.ComputableGraphComplete.   (* qualified: graph_fuel = #nodes for the fuel-free entry point *)
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
@@ -742,7 +741,7 @@ Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
   end.
 
 Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_context)
-    (ninfos : list node_info) (ftables : node_ftable_map) (fuel : nat)
+    (ninfos : list node_info) (ftables : node_ftable_map)
     (g : node_graph) : node_ftable_map :=
   let producers :=
     match map.get gcontext.(rel_node_producers) rel with
@@ -762,7 +761,7 @@ Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_con
         match get_path (node_eqb := node_id_eqb)
                        (node_set := node_id_set)
                        (edge_set := node_id_edge_set)
-                       g producer consumer fuel with
+                       g producer consumer with
         | None => ftables
         | Some path => add_path_to_forwarding_table rel path ftables ninfos
         end
@@ -770,9 +769,9 @@ Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_con
   ) ftables producers.
 
 Definition generate_forwarding_table (gcontext : global_context) (ninfos : list node_info)
-    (g : node_graph) (fuel : nat) : node_ftable_map :=
+    (g : node_graph) : node_ftable_map :=
   fold_left (fun ftables rel =>
-    update_forwarding_table_for_rel rel gcontext ninfos ftables fuel g
+    update_forwarding_table_for_rel rel gcontext ninfos ftables g
   ) (get_rel_ids gcontext) map.empty.
 
 (* membership of a node in a node_id_set / dependency map, as bools (for the gate below). *)
@@ -787,7 +786,7 @@ Definition rel_dep_has (m : rel_dependency_map) (R : rel_id) (n : node_id) : boo
    [R], [nc] is a recorded consumer AND the compiler's search [get_path] found a route [np ~> nc]
    (or [np = nc]).  When this is [false] the compiler cannot certify that every produced fact
    reaches every consumer. *)
-Definition routes_validb (gcontext : global_context) (g : node_graph) (fuel : nat)
+Definition routes_validb (gcontext : global_context) (g : node_graph)
     (llayout : lowered_layout_map) : bool :=
   forallb (fun np =>
     forallb (fun rule_np =>
@@ -800,7 +799,7 @@ Definition routes_validb (gcontext : global_context) (g : node_graph) (fuel : na
              then rel_dep_has gcontext.(rel_node_consumers) R nc
                   && (node_id_eqb np nc
                       || match get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                                        (edge_set := node_id_edge_set) g np nc fuel with
+                                        (edge_set := node_id_edge_set) g np nc with
                          | Some _ => true | None => false end)
              else true)
            (map.keys llayout))
@@ -813,16 +812,16 @@ Definition routes_validb (gcontext : global_context) (g : node_graph) (fuel : na
    route compilation FAILS.  This is the "correct by construction" gate -- [Success] witnesses that
    the forwarding is right, so no separate route checker is needed downstream. *)
 Definition generate_forwarding_table_checked (gcontext : global_context) (ninfos : list node_info)
-    (g : node_graph) (fuel : nat) (llayout : lowered_layout_map) : result node_ftable_map :=
-  if routes_validb gcontext g fuel llayout
-  then Success (generate_forwarding_table gcontext ninfos g fuel)
+    (g : node_graph) (llayout : lowered_layout_map) : result node_ftable_map :=
+  if routes_validb gcontext g llayout
+  then Success (generate_forwarding_table gcontext ninfos g)
   else error:("generate_forwarding_table: some producer cannot reach some consumer (incomplete forwarding)").
 
 (* INPUT-COMPLETENESS gate: every declared input/EDB location [ni] of relation [R] (from
    [lfact_producers]) is a recorded producer of [R] and routes to every consumer of [R].  So once
    compilation succeeds, the nodes where base facts are injected provably reach every consumer --
    the input side is correct by construction, no input route checker needed downstream. *)
-Definition input_routes_validb (gcontext : global_context) (g : node_graph) (fuel : nat)
+Definition input_routes_validb (gcontext : global_context) (g : node_graph)
     (llayout : lowered_layout_map) (lfp : lowered_fact_locations) : bool :=
   map.forallb (fun R locs =>
     forallb (fun ni =>
@@ -834,7 +833,7 @@ Definition input_routes_validb (gcontext : global_context) (g : node_graph) (fue
            then rel_dep_has gcontext.(rel_node_consumers) R nc
                 && (node_id_eqb ni nc
                     || match get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                                      (edge_set := node_id_edge_set) g ni nc fuel with
+                                      (edge_set := node_id_edge_set) g ni nc with
                        | Some _ => true | None => false end)
            else true)
          (map.keys llayout))
@@ -851,7 +850,7 @@ Definition fact_locs (lf : lowered_fact_locations) (R : rel_id) : list node_id :
 (* OUTPUT-COMPLETENESS gate (producers): every node [np] that concludes [R] forwards to some
    declared output/sink node of [R] (a fact-consumer location).  This is what makes a producer a
    "good source" on the output side, and forces every produced relation to have a sink. *)
-Definition output_routesb (gcontext : global_context) (g : node_graph) (fuel : nat)
+Definition output_routesb (gcontext : global_context) (g : node_graph)
     (llayout : lowered_layout_map) (lfc : lowered_fact_locations) : bool :=
   forallb (fun np =>
     forallb (fun rule_np =>
@@ -862,7 +861,7 @@ Definition output_routesb (gcontext : global_context) (g : node_graph) (fuel : n
              rel_dep_has gcontext.(rel_node_consumers) R no
              && (node_id_eqb np no
                  || match get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                                   (edge_set := node_id_edge_set) g np no fuel with
+                                   (edge_set := node_id_edge_set) g np no with
                     | Some _ => true | None => false end))
            (fact_locs lfc R))
       (Datalog.concl_rels rule_np))
@@ -871,7 +870,7 @@ Definition output_routesb (gcontext : global_context) (g : node_graph) (fuel : n
 
 (* OUTPUT-COMPLETENESS gate (input nodes): every declared input/EDB location of [R] forwards to some
    declared output/sink node of [R]. *)
-Definition input_output_routesb (gcontext : global_context) (g : node_graph) (fuel : nat)
+Definition input_output_routesb (gcontext : global_context) (g : node_graph)
     (lfp : lowered_fact_locations) (lfc : lowered_fact_locations) : bool :=
   map.forallb (fun R locs =>
     forallb (fun ni =>
@@ -881,7 +880,7 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph) (fu
            rel_dep_has gcontext.(rel_node_consumers) R no
            && (node_id_eqb ni no
                || match get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                                 (edge_set := node_id_edge_set) g ni no fuel with
+                                 (edge_set := node_id_edge_set) g ni no with
                   | Some _ => true | None => false end))
          (fact_locs lfc R))
     locs)
@@ -971,7 +970,7 @@ Definition compile_rel_ids (layout : layout_map) (fact_producers fact_consumers 
    the dependency context, the per-node programs, the forwarding tables, and the routing gates. *)
 Definition compile_lowered (llayout : lowered_layout_map)
     (lfact_producers lfact_consumers : lowered_fact_locations) (gcontext0 : global_context)
-    (g : node_graph) (fuel : nat) : result (list node_info) :=
+    (g : node_graph) : result (list node_info) :=
   _ <- (if check_graph_valid g
         then Success tt
         else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
@@ -980,33 +979,22 @@ Definition compile_lowered (llayout : lowered_layout_map)
         else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
   let gcontext := collect_global_dependencies llayout lfact_producers lfact_consumers gcontext0 in
   ninfos <- compile_all_nodes llayout gcontext ;;
-  ftables <- generate_forwarding_table_checked gcontext ninfos g fuel llayout ;;
-  _ <- (if input_routes_validb gcontext g fuel llayout lfact_producers
+  ftables <- generate_forwarding_table_checked gcontext ninfos g llayout ;;
+  _ <- (if input_routes_validb gcontext g llayout lfact_producers
         then Success tt
         else error:("compile: a declared input/EDB location cannot reach some consumer (incomplete input forwarding)")) ;;
-  _ <- (if output_routesb gcontext g fuel llayout lfact_consumers
+  _ <- (if output_routesb gcontext g llayout lfact_consumers
         then Success tt
         else error:("compile: a producer cannot reach an output/sink node (incomplete output forwarding)")) ;;
-  _ <- (if input_output_routesb gcontext g fuel lfact_producers lfact_consumers
+  _ <- (if input_output_routesb gcontext g lfact_producers lfact_consumers
         then Success tt
         else error:("compile: an input/EDB location cannot reach an output/sink node")) ;;
   Success (attach_forwarding_tables ninfos ftables).
 
-(* relabel the source inputs, then compile the lowered program, with an EXPLICIT routing fuel.
-   [compile] (below) is the entry point and computes the fuel itself; this is the fuelled core
-   kept for the correctness development (which reasons about an arbitrary fuel). *)
-Definition compile_fueled (layout : layout_map) (fact_producers : fact_locations) (fact_consumers : fact_locations) (g : node_graph) (fuel : nat)
-    : result (list node_info) :=
-  '(llayout, lfact_producers, lfact_consumers, gcontext) <- lower_inputs layout fact_producers fact_consumers ;;
-  compile_lowered llayout lfact_producers lfact_consumers gcontext g fuel.
-
-(* THE ENTRY POINT: no fuel parameter.  The only role of fuel is to bound the topology BFS
-   [get_path], which visits each node at most once, so [graph_fuel g = #nodes(g)] (read off the
-   topology) is always enough -- adequacy is [AdequateFuel.adequate_fuel]. *)
 Definition compile (layout : layout_map) (fact_producers : fact_locations) (fact_consumers : fact_locations) (g : node_graph)
     : result (list node_info) :=
-  compile_fueled layout fact_producers fact_consumers g (ComputableGraphComplete.graph_fuel g).
-
+  '(llayout, lfact_producers, lfact_consumers, gcontext) <- lower_inputs layout fact_producers fact_consumers ;;
+  compile_lowered llayout lfact_producers lfact_consumers gcontext g.
 End DistributedDatalogToHardwareCompiler.
 
 Existing Instance SortedListNat.map.

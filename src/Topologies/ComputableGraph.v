@@ -142,7 +142,7 @@ Definition bfs_initial (start : Node) : bfs_state :=
     bs_visited := map.put map.empty start tt;
   |}.
 
-Definition bfs_step (g : ComputableGraph) (target : Node) (state : bfs_state) 
+Definition bfs_step (g : ComputableGraph) (target : Node) (state : bfs_state)
     : bfs_state + list Node :=
   match state.(bs_queue) with
   | [] => inl state
@@ -163,7 +163,7 @@ Definition bfs_step (g : ComputableGraph) (target : Node) (state : bfs_state)
       |}
   end.
 
-Fixpoint bfs_aux (g : ComputableGraph) (target : Node) (state : bfs_state) (fuel : nat) 
+Fixpoint bfs_aux (g : ComputableGraph) (target : Node) (state : bfs_state) (fuel : nat)
     : option (list Node) :=
   match fuel with
   | O => None
@@ -178,11 +178,15 @@ Fixpoint bfs_aux (g : ComputableGraph) (target : Node) (state : bfs_state) (fuel
     end
   end.
 
-Definition bfs (g : ComputableGraph) (start target : Node) (fuel : nat) : option (list Node) :=
-  bfs_aux g target (bfs_initial start) fuel.
+Definition msize (m : node_set) : nat := map.fold (fun n _ _ => S n) 0 m.
 
-Definition get_path (g : ComputableGraph) (nstart nend : Node) (fuel : nat) : option (list Node) :=
-  bfs g nstart nend fuel.
+Definition graph_fuel (g : ComputableGraph) : nat := msize g.(nodes).
+
+Definition bfs (g : ComputableGraph) (start target : Node) : option (list Node) :=
+  bfs_aux g target (bfs_initial start) (graph_fuel g).
+
+Definition get_path (g : ComputableGraph) (nstart nend : Node) : option (list Node) :=
+  bfs g nstart nend.
 
 (*============================================================================*)
 (*  get_path soundness: a returned path is a real edge-walk start -> end       *)
@@ -327,11 +331,11 @@ Proof.
 Qed.
 
 (* MAIN: a path returned by [get_path] is a real edge-path from [nstart] to [nend]. *)
-Theorem get_path_spec (g : ComputableGraph) (nstart nend : Node) (fuel : nat) (path : list Node) :
-  get_path g nstart nend fuel = Some path -> is_path g nstart nend path.
+Theorem get_path_spec (g : ComputableGraph) (nstart nend : Node) (path : list Node) :
+  get_path g nstart nend = Some path -> is_path g nstart nend path.
 Proof.
   unfold get_path, bfs. intros H.
-  apply (bfs_aux_sound g nstart nend fuel (bfs_initial nstart) path); [|exact H].
+  eapply bfs_aux_sound; [|exact H].
   unfold bfs_initial. cbn. constructor; [apply good_entry_initial | constructor].
 Qed.
 

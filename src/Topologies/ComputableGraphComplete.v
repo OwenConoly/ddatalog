@@ -39,9 +39,7 @@ Local Notation bfs := (@bfs Node node_eqb node_set edge_set).
 
 (* Cardinality via a counting fold (f ignores keys/values, so f_comm is trivial and fold_put/
    fold_empty apply directly -- unlike length(keys), whose cons-fold isn't commutative). *)
-Definition msize (m : node_set) : nat := map.fold (fun n _ _ => S n) 0 m.
-
-Lemma msize_empty : msize map.empty = 0.
+Lemma msize_empty : msize (map.empty : node_set) = 0.
 Proof. unfold msize. apply map.fold_empty. Qed.
 
 Lemma msize_put (m : node_set) (k : Node) (v : unit) :
@@ -270,13 +268,14 @@ Proof.
            apply IH; [exact Hsub' | lia | lia].
 Qed.
 
-(* grid_fuel = #nodes is a sufficient routing fuel: with any fuel >= #nodes the BFS path search
-   returns the same answer, so compiling with [grid_fuel] equals compiling with unbounded fuel. *)
+(* the BFS core is fuel-stable above #nodes: from the initial state, any two fuels >= #nodes
+   give [bfs_aux] the same answer. ([bfs] fixes the fuel to [graph_fuel], so this is stated on
+   [bfs_aux] directly.) *)
 Lemma bfs_fuel_stable (g : ComputableGraph) (start target : Node) :
   check_graph_valid g = true ->
   map.get g.(nodes) start <> None ->
   forall fuel fuel', msize g.(nodes) <= fuel -> msize g.(nodes) <= fuel' ->
-  bfs g start target fuel = bfs g start target fuel'.
+  bfs_aux g target (bfs_initial start) fuel = bfs_aux g target (bfs_initial start) fuel'.
 Proof.
   intros Hvalid Hstart fuel fuel' Hf Hf'.
   assert (Hnz : 1 <= msize g.(nodes)).
@@ -290,19 +289,15 @@ Proof.
   assert (Hphi0 : Phi g (bfs_initial start) <= msize g.(nodes)).
   { unfold Phi, bfs_initial. cbn [bs_visited bs_queue length].
     rewrite msize_put by apply map.get_empty. rewrite msize_empty. lia. }
-  unfold bfs. apply (bfs_aux_stable g target Hvalid); [exact Hsub0 | lia | lia].
+  apply (bfs_aux_stable g target Hvalid); [exact Hsub0 | lia | lia].
 Qed.
 
 Corollary bfs_fuel_canonical (g : ComputableGraph) (start target : Node) (f : nat) :
   check_graph_valid g = true ->
   map.get g.(nodes) start <> None ->
   msize g.(nodes) <= f ->
-  bfs g start target (msize g.(nodes)) = bfs g start target f.
+  bfs_aux g target (bfs_initial start) (msize g.(nodes)) = bfs_aux g target (bfs_initial start) f.
 Proof. intros Hvalid Hstart Hf. apply bfs_fuel_stable; auto. Qed.
-
-(* ----- the adequate fuel is GENERAL, computed from an arbitrary graph's node set ----- *)
-
-Definition graph_fuel (g : ComputableGraph) : nat := msize g.(nodes).
 
 (* in a valid graph a non-node has no outgoing edges *)
 Lemma cg_neighbors_empty_of_not_node (g : ComputableGraph) (a : Node) :
@@ -329,11 +324,11 @@ Qed.
 (* a non-node start: the search ends in one step, so its result is fuel-independent (fuel >= 1) *)
 Lemma bfs_no_node_stable (g : ComputableGraph) (a b : Node) (f : nat) :
   check_graph_valid g = true -> map.get g.(nodes) a = None -> 1 <= f ->
-  bfs g a b f = (if node_eqb a b then Some [a] else None).
+  bfs_aux g b (bfs_initial a) f = (if node_eqb a b then Some [a] else None).
 Proof.
   intros Hvalid Hna Hf.
   pose proof (cg_neighbors_empty_of_not_node g a Hvalid Hna) as Hemp.
-  destruct f as [|f']; [lia|]. unfold bfs. cbn [bfs_aux].
+  destruct f as [|f']; [lia|]. cbn [bfs_aux].
   destruct (node_eqb a b) eqn:Htgt.
   - assert (Hb : bfs_step g b (bfs_initial a) = inr (List.rev [a]))
       by (unfold bfs_step, bfs_initial; cbn [bs_queue]; rewrite Htgt; reflexivity).
@@ -342,10 +337,10 @@ Proof.
 Qed.
 
 (* GENERAL fuel-stability: for ANY valid graph, [graph_fuel = #nodes] is enough -- raising fuel
-   beyond it never changes a path search.  grid_fuel is just the grid instance of this. *)
+   beyond it never changes a path search.  ([bfs] itself runs at exactly [graph_fuel].) *)
 Lemma bfs_graph_fuel_stable (g : ComputableGraph) (a b : Node) (f : nat) :
   check_graph_valid g = true -> 0 < msize g.(nodes) -> graph_fuel g <= f ->
-  bfs g a b (graph_fuel g) = bfs g a b f.
+  bfs_aux g b (bfs_initial a) (graph_fuel g) = bfs_aux g b (bfs_initial a) f.
 Proof.
   intros Hvalid Hnz Hf. unfold graph_fuel in *.
   destruct (map.get g.(nodes) a) as [v|] eqn:Ha.
