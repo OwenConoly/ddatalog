@@ -1347,43 +1347,34 @@ Proof.
   intros H. injection H as <-. apply index_of_var_sound; exact Hi.
 Qed.
 
-(* The conclusion-folding step preserves [Failure]: once it errors, it stays errored. *)
-Lemma compile_concl_fold_error (ord : list var) (args : list lowered_expr) :
-  forall (e : dlist.dlist),
-  fold_left (fun acc arg => idxs <- acc ;;
-      match arg with
-      | var_expr v => idx <- get_rule_var_index ord v ;; Success (idx :: idxs)
-      | fun_expr _ _ => Success (0 :: idxs)
-      end) args (Failure e) = Failure e.
+(* [all_success] succeeds exactly when every element already succeeded: the input list is then
+   [map Success] of the returned values.  This replaces the earlier hand-rolled [fold_left]
+   spec/error helpers, now that the compiler builds its lists with [List.all_success (List.map ..)]
+   instead of a reversing [fold_left]. *)
+Lemma all_success_eq_map_Success {A} :
+  forall (l : list (result A)) (l' : list A),
+  List.all_success l = Success l' -> l = List.map Success l'.
 Proof.
-  induction args as [|a args IH]; intros e; simpl; [reflexivity|].
-  destruct a; apply IH.
+  induction l as [|r l IH]; intros l' H; cbn in H.
+  - injection H as <-. reflexivity.
+  - destruct r as [a|e]; [|discriminate].
+    destruct (List.all_success l) as [ls|e] eqn:Hl; [|discriminate].
+    injection H as <-. cbn. f_equal. apply IH; reflexivity.
 Qed.
 
-(* For a bare conclusion the index fold succeeds with the per-argument indices in order
-   (built reversed onto the accumulator), each pointing at its variable in [ord]. *)
-Lemma compile_concl_fold_spec (ord : list var) (args : list lowered_expr) :
-  forall (acc0 out : list nat),
-  Forall (fun e => exists v, e = var_expr v) args ->
-  fold_left (fun acc arg => idxs <- acc ;;
-      match arg with
-      | var_expr v => idx <- get_rule_var_index ord v ;; Success (idx :: idxs)
-      | fun_expr _ _ => Success (0 :: idxs)
-      end) args (Success acc0) = Success out ->
-  exists idxs, out = (List.rev idxs ++ acc0)%list /\
-    Forall2 (fun e idx => exists v, e = var_expr v /\ List.nth_error ord idx = Some v) args idxs.
+(* Consequently, if each element's producer [g] sends a [Success] result to a fact [P a b], then
+   [all_success (map g l)] yields the pointwise [Forall2 P]. *)
+Lemma all_success_map_spec {A B} (g : A -> result B) (P : A -> B -> Prop) :
+  forall (l : list A) (out : list B),
+  Forall (fun a => forall b, g a = Success b -> P a b) l ->
+  List.all_success (List.map g l) = Success out ->
+  Forall2 P l out.
 Proof.
-  induction args as [|a args IH]; intros acc0 out Hbare H; simpl in H.
-  - injection H as <-. exists []. split; [reflexivity | constructor].
-  - inversion Hbare as [|x l [v Hv] Hbare']; subst a.
-    simpl in H.
-    destruct (get_rule_var_index ord v) as [idx|] eqn:Hgi.
-    + simpl in H. destruct (IH (idx :: acc0) out Hbare' H) as [idxs [Hout HF]].
-      exists (idx :: idxs). split.
-      * rewrite Hout. simpl. rewrite <- app_assoc. reflexivity.
-      * constructor;
-          [exists v; split; [reflexivity | apply get_rule_var_index_sound; exact Hgi] | exact HF].
-    + simpl in H. rewrite compile_concl_fold_error in H. discriminate.
+  intros l out HF Has. apply all_success_eq_map_Success in Has.
+  revert out Has. induction HF as [|a l Ha HF IH]; intros out Has; cbn in Has.
+  - destruct out; cbn in Has; [constructor | discriminate].
+  - destruct out as [|b out]; cbn in Has; [discriminate|].
+    injection Has as Hab Hrest. constructor; [apply Ha; exact Hab | apply IH; exact Hrest].
 Qed.
 
 (* A compiled (bare) conclusion's join_output relation and indices correspond to the
@@ -1398,38 +1389,14 @@ Lemma compile_concl_corr (concl : lowered_fact) (gc : global_context) (ord : lis
           concl.(Datalog.clause_args) jo.(output_var_indices).
 Proof.
   intros Hbare H. unfold DistributedDatalogToHardwareCompiler.compile_concl in H.
-  destruct (fold_left _ concl.(Datalog.clause_args) (Success (@nil nat))) as [var_indices|] eqn:Hfold; [|discriminate].
-  injection H as <-. simpl. split; [reflexivity|].
-  destruct (compile_concl_fold_spec ord concl.(Datalog.clause_args) [] var_indices Hbare Hfold)
-    as [idxs [Hvi HF]].
-  rewrite Hvi, app_nil_r, rev_involutive. exact HF.
-Qed.
-
-(* The conclusion-list fold preserves [Failure]. *)
-Lemma compile_concls_fold_error (gc : global_context) (ord : list var)
-    (concls : list lowered_fact) :
-  forall (e : dlist.dlist),
-  fold_left (fun acc concl => jos <- acc ;; jo <- compile_concl concl gc ord ;;
-                              Success (jo :: jos)) concls (Failure e) = Failure e.
-Proof. induction concls as [|c concls IH]; intros e; simpl; [reflexivity | apply IH]. Qed.
-
-Lemma compile_concls_fold_spec (gc : global_context) (ord : list var)
-    (concls : list lowered_fact) :
-  forall (acc0 out : list join_output),
-  Forall (fun c => Forall (fun e => exists v, e = var_expr v) c.(Datalog.clause_args)) concls ->
-  fold_left (fun acc concl => jos <- acc ;; jo <- compile_concl concl gc ord ;;
-                              Success (jo :: jos)) concls (Success acc0) = Success out ->
-  exists jos, out = (rev jos ++ acc0)%list /\ Forall2 (concl_corr ord) concls jos.
-Proof.
-  induction concls as [|c concls IH]; intros acc0 out Hb H; simpl in H.
-  - injection H as <-. exists []. split; [reflexivity | constructor].
-  - inversion Hb as [|x l Hbc Hb']; subst.
-    simpl in H. destruct (compile_concl c gc ord) as [jo|] eqn:Hcc.
-    + simpl in H. destruct (IH (jo :: acc0) out Hb' H) as [jos [Hout HF]].
-      exists (jo :: jos). split.
-      * rewrite Hout. simpl. rewrite <- app_assoc. reflexivity.
-      * constructor; [exact (compile_concl_corr c gc ord jo Hbc Hcc) | exact HF].
-    + simpl in H. rewrite compile_concls_fold_error in H. discriminate.
+  match type of H with
+  | context [List.all_success ?x] => destruct (List.all_success x) as [var_indices|e] eqn:Has
+  end; cbn beta iota in H; [|discriminate].
+  injection H as <-. cbn. split; [reflexivity|].
+  eapply all_success_map_spec; [| exact Has].
+  eapply Forall_impl; [| exact Hbare].
+  intros a [v ->] b Hb. cbn in Hb.
+  exists v; split; [reflexivity | apply get_rule_var_index_sound; exact Hb].
 Qed.
 
 (* [compile_concls] yields the per-conclusion correspondence [concl_corr] over the whole list. *)
@@ -1440,12 +1407,10 @@ Lemma compile_concls_corr (concls : list lowered_fact) (gc : global_context) (or
   Forall2 (concl_corr ord) concls jos.
 Proof.
   intros Hb H. unfold DistributedDatalogToHardwareCompiler.compile_concls in H.
-  match type of H with
-  | context [fold_left ?F concls ?init] => destruct (fold_left F concls init) as [jf|] eqn:Hfold
-  end; cbn beta iota zeta in H; [|discriminate].
-  injection H as <-.
-  destruct (compile_concls_fold_spec gc ord concls [] jf Hb Hfold) as [js [Hjf HF]].
-  rewrite Hjf, app_nil_r, rev_involutive. exact HF.
+  eapply all_success_map_spec; [| exact H].
+  eapply Forall_impl; [| exact Hb].
+  intros c Hc jo Hcc. cbn beta in Hcc.
+  exact (compile_concl_corr c gc ord jo Hc Hcc).
 Qed.
 
 (*----trie registration: each per-rule trie is found in the node's trie table----*)
@@ -4172,16 +4137,47 @@ Qed.
 (*  Discharges the relabel-equality hypothesis -- "the renaming pass preserves meaning".     *)
 (*========================================================================================*)
 
-(* a rev-accumulating [result]-monad fold of pointwise-[Success] steps. *)
-Lemma fold_result_rev_map {A B} (g : A -> result B) (h : A -> B) (xs : list A) :
+(*----[all_success (map ..)] helpers----*)
+(* The renamers build their lists with [List.all_success (List.map g ..)], so the correspondences
+   below carry NO [rev].  [all_success_eq_map_Success] (proved earlier) is the underlying fact. *)
+
+(* forward: pointwise [Success (h x)] lifts to the whole list. *)
+Lemma all_success_map_pointwise {A B} (g : A -> result B) (h : A -> B) (xs : list A) :
   (forall x, In x xs -> g x = Success (h x)) ->
-  forall acc0, fold_left (fun acc x => l <- acc ;; y <- g x ;; Success (y :: l)%list) xs (Success acc0)
-             = Success (rev (map h xs) ++ acc0)%list.
+  List.all_success (List.map g xs) = Success (List.map h xs).
 Proof.
-  induction xs as [| x xs IH]; intros Hg acc0; cbn; [reflexivity|].
-  rewrite (Hg x (or_introl eq_refl)). cbn.
-  rewrite (IH (fun x' Hin => Hg x' (or_intror Hin)) (h x :: acc0)).
-  cbn [map rev]. rewrite <- app_assoc. reflexivity.
+  induction xs as [|x xs IH]; intros Hg; cbn; [reflexivity|].
+  rewrite (Hg x (or_introl eq_refl)); cbn.
+  rewrite (IH (fun x' Hin => Hg x' (or_intror Hin))); reflexivity.
+Qed.
+
+(* reverse: a [Success] result means every element succeeded, with any property of the whole
+   result holding of each per-element success. *)
+Lemma all_success_map_inv_forall {A B} (g : A -> result B) (P : B -> Prop) :
+  forall (xs : list A) (res : list B),
+    List.all_success (List.map g xs) = Success res -> Forall P res ->
+    Forall (fun x => exists y, g x = Success y /\ P y) xs.
+Proof.
+  induction xs as [|x xs IH]; intros res Hall Hres; cbn in Hall.
+  - constructor.
+  - destruct (g x) as [y|msg] eqn:Hgx; cbn in Hall; [|discriminate].
+    destruct (List.all_success (List.map g xs)) as [res'|msg] eqn:Hrest; cbn in Hall; [|discriminate].
+    injection Hall as <-. inversion Hres as [|? ? Hy Hres']; subst.
+    constructor; [exists y; split; [exact Hgx | exact Hy] | exact (IH res' eq_refl Hres')].
+Qed.
+
+(* forward, property-preserving: if [g] sends [P]-inputs to [Q]-outputs on [Success]. *)
+Lemma all_success_map_forall_pres {A B} (g : A -> result B) (P : A -> Prop) (Q : B -> Prop) :
+  (forall x y, P x -> g x = Success y -> Q y) ->
+  forall (xs : list A) (res : list B),
+    Forall P xs -> List.all_success (List.map g xs) = Success res -> Forall Q res.
+Proof.
+  intros Hg. induction xs as [|x xs IH]; intros res Hxs Hall; cbn in Hall.
+  - injection Hall as <-. constructor.
+  - inversion Hxs as [|? ? HPx HPxs]; subst.
+    destruct (g x) as [y|e] eqn:Hgx; cbn in Hall; [|discriminate].
+    destruct (List.all_success (List.map g xs)) as [res'|e] eqn:Hrest; cbn in Hall; [|discriminate].
+    injection Hall as <-. constructor; [exact (Hg x y HPx Hgx) | exact (IH res' HPxs eq_refl)].
 Qed.
 
 Lemma global_rename_rel_eq (gc : global_context) (R : rel) :
@@ -4202,10 +4198,10 @@ Lemma global_rename_fact_eq (gc : global_context) (f : clause) :
 Proof.
   intros Hbare HS. unfold DistributedDatalogToHardwareCompiler.global_rename_fact.
   rewrite (global_rename_rel_eq gc f.(Datalog.clause_rel) HS).
-  rewrite (fold_result_rev_map (fun arg => global_rename_expr arg gc)
+  rewrite (all_success_map_pointwise (fun arg => global_rename_expr arg gc)
              (fun arg => RelabelCorrect.relabel_expr (iota_gc gc) arg) f.(Datalog.clause_args)
-             (fun arg Hin => global_rename_expr_bare gc arg (proj1 (Forall_forall _ _) Hbare arg Hin)) []).
-  cbn. rewrite app_nil_r, rev_involutive. reflexivity.
+             (fun arg Hin => global_rename_expr_bare gc arg (proj1 (Forall_forall _ _) Hbare arg Hin))).
+  reflexivity.
 Qed.
 
 Lemma global_rename_rule_eq (gc : global_context) (r : rule) :
@@ -4216,15 +4212,15 @@ Proof.
     cbn [RelabelCorrect.bare_rule] in Hbare; [| contradiction | contradiction].
   destruct Hbare as [Hbc Hbh]. cbn [RelabelCorrect.Srule] in HS. destruct HS as [HSc HSh].
   unfold DistributedDatalogToHardwareCompiler.global_rename_rule.
-  rewrite (fold_result_rev_map (fun f => global_rename_fact f gc)
+  rewrite (all_success_map_pointwise (fun f => global_rename_fact f gc)
              (fun f => RelabelCorrect.relabel_clause (rho_gc gc) (iota_gc gc) f) hyps
              (fun f Hin => global_rename_fact_eq gc f
-                (proj1 (Forall_forall _ _) Hbh f Hin) (proj1 (Forall_forall _ _) HSh f Hin)) []).
-  rewrite (fold_result_rev_map (fun f => global_rename_fact f gc)
+                (proj1 (Forall_forall _ _) Hbh f Hin) (proj1 (Forall_forall _ _) HSh f Hin))).
+  rewrite (all_success_map_pointwise (fun f => global_rename_fact f gc)
              (fun f => RelabelCorrect.relabel_clause (rho_gc gc) (iota_gc gc) f) concls
              (fun f Hin => global_rename_fact_eq gc f
-                (proj1 (Forall_forall _ _) Hbc f Hin) (proj1 (Forall_forall _ _) HSc f Hin)) []).
-  cbn. rewrite !app_nil_r, !rev_involutive. reflexivity.
+                (proj1 (Forall_forall _ _) Hbc f Hin) (proj1 (Forall_forall _ _) HSc f Hin))).
+  reflexivity.
 Qed.
 
 Lemma global_rename_program_eq (gc : global_context) (p : program) :
@@ -4232,11 +4228,11 @@ Lemma global_rename_program_eq (gc : global_context) (p : program) :
   global_rename_program p gc = Success (RelabelCorrect.relabel_program (rho_gc gc) (iota_gc gc) p).
 Proof.
   intros Hbare HS. unfold DistributedDatalogToHardwareCompiler.global_rename_program.
-  rewrite (fold_result_rev_map (fun r => global_rename_rule r gc)
+  rewrite (all_success_map_pointwise (fun r => global_rename_rule r gc)
              (fun r => RelabelCorrect.relabel_rule (rho_gc gc) (iota_gc gc) r) p
              (fun r Hin => global_rename_rule_eq gc r
-                (proj1 (Forall_forall _ _) Hbare r Hin) (proj1 (Forall_forall _ _) HS r Hin)) []).
-  cbn. rewrite app_nil_r, rev_involutive. reflexivity.
+                (proj1 (Forall_forall _ _) Hbare r Hin) (proj1 (Forall_forall _ _) HS r Hin))).
+  reflexivity.
 Qed.
 
 (*========================================================================================*)
@@ -4246,28 +4242,6 @@ Qed.
 (*  program bare -- the explicit [bare_program (source_program ...)] hypothesis is redundant.   *)
 (*========================================================================================*)
 
-(* a rev-accumulating [result] fold over a [Failure] seed stays [Failure]. *)
-Lemma fold_result_fail {A B} (g : A -> result B) (xs : list A) (e : _) :
-  fold_left (fun acc x => l <- acc ;; y <- g x ;; Success (y :: l)%list) xs (Failure e) = Failure e.
-Proof. induction xs as [|x xs IH]; cbn; [reflexivity | exact IH]. Qed.
-
-(* inverse of [fold_result_rev_map]: a [Success] fold means every element succeeded, and any
-   property holding of the whole result holds of each per-element success. *)
-Lemma fold_result_inv_forall {A B} (g : A -> result B) (P : B -> Prop) :
-  forall (xs : list A) (acc0 res : list B),
-    fold_left (fun acc x => l <- acc ;; y <- g x ;; Success (y :: l)%list) xs (Success acc0) = Success res ->
-    Forall P res ->
-    Forall P acc0 /\ Forall (fun x => exists y, g x = Success y /\ P y) xs.
-Proof.
-  induction xs as [|x xs IH]; intros acc0 res Hfold Hres; cbn in Hfold.
-  - injection Hfold as <-. split; [exact Hres | constructor].
-  - destruct (g x) as [y | msg] eqn:Hgx; cbn in Hfold;
-      [| rewrite fold_result_fail in Hfold; discriminate].
-    destruct (IH (y :: acc0) res Hfold Hres) as [Hacc' Hxs].
-    inversion Hacc' as [| ? ? Hy Hacc0 Heq]; subst.
-    split; [exact Hacc0 | constructor; [exists y; split; assumption | exact Hxs]].
-Qed.
-
 (* renaming a [fun_expr] yields a [fun_expr], so a renamed [var_expr] came from a [var_expr]. *)
 Lemma grn_expr_reflect (gc : global_context) (e : Datalog.expr) (le : lowered_expr) :
   global_rename_expr e gc = Success le -> (exists v, le = var_expr v) -> (exists v, e = var_expr v).
@@ -4275,8 +4249,8 @@ Proof.
   destruct e as [v | f0 args]; intros Hren Hle; [exists v; reflexivity|].
   exfalso. cbn in Hren.
   destruct (rename_fn f0 gc) as [fid | msg]; cbn in Hren; [| discriminate].
-  match type of Hren with context[fold_left ?ff args (Success [])] =>
-    destruct (fold_left ff args (Success [])) as [rargs | msg]; [| discriminate] end.
+  match type of Hren with context[List.all_success ?x] =>
+    destruct (List.all_success x) as [rargs | msg]; [| discriminate] end.
   injection Hren as <-. destruct Hle as [v Hv]. discriminate.
 Qed.
 
@@ -4285,13 +4259,11 @@ Lemma grn_fact_reflect (gc : global_context) (f : clause) (lf : lowered_fact) :
 Proof.
   unfold DistributedDatalogToHardwareCompiler.global_rename_fact. intros Hren Hbare.
   destruct (global_rename_rel f.(Datalog.clause_rel) gc) as [rid | msg]; [| discriminate].
-  match type of Hren with context[fold_left ?ff f.(Datalog.clause_args) (Success [])] =>
-    destruct (fold_left ff f.(Datalog.clause_args) (Success [])) as [rargs | msg] eqn:Hfold;
-      [| discriminate] end.
+  match type of Hren with context[List.all_success ?x] =>
+    destruct (List.all_success x) as [rargs | msg] eqn:Hall; [| discriminate] end.
   injection Hren as <-. unfold bare_fact in Hbare. cbn in Hbare.
-  apply Forall_rev in Hbare. rewrite rev_involutive in Hbare.
-  destruct (fold_result_inv_forall (fun arg => global_rename_expr arg gc)
-              (fun le => exists v, le = var_expr v) f.(Datalog.clause_args) [] rargs Hfold Hbare) as [_ Hargs].
+  pose proof (all_success_map_inv_forall (fun arg => global_rename_expr arg gc)
+              (fun le => exists v, le = var_expr v) f.(Datalog.clause_args) rargs Hall Hbare) as Hargs.
   unfold RelabelCorrect.bare_clause. apply Forall_forall. intros e He.
   rewrite Forall_forall in Hargs. destruct (Hargs e He) as [le [Hgle Hvle]].
   exact (grn_expr_reflect gc e le Hgle Hvle).
@@ -4303,15 +4275,13 @@ Proof.
   intros Hren Hbare. destruct r as [concls hyps | mcs mhs | cr agg hr];
     cbn [DistributedDatalogToHardwareCompiler.global_rename_rule] in Hren;
     [| discriminate | discriminate].
-  match type of Hren with context[fold_left ?ff hyps (Success [])] =>
-    destruct (fold_left ff hyps (Success [])) as [lhyps | msg] eqn:Hfh; [| discriminate] end.
-  match type of Hren with context[fold_left ?ff concls (Success [])] =>
-    destruct (fold_left ff concls (Success [])) as [lconcls | msg] eqn:Hfc; [| discriminate] end.
+  match type of Hren with context[List.all_success (List.map ?ff hyps)] =>
+    destruct (List.all_success (List.map ff hyps)) as [lhyps | msg] eqn:Hfh; [| discriminate] end.
+  match type of Hren with context[List.all_success (List.map ?ff concls)] =>
+    destruct (List.all_success (List.map ff concls)) as [lconcls | msg] eqn:Hfc; [| discriminate] end.
   injection Hren as <-. cbn [bare_rule] in Hbare. destruct Hbare as [Hbh Hbc].
-  apply Forall_rev in Hbh; rewrite rev_involutive in Hbh.
-  apply Forall_rev in Hbc; rewrite rev_involutive in Hbc.
-  destruct (fold_result_inv_forall (fun f => global_rename_fact f gc) bare_fact hyps [] lhyps Hfh Hbh) as [_ Hhyps].
-  destruct (fold_result_inv_forall (fun f => global_rename_fact f gc) bare_fact concls [] lconcls Hfc Hbc) as [_ Hconcls].
+  pose proof (all_success_map_inv_forall (fun f => global_rename_fact f gc) bare_fact hyps lhyps Hfh Hbh) as Hhyps.
+  pose proof (all_success_map_inv_forall (fun f => global_rename_fact f gc) bare_fact concls lconcls Hfc Hbc) as Hconcls.
   cbn [RelabelCorrect.bare_rule]. split.
   - apply Forall_forall. intros f Hf. rewrite Forall_forall in Hconcls.
     destruct (Hconcls f Hf) as [lf [Hglf Hblf]]. exact (grn_fact_reflect gc f lf Hglf Hblf).
@@ -4323,10 +4293,10 @@ Lemma grn_program_reflect (gc : global_context) (p : program) (lp : lowered_prog
   global_rename_program p gc = Success lp -> Forall bare_rule lp -> RelabelCorrect.bare_program p.
 Proof.
   unfold DistributedDatalogToHardwareCompiler.global_rename_program. intros Hren Hbare.
-  match type of Hren with context[fold_left ?ff p (Success [])] =>
-    destruct (fold_left ff p (Success [])) as [lrs | msg] eqn:Hfold; [| discriminate] end.
-  injection Hren as <-. apply Forall_rev in Hbare; rewrite rev_involutive in Hbare.
-  destruct (fold_result_inv_forall (fun r => global_rename_rule r gc) bare_rule p [] lrs Hfold Hbare) as [_ Hp].
+  match type of Hren with context[List.all_success ?x] =>
+    destruct (List.all_success x) as [lrs | msg] eqn:Hall; [| discriminate] end.
+  injection Hren as <-.
+  pose proof (all_success_map_inv_forall (fun r => global_rename_rule r gc) bare_rule p lrs Hall Hbare) as Hp.
   unfold RelabelCorrect.bare_program. apply Forall_forall. intros r Hr.
   rewrite Forall_forall in Hp. destruct (Hp r Hr) as [lr [Hglr Hblr]]. exact (grn_rule_reflect gc r lr Hglr Hblr).
 Qed.
@@ -4826,22 +4796,6 @@ Qed.
 (*  state bareness over the SOURCE [layout], transporting it to the renamed [llayout].          *)
 (*========================================================================================*)
 
-(* generic: if [g] sends [P]-inputs to [Q]-outputs on Success, the rev-building fold preserves it. *)
-Lemma fold_result_forall_pres {A B} (g : A -> result B) (P : A -> Prop) (Q : B -> Prop) :
-  (forall x y, P x -> g x = Success y -> Q y) ->
-  forall (xs : list A) (acc res : list B),
-    Forall Q acc -> Forall P xs ->
-    fold_left (fun a x => l <- a ;; y <- g x ;; Success (y :: l)%list) xs (Success acc) = Success res ->
-    Forall Q res.
-Proof.
-  intros Hg. induction xs as [|x xs IH]; intros acc res Hacc Hxs Hfold; cbn [fold_left] in Hfold.
-  - injection Hfold as <-. exact Hacc.
-  - inversion Hxs as [| x' xs' HPx HPxs]; subst. cbn beta iota in Hfold.
-    destruct (g x) as [y | e] eqn:Hgx; cbn beta iota in Hfold;
-      [| rewrite fold_result_fail in Hfold; discriminate].
-    apply (IH (y :: acc) res); [constructor; [exact (Hg x y HPx Hgx) | exact Hacc] | exact HPxs | exact Hfold].
-Qed.
-
 (* renaming a plain-variable arg yields a plain-variable arg. *)
 Lemma grn_expr_isvarb_fwd (gc : global_context) (e : Datalog.expr) (le : lowered_expr) :
   (match e with var_expr _ => true | fun_expr _ _ => false end) = true ->
@@ -4857,32 +4811,32 @@ Lemma grn_fact_bareb_fwd (gc : global_context) (f : clause) (lf : lowered_fact) 
 Proof.
   unfold DistributedDatalogToHardwareCompiler.global_rename_fact. intros Hren Hbare.
   destruct (global_rename_rel f.(Datalog.clause_rel) gc) as [rid | msg]; [| discriminate].
-  match type of Hren with context[fold_left ?ff f.(Datalog.clause_args) (Success [])] =>
-    destruct (fold_left ff f.(Datalog.clause_args) (Success [])) as [rargs | msg] eqn:Hfold; [| discriminate] end.
+  match type of Hren with context[List.all_success ?x] =>
+    destruct (List.all_success x) as [rargs | msg] eqn:Hall; [| discriminate] end.
   injection Hren as <-. unfold bare_factb in Hbare |- *. cbn [Datalog.clause_args].
   assert (Hres : Forall (fun b => (match b with var_expr _ => true | fun_expr _ _ => false end) = true) rargs).
-  { apply (fold_result_forall_pres (fun a => global_rename_expr a gc)
+  { apply (all_success_map_forall_pres (fun a => global_rename_expr a gc)
              (fun a => (match a with var_expr _ => true | fun_expr _ _ => false end) = true)
              (fun b => (match b with var_expr _ => true | fun_expr _ _ => false end) = true)
-             (grn_expr_isvarb_fwd gc) f.(Datalog.clause_args) [] rargs (Forall_nil _)); [| exact Hfold].
+             (grn_expr_isvarb_fwd gc) f.(Datalog.clause_args) rargs); [| exact Hall].
     apply Forall_forall. exact (proj1 (forallb_forall _ _) Hbare). }
-  apply forallb_forall. intros e He. apply in_rev in He.
+  apply forallb_forall. intros e He.
   rewrite Forall_forall in Hres. exact (Hres e He).
 Qed.
 
 (* the per-fact-list step (hyps / concls), via [grn_fact_bareb_fwd]. *)
 Lemma grn_facts_bareb_fwd (gc : global_context) (fs : list (clause))
     (lfs : list lowered_fact) :
-  fold_left (fun acc f => rfs <- acc ;; rf <- global_rename_fact f gc ;; Success (rf :: rfs)%list) fs (Success []) = Success lfs ->
-  forallb bare_factb fs = true -> forallb bare_factb (List.rev lfs) = true.
+  List.all_success (List.map (fun f => global_rename_fact f gc) fs) = Success lfs ->
+  forallb bare_factb fs = true -> forallb bare_factb lfs = true.
 Proof.
-  intros Hfold Hbare.
+  intros Hall Hbare.
   assert (Hres : Forall (fun lf => bare_factb lf = true) lfs).
-  { apply (fold_result_forall_pres (fun f => global_rename_fact f gc)
+  { apply (all_success_map_forall_pres (fun f => global_rename_fact f gc)
              (fun f => bare_factb f = true) (fun lf => bare_factb lf = true)
-             (fun x y Hb Hg => grn_fact_bareb_fwd gc x y Hg Hb) fs [] lfs (Forall_nil _)); [| exact Hfold].
+             (fun x y Hb Hg => grn_fact_bareb_fwd gc x y Hg Hb) fs lfs); [| exact Hall].
     apply Forall_forall. exact (proj1 (forallb_forall _ _) Hbare). }
-  apply forallb_forall. intros lf Hlf. apply in_rev in Hlf.
+  apply forallb_forall. intros lf Hlf.
   rewrite Forall_forall in Hres. exact (Hres lf Hlf).
 Qed.
 
@@ -4892,10 +4846,10 @@ Lemma grn_rule_bareb_fwd (gc : global_context) (r : rule)
 Proof.
   intros Hren Hbare. destruct r as [rconcls rhyps | mcs mhs | cr agg hr];
     cbn [DistributedDatalogToHardwareCompiler.global_rename_rule] in Hren; [| discriminate | discriminate].
-  match type of Hren with context[fold_left ?ff rhyps (Success [])] =>
-    destruct (fold_left ff rhyps (Success [])) as [hyps_f | msg] eqn:Hfh; [| discriminate] end.
-  match type of Hren with context[fold_left ?ff rconcls (Success [])] =>
-    destruct (fold_left ff rconcls (Success [])) as [concls_f | msg] eqn:Hfc; [| discriminate] end.
+  match type of Hren with context[List.all_success (List.map ?ff rhyps)] =>
+    destruct (List.all_success (List.map ff rhyps)) as [hyps_f | msg] eqn:Hfh; [| discriminate] end.
+  match type of Hren with context[List.all_success (List.map ?ff rconcls)] =>
+    destruct (List.all_success (List.map ff rconcls)) as [concls_f | msg] eqn:Hfc; [| discriminate] end.
   injection Hren as <-. cbn [bare_ruleb] in Hbare |- *.
   apply andb_true_iff in Hbare. destruct Hbare as [Hbh Hbc].
   apply andb_true_iff. split.
@@ -4907,15 +4861,15 @@ Lemma grn_program_bareb_fwd (gc : global_context) (p : program) (lp : lowered_pr
   global_rename_program p gc = Success lp -> forallb bare_ruleb p = true -> forallb bare_ruleb lp = true.
 Proof.
   unfold DistributedDatalogToHardwareCompiler.global_rename_program. intros Hren Hbare.
-  match type of Hren with context[fold_left ?ff p (Success [])] =>
-    destruct (fold_left ff p (Success [])) as [rs | msg] eqn:Hfold; [| discriminate] end.
+  match type of Hren with context[List.all_success ?x] =>
+    destruct (List.all_success x) as [rs | msg] eqn:Hall; [| discriminate] end.
   injection Hren as <-.
   assert (Hres : Forall (fun lr => bare_ruleb lr = true) rs).
-  { apply (fold_result_forall_pres (fun r => global_rename_rule r gc)
+  { apply (all_success_map_forall_pres (fun r => global_rename_rule r gc)
              (fun r => bare_ruleb r = true) (fun lr => bare_ruleb lr = true)
-             (fun x y Hb Hg => grn_rule_bareb_fwd gc x y Hg Hb) p [] rs (Forall_nil _)); [| exact Hfold].
+             (fun x y Hb Hg => grn_rule_bareb_fwd gc x y Hg Hb) p rs); [| exact Hall].
     apply Forall_forall. exact (proj1 (forallb_forall _ _) Hbare). }
-  apply forallb_forall. intros lr Hlr. apply in_rev in Hlr.
+  apply forallb_forall. intros lr Hlr.
   rewrite Forall_forall in Hres. exact (Hres lr Hlr).
 Qed.
 

@@ -158,12 +158,8 @@ Fixpoint global_rename_expr (e : expr) (gcontext : global_context) : result lowe
   | var_expr v => Success (var_expr v)
   | fun_expr f args =>
     f_id <- rename_fn f gcontext ;;
-    rargs <- fold_left (fun acc arg =>
-      rargs <- acc ;;
-      rarg <- global_rename_expr arg gcontext ;;
-      Success (rarg :: rargs)%list
-    ) args (Success []) ;;
-    Success (fun_expr f_id (List.rev rargs))
+    rargs <- List.all_success (List.map (fun arg => global_rename_expr arg gcontext) args) ;;
+    Success (fun_expr f_id rargs)
   end.
 
 Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_id :=
@@ -174,39 +170,22 @@ Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_
 
 Definition global_rename_fact (f : clause) (gcontext : global_context) : result lowered_fact :=
   r_id <- global_rename_rel f.(clause_rel) gcontext ;;
-  rargs <- fold_left (fun acc arg =>
-    rargs <- acc ;;
-    rarg <- global_rename_expr arg gcontext ;;
-    Success (rarg :: rargs)
-  ) f.(clause_args) (Success []) ;;
-  Success {| clause_rel := r_id; clause_args := List.rev rargs |}.
+  rargs <- List.all_success (List.map (fun arg => global_rename_expr arg gcontext) f.(clause_args)) ;;
+  Success {| clause_rel := r_id; clause_args := rargs |}.
 
 (* the compiler only handles the bare fragment: rename the concls/hyps of a
    [normal_rule] (meta/agg rules are rejected). *)
 Definition global_rename_rule (r : rule) (gcontext : global_context) : result lowered_rule :=
   match r with
   | normal_rule rconcls rhyps =>
-    hyps <- fold_left (fun acc f =>
-      rfs <- acc ;;
-      rf <- global_rename_fact f gcontext ;;
-      Success (rf :: rfs)
-    ) rhyps (Success []) ;;
-    concls <- fold_left (fun acc f =>
-      rfs <- acc ;;
-      rf <- global_rename_fact f gcontext ;;
-      Success (rf :: rfs)
-    ) rconcls (Success []) ;;
-    Success (normal_rule (List.rev concls) (List.rev hyps))
+    hyps <- List.all_success (List.map (fun f => global_rename_fact f gcontext) rhyps) ;;
+    concls <- List.all_success (List.map (fun f => global_rename_fact f gcontext) rconcls) ;;
+    Success (normal_rule concls hyps)
   | _ => error:("global_rename_rule: aggregation/meta rules are not supported")
   end.
 
 Definition global_rename_program (p : program) (gcontext : global_context) : result lowered_program :=
-  rs <- fold_left (fun acc r =>
-    rs <- acc ;;
-    lr <- global_rename_rule r gcontext ;;
-    Success (lr :: rs)
-  ) p (Success []) ;;
-  Success (List.rev rs).
+  List.all_success (List.map (fun r => global_rename_rule r gcontext) p).
 
 Definition global_rename_rule_layout (layout : layout_map) (gcontext : global_context)
     : result lowered_layout_map :=
@@ -713,26 +692,17 @@ Definition initial_node_context (nid : node_id) : node_context :=
 
 Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
     (rule_var_order : list var) : result join_output :=
-  var_indices <- fold_left (fun acc arg =>
-    idxs <- acc ;;
+  var_indices <- List.all_success (List.map (fun arg =>
     match arg with
-    | var_expr v =>
-      idx <- get_rule_var_index rule_var_order v ;;
-      Success (idx :: idxs)
-    | fun_expr _ _ => Success (0 :: idxs)
-    end
-  ) concl.(clause_args) (Success []) ;;
+    | var_expr v => get_rule_var_index rule_var_order v
+    | fun_expr _ _ => Success 0
+    end) concl.(clause_args)) ;;
   Success {| output_rel := concl.(clause_rel);
-             output_var_indices := List.rev var_indices |}.
+             output_var_indices := var_indices |}.
 
 Definition compile_concls (concls : list lowered_fact) (gcontext : global_context)
     (rule_var_order : list var) : result (list join_output) :=
-  jos <- fold_left (fun acc concl =>
-    jos <- acc ;;
-    jo <- compile_concl concl gcontext rule_var_order ;;
-    Success (jo :: jos)
-  ) concls (Success []) ;;
-  Success (List.rev jos).
+  List.all_success (List.map (fun concl => compile_concl concl gcontext rule_var_order) concls).
 
 (* Version that tries to keep original ordering.  Bare fragment: only
    [normal_rule]s are compiled. *)
