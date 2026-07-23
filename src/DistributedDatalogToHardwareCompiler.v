@@ -11,7 +11,6 @@ Open Scope bool_scope.
 Import ListNotations.
 
 Module Import RM := ResultMonadNotations.
-
 Section DistributedDatalogToHardwareCompiler.
 
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
@@ -189,11 +188,7 @@ Definition global_rename_program (p : program) (gcontext : global_context) : res
 
 Definition global_rename_rule_layout (layout : layout_map) (gcontext : global_context)
     : result lowered_layout_map :=
-  map.fold (fun acc node program =>
-    llayout <- acc ;;
-    lp <- global_rename_program program gcontext ;;
-    Success (map.put llayout node lp)
-  ) (Success map.empty) layout.
+  map.try_map_values (fun program => global_rename_program program gcontext) layout.
 
 Definition global_rename_fact_locations (fact_locations : fact_locations) (gcontext : global_context) : result lowered_fact_locations :=
   map.fold (fun acc r locations =>
@@ -829,7 +824,7 @@ Definition generate_forwarding_table_checked (gcontext : global_context) (ninfos
    the input side is correct by construction, no input route checker needed downstream. *)
 Definition input_routes_validb (gcontext : global_context) (g : node_graph) (fuel : nat)
     (llayout : lowered_layout_map) (lfp : lowered_fact_locations) : bool :=
-  map.fold (fun acc R locs => acc &&
+  map.forallb (fun R locs =>
     forallb (fun ni =>
       existsb (Nat.eqb R) (get_rel_ids gcontext)
       && rel_dep_has gcontext.(rel_node_producers) R ni
@@ -844,7 +839,7 @@ Definition input_routes_validb (gcontext : global_context) (g : node_graph) (fue
            else true)
          (map.keys llayout))
     locs)
-  true lfp.
+  lfp.
 
 (* The declared locations of relation [R] in a (lowered) fact-location list. *)
 Definition fact_locs (lf : lowered_fact_locations) (R : rel_id) : list node_id :=
@@ -878,7 +873,7 @@ Definition output_routesb (gcontext : global_context) (g : node_graph) (fuel : n
    declared output/sink node of [R]. *)
 Definition input_output_routesb (gcontext : global_context) (g : node_graph) (fuel : nat)
     (lfp : lowered_fact_locations) (lfc : lowered_fact_locations) : bool :=
-  map.fold (fun acc R locs => acc &&
+  map.forallb (fun R locs =>
     forallb (fun ni =>
       existsb (Nat.eqb R) (get_rel_ids gcontext)
       && rel_dep_has gcontext.(rel_node_producers) R ni
@@ -890,7 +885,7 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph) (fu
                   | Some _ => true | None => false end))
          (fact_locs lfc R))
     locs)
-  true lfp.
+  lfp.
 
 (*----Final Compilation----*)
 
@@ -949,7 +944,7 @@ Definition attach_forwarding_tables (ninfos : list node_info)
 
 (* every node the layout assigns to is a real graph node. *)
 Definition layout_in_graphb (g : node_graph) (llayout : lowered_layout_map) : bool :=
-  map.fold (fun acc n _ => acc && check_node_valid n (ComputableGraph.nodes g)) true llayout.
+  map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
 (* THE RELABEL PASS: rename the source layout/fact-locations (over [rel]/[fn]) to numeric ids,
    producing the lowered inputs + the name-collected [global_context].  This is the ONLY place that

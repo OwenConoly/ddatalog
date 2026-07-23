@@ -2394,35 +2394,6 @@ Proof.
   apply (map_fold_result_in (fun node v => compile_node node v gc) llayout ninfos Hfold ninfo Hin).
 Qed.
 
-(* Generic: folding [g] over a map and accumulating [map.put]s yields, for each key in the
-   result map, the source value it was renamed from. *)
-Lemma map_fold_put_get {V W : Type} {MV : map.map node_id V} {MW : map.map node_id W}
-    {MWok : map.ok MW} {MVok : map.ok MV}
-    (g : node_id -> V -> result W) (node : node_id) (w : W) (m0 : MV) (mw : MW) :
-  map.fold (fun acc nd v => acc' <- acc ;; w0 <- g nd v ;; Success (map.put acc' nd w0))
-           (Success map.empty) m0 = Success mw ->
-  map.get mw node = Some w ->
-  exists v, map.get m0 node = Some v /\ g node v = Success w.
-Proof.
-  revert mw.
-  apply (map.fold_spec
-    (fun (m : MV) (acc : result MW) =>
-       forall mw, acc = Success mw -> map.get mw node = Some w ->
-         exists v, map.get m node = Some v /\ g node v = Success w)).
-  - intros mw Hmw Hget. injection Hmw as <-. rewrite map.get_empty in Hget. discriminate.
-  - intros k v m r Hgmk Hr mw Hmw Hget. cbn beta iota in Hmw.
-    destruct r as [rmw|]; cbn beta iota in Hmw; [|discriminate].
-    destruct (g k v) as [w0|] eqn:Hg; cbn beta iota in Hmw; [|discriminate].
-    injection Hmw as <-.
-    destruct (node_id_eqb_spec k node) as [->|Hne].
-    + rewrite map.get_put_same in Hget. injection Hget as <-.
-      exists v. split; [apply map.get_put_same | exact Hg].
-    + rewrite (map.get_put_diff rmw node w0 k (not_eq_sym Hne)) in Hget.
-      destruct (Hr rmw eq_refl Hget) as [v' [Hget' Hgv]].
-      exists v'. split;
-        [rewrite (map.get_put_diff m node v k (not_eq_sym Hne)); exact Hget' | exact Hgv].
-Qed.
-
 (* The lowered program assigned to a node is the global-rename of the original program there. *)
 Lemma global_rename_rule_layout_spec (layout : layout_map) (gc : global_context)
     (llayout : lowered_layout_map) (node : node_id) (lprog : lowered_program) :
@@ -2430,8 +2401,9 @@ Lemma global_rename_rule_layout_spec (layout : layout_map) (gc : global_context)
   map.get llayout node = Some lprog ->
   exists orig, map.get layout node = Some orig /\ global_rename_program orig gc = Success lprog.
 Proof.
-  intros H. unfold DistributedDatalogToHardwareCompiler.global_rename_rule_layout in H.
-  apply (map_fold_put_get (fun nd p => global_rename_program p gc) node lprog layout llayout H).
+  intros H Hget. unfold DistributedDatalogToHardwareCompiler.global_rename_rule_layout in H.
+  destruct (map.try_map_values_bw _ layout llayout H node lprog Hget) as [orig [Hgrp Hgetl]].
+  exists orig. split; assumption.
 Qed.
 
 (* Generic: if folding [g] over a map (collecting Success results) succeeds, then [g] succeeded
@@ -3160,17 +3132,8 @@ Lemma layout_in_graphb_entry (g : node_graph) (llayout : lowered_layout_map) :
   layout_in_graphb g llayout = true ->
   forall n p, map.get llayout n = Some p -> check_node_valid n (ComputableGraph.nodes g) = true.
 Proof.
-  unfold DistributedDatalogToHardwareCompiler.layout_in_graphb.
-  apply (map.fold_spec
-    (fun (m : lowered_layout_map) (b : bool) =>
-       b = true -> forall n p, map.get m n = Some p ->
-         check_node_valid n (ComputableGraph.nodes g) = true)).
-  - intros _ n p Hget. rewrite map.get_empty in Hget. discriminate.
-  - intros k v m r Hgmk IH Hb n p Hget.
-    apply andb_true_iff in Hb. destruct Hb as [Hr Hv].
-    destruct (node_id_eqb_spec n k) as [->|Hne].
-    + exact Hv.
-    + rewrite map.get_put_diff in Hget by congruence. apply (IH Hr n p Hget).
+  unfold DistributedDatalogToHardwareCompiler.layout_in_graphb. intros H n p Hget.
+  exact (map.get_forallb _ _ H n p Hget).
 Qed.
 
 (* [check_node_valid] on [g]'s node set is exactly the graph-node predicate of [cg2g g]. *)
@@ -3305,29 +3268,6 @@ Proof.
   unfold rel_locs.
   destruct (map.get lfp R) as [locs|] eqn:Hf; [|intros []].
   intros Hn. exists locs. split; [reflexivity | exact Hn].
-Qed.
-
-(* A [rel_id]-keyed map [m] folded by conjoining a per-entry boolean predicate [P] is [true] only if
-   [P] holds at every key actually present in [m].  This replaces the old [forallb_forall] extraction
-   now that the fact-location checkers fold over a MAP rather than iterate a list. *)
-Lemma map_fold_andb_get {V} {M : map.map rel_id V} {M_ok : map.ok M}
-    (P : rel_id -> V -> bool) (m : M) (k : rel_id) (v : V) :
-  map.fold (fun acc k x => acc && P k x) true m = true ->
-  map.get m k = Some v ->
-  P k v = true.
-Proof.
-  intros Hfold Hget.
-  enough (HInv : (fun (mm : M) (acc : bool) =>
-            acc = true -> forall kk vv, map.get mm kk = Some vv -> P kk vv = true)
-          m (map.fold (fun acc k x => acc && P k x) true m))
-    by exact (HInv Hfold k v Hget).
-  apply map.fold_spec.
-  - intros _ kk vv. rewrite map.get_empty. discriminate.
-  - intros kk vv mm r Hnone IH Hand kk' vv' Hget'.
-    apply andb_true_iff in Hand. destruct Hand as [Hr Hp].
-    destruct (Nat.eq_dec kk' kk) as [->|Hne].
-    + rewrite map.get_put_same in Hget'. injection Hget' as Heq. subst. exact Hp.
-    + rewrite map.get_put_diff in Hget' by exact Hne. exact (IH Hr kk' vv' Hget').
 Qed.
 
 (* [edb_routable lfp Q]: the base facts [Q] form a routable EDB for the declared input/producer
@@ -3477,7 +3417,7 @@ Proof.
     destruct (map.get llayout n_cons) as [p_nc|] eqn:Hgnc;
       [|exfalso; revert Hin_nc; unfold lprog_of; rewrite Hgnc; intros []].
     assert (Hkey_nc : In n_cons (map.keys llayout)) by exact (map.in_keys llayout n_cons p_nc Hgnc).
-    unfold input_routes_validb in Hchk. apply (fun H => map_fold_andb_get _ _ _ _ H Hlfp) in Hchk.
+    unfold input_routes_validb in Hchk. apply (fun H => map.get_forallb _ _ H _ _ Hlfp) in Hchk.
     cbn beta in Hchk. rewrite forallb_forall in Hchk. specialize (Hchk ni Hni).
     apply andb_true_iff in Hchk. destruct Hchk as [Hchk Hncf].
     apply andb_true_iff in Hchk. destruct Hchk as [Hrelids Hprodmem].
@@ -3495,7 +3435,7 @@ Proof.
     apply andb_true_iff in Hncf. destruct Hncf as [Hconsmem Hpathchk].
     rewrite Hfwd.
     exact (construction_reach gcontext ninfos g fuel R ni n_cons HRin Hprodmem Hconsmem Hpathchk).
-  - unfold input_output_routesb in Houtchk. apply (fun H => map_fold_andb_get _ _ _ _ H Hlfp) in Houtchk.
+  - unfold input_output_routesb in Houtchk. apply (fun H => map.get_forallb _ _ H _ _ Hlfp) in Houtchk.
     cbn beta in Houtchk. rewrite forallb_forall in Houtchk. specialize (Houtchk ni Hni).
     apply andb_true_iff in Houtchk. destruct Houtchk as [Houtchk Hexout].
     apply andb_true_iff in Houtchk. destruct Houtchk as [Hrelids Hprodmem].
@@ -4355,32 +4295,6 @@ Proof.
       * rewrite map.get_put_diff in Hget by congruence. left. apply IH. exists n, p. auto.
 Qed.
 
-(* converse of [map_fold_put_get]: each SOURCE key's value renames into the result map. *)
-Lemma map_fold_put_get_bwd {V W : Type} {MV : map.map node_id V} {MW : map.map node_id W}
-    {MWok : map.ok MW} {MVok : map.ok MV}
-    (g : node_id -> V -> result W) (node : node_id) (vnode : V) (m0 : MV) (mw : MW) :
-  map.fold (fun acc nd v0 => acc' <- acc ;; w0 <- g nd v0 ;; Success (map.put acc' nd w0))
-           (Success map.empty) m0 = Success mw ->
-  map.get m0 node = Some vnode ->
-  exists w, g node vnode = Success w /\ map.get mw node = Some w.
-Proof.
-  revert mw.
-  apply (map.fold_spec
-    (fun (m : MV) (acc : result MW) =>
-       forall mw, acc = Success mw -> map.get m node = Some vnode ->
-         exists w, g node vnode = Success w /\ map.get mw node = Some w)).
-  - intros mw Hmw Hget. rewrite map.get_empty in Hget. discriminate.
-  - intros k val m acc Hgmk IH mw Hmw Hget. cbn beta in Hmw.
-    destruct acc as [acc_m|]; cbn beta iota in Hmw; [|discriminate].
-    destruct (g k val) as [w0|] eqn:Hgk; cbn beta iota in Hmw; [|discriminate].
-    injection Hmw as <-.
-    destruct (node_id_eqb_spec node k) as [Heq|Hne].
-    + subst k. rewrite map.get_put_same in Hget. injection Hget as <-.
-      exists w0. split; [exact Hgk | apply map.get_put_same].
-    + rewrite map.get_put_diff in Hget by congruence.
-      destruct (IH acc_m eq_refl Hget) as [w [Hgw Hgetw]].
-      exists w. split; [exact Hgw | rewrite map.get_put_diff by congruence; exact Hgetw].
-Qed.
 
 Lemma global_rename_rule_layout_spec_bwd (layout : layout_map) (gc : global_context)
     (llayout : lowered_layout_map) (node : node_id) (orig : program) :
@@ -4388,8 +4302,8 @@ Lemma global_rename_rule_layout_spec_bwd (layout : layout_map) (gc : global_cont
   map.get layout node = Some orig ->
   exists lp, global_rename_program orig gc = Success lp /\ map.get llayout node = Some lp.
 Proof.
-  intros H. unfold DistributedDatalogToHardwareCompiler.global_rename_rule_layout in H.
-  apply (map_fold_put_get_bwd (fun nd p => global_rename_program p gc) node orig layout llayout H).
+  intros H Hget. unfold DistributedDatalogToHardwareCompiler.global_rename_rule_layout in H.
+  exact (map.try_map_values_fw _ layout llayout H node orig Hget).
 Qed.
 
 (* [bare_layoutb] on the renamed layout already proves the SOURCE program bare -- so the explicit
