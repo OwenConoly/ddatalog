@@ -2290,6 +2290,7 @@ Context {Node : Type}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
+Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Context {node_id_set : map.map node_id unit}.
 Context {node_id_edge_set : map.map node_id node_id_set}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
@@ -3972,7 +3973,7 @@ Definition Sdom (gc : global_context) (r : rel) : Prop :=
    by the compiled network, so the query and the streamed EDB must stay within scope. *)
 Definition fact_in_domain (gc : global_context) (f : Datalog.fact) : Prop :=
   Sdom gc (Datalog.rel_of f).
-  
+
 Definition facts_in_domain (gc : global_context) (Q : Datalog.fact -> Prop) : Prop :=
   forall h, Q h -> fact_in_domain gc h.
 
@@ -4912,8 +4913,6 @@ Theorem compile_fueled_implements_source
     (gcontext : global_context)
     (* a decidable equality on source rules, so the distribution condition is a runnable boolean check
        (the concrete layer supplies it, e.g. a string-rule equality) *)
-    (rule_eqb : rule -> rule -> bool)
-    (rule_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rule_eqb x y))
     (P : program)
     (Qsrc : Datalog.fact -> Prop) (fsrc : Datalog.fact) :
   (* the compiler succeeds *)
@@ -4925,7 +4924,7 @@ Theorem compile_fueled_implements_source
   (* the layout is a valid distribution of the reference program [P] (same rule set) -- a CHECKABLE
      boolean (examples discharge it by [vm_compute]); [layout_distributes_programb_spec] soundly turns
      it into the [Prop] the proof uses. *)
-  layout_distributes_programb rule_eqb P layout = true ->
+  layout_distributes_programb P layout = true ->
   (* the queried fact's relation appears in [P] *)
   In (Datalog.rel_of fsrc) (program_rels P) ->
   (* Every base fact's relation has a declared input node *)
@@ -4940,8 +4939,7 @@ Theorem compile_fueled_implements_source
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
   intros Hcomp Hlow Hbl_src Hdistb Hquery Hedbsrc.
-  (* the checkable distribution check soundly gives the [Prop] rule-set equality the proof uses. *)
-  pose proof (layout_distributes_programb_spec rule_eqb rule_eqb_spec P layout Hdistb) as Hdist.
+  pose proof (layout_distributes_programb_spec P layout Hdistb) as Hdist.
   (* the [lower_inputs] equation IS the rename results: it names the compiler's actual renamed
      layout/fact-tables and the collected name context. *)
   destruct (lower_inputs_inv layout fps fcs llayout lfp lfc gcontext Hlow) as [Hgc0 [Hgrl [Hgrfp Hgrfc]]].
@@ -5022,14 +5020,12 @@ Theorem compile_implements_source
     (layout : layout_map) (fps fcs : fact_locations) (g : node_graph)
     (ninfos : list node_info) (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations)
     (gcontext : global_context)
-    (rule_eqb : rule -> rule -> bool)
-    (rule_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rule_eqb x y))
     (P : program)
     (Qsrc : Datalog.fact -> Prop) (fsrc : Datalog.fact) :
   compile layout fps fcs g = Success ninfos ->
   lower_inputs layout fps fcs = Success (llayout, lfp, lfc, gcontext) ->
   bare_layoutb layout = true ->
-  layout_distributes_programb rule_eqb P layout = true ->
+  layout_distributes_programb P layout = true ->
   In (Datalog.rel_of fsrc) (program_rels P) ->
   edb_routable_src fps Qsrc ->
   run_ninfos ninfos
@@ -5039,8 +5035,7 @@ Theorem compile_implements_source
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
   intros Hc Hlow Hbl Hdist Hin Hedb. unfold DistributedDatalogToHardwareCompiler.compile in Hc.
-  apply (compile_fueled_implements_source layout fps fcs g (graph_fuel g) ninfos llayout lfp lfc gcontext
-           rule_eqb rule_eqb_spec P Qsrc fsrc); assumption.
+  apply (compile_fueled_implements_source layout fps fcs g (graph_fuel g) ninfos llayout lfp lfc gcontext P Qsrc fsrc); assumption.
 Qed.
 
 

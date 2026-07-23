@@ -41,15 +41,6 @@ Open Scope string_scope.
   {| interp_fun := fun _ _ => None;
      get_nat := fun _ => 0; agg_bop := fun _ x _ => x; agg_id := fun _ => "" |}.
 
-(* A concrete, spec-correct equality on source rules (drives the distribution check).
-   [rule]'s [Eqb] instance lives in [EqbSpec]; recover the [BoolSpec] form from [eqb_spec]. *)
-Definition rule_eqb : @Datalog.rule string string string unit -> @Datalog.rule string string string unit -> bool := eqb.
-Lemma rule_eqb_spec (x y : @Datalog.rule string string string unit) :
-  BoolSpec (x = y) (x <> y) (rule_eqb x y).
-Proof.
-  unfold rule_eqb. pose proof (eqb_spec x y) as H.
-  destruct (eqb x y); [apply BoolSpecT | apply BoolSpecF]; exact H.
-Qed.
 
 (*==========================================================================*)
 (*  [grid_equiv]: [compile_implements_source] with every instance pinned to   *)
@@ -67,6 +58,7 @@ Definition grid_equiv :=
     StringDatalog.var_node_set (SortedListString.ok unit)
     StringDatalog.var_edge_set
     GridTopology.node_id GridTopology.node_id GridTopology.node_id_eqb GridTopology.node_id_eqb_spec
+    _ _
     (GridTopology.node_id_map unit) (GridTopology.node_id_map (GridTopology.node_id_map unit))
     (SortedListNat.map (list (@DistributedHardwareProgram.destination GridTopology.node_id)))
     (SortedListNat.map (GridTopology.node_id_map unit))
@@ -130,7 +122,7 @@ Example lowered_J_ok  : match lowered_J  with Success _ => True | _ => False end
 (*==========================================================================*)
 
 Example check_bare        : bare_layoutb LAYOUT = true.                       Proof. vm_compute; reflexivity. Qed.
-Example check_distributes : layout_distributes_programb rule_eqb P LAYOUT = true. Proof. vm_compute; reflexivity. Qed.
+Example check_distributes : layout_distributes_programb P LAYOUT = true. Proof. vm_compute; reflexivity. Qed.
 
 (*==========================================================================*)
 (*  Step 3: THE END-TO-END EQUIVALENCE.                                        *)
@@ -164,10 +156,10 @@ Theorem end_to_end_equiv
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
   intros Hcompile Hlower Hin Hedb.
-  apply (grid_equiv LAYOUT FPS FPS G ninfos ll lfp lfc gc rule_eqb rule_eqb_spec P Qsrc fsrc
+  apply (grid_equiv LAYOUT FPS FPS G ninfos ll lfp lfc gc P Qsrc fsrc
            Hcompile Hlower);
     [ vm_compute; reflexivity   (* bare_layoutb LAYOUT = true *)
-    | vm_compute; reflexivity   (* layout_distributes_programb rule_eqb P LAYOUT = true *)
+    | vm_compute; reflexivity
     | exact Hin
     | exact Hedb ].
 Qed.
@@ -206,7 +198,7 @@ Example lowered_R_ok  : match lowered_R  with Success _ => True | _ => False end
 
 (* The boolean side checks pass. *)
 Example check_bare_r        : bare_layoutb LAYOUT_r = true.                              Proof. vm_compute; reflexivity. Qed.
-Example check_distributes_r : layout_distributes_programb rule_eqb Preach LAYOUT_r = true. Proof. vm_compute; reflexivity. Qed.
+Example check_distributes_r : layout_distributes_programb Preach LAYOUT_r = true. Proof. vm_compute; reflexivity. Qed.
 
 Theorem end_to_end_equiv_reach
     (ninfos : list (@node_info node_id (SortedListNat.map (list destination))))
@@ -231,10 +223,10 @@ Theorem end_to_end_equiv_reach
   <-> Datalog.prog_impl Preach Qsrc fsrc.
 Proof.
   intros Hcompile Hlower Hin Hedb.
-  apply (grid_equiv LAYOUT_r FPS_r FPS_r G_r ninfos ll lfp lfc gc rule_eqb rule_eqb_spec
+  apply (grid_equiv LAYOUT_r FPS_r FPS_r G_r ninfos ll lfp lfc gc
            Preach Qsrc fsrc Hcompile Hlower);
     [ vm_compute; reflexivity   (* bare_layoutb LAYOUT_r = true *)
-    | vm_compute; reflexivity   (* layout_distributes_programb rule_eqb Preach LAYOUT_r = true *)
+    | vm_compute; reflexivity
     | exact Hin
     | exact Hedb ].
 Qed.

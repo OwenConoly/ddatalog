@@ -1,4 +1,4 @@
-From Datalog Require Import Datalog.
+From Datalog Require Import Datalog List Map.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result Eqb.
 From DatalogRocq Require Import DependencyGenerator SortedListNat Topologies.Graph ComputableGraph.
@@ -208,37 +208,21 @@ Definition global_rename_fact_locations (fact_locations : fact_locations) (gcont
 Definition source_program (layout : layout_map) : program :=
   map.fold (fun acc _ p => (acc ++ p)%list) (@nil rule) layout.
 
-(* boolean list inclusion: every element of [l1] occurs in [l2]. *)
-Definition incl_b {A} (eqb : A -> A -> bool) (l1 l2 : list A) : bool :=
-  forallb (fun x => existsb (eqb x) l2) l1.
-Lemma incl_b_spec {A} (eqb : A -> A -> bool)
-    (eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (eqb x y)) (l1 l2 : list A) :
-  incl_b eqb l1 l2 = true -> incl l1 l2.
-Proof.
-  unfold incl_b, incl. rewrite forallb_forall. intros H x Hx.
-  specialize (H x Hx). rewrite existsb_exists in H. destruct H as [y [Hy Heq]].
-  destruct (eqb_spec x y); [subst; exact Hy | discriminate].
-Qed.
-
 (* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([prog_impl] of a
    bare program depends only on its rule set, so the compiled network then implements [P].) *)
 Definition layout_distributes_program (P : program) (layout : layout_map) : Prop :=
   incl (source_program layout) P /\ incl P (source_program layout).
 
-(* the runnable checker -- parametric in a rule equality (supplied at the concrete layer, e.g.
-   [DependencyGenerator.rule_eqb]); the examples run this as an extra check alongside [compile]. *)
-Definition layout_distributes_programb (rule_eqb : rule -> rule -> bool)
+Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
+Definition layout_distributes_programb
     (P : program) (layout : layout_map) : bool :=
-  incl_b rule_eqb (source_program layout) P && incl_b rule_eqb P (source_program layout).
-Lemma layout_distributes_programb_spec (rule_eqb : rule -> rule -> bool)
-    (rule_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (rule_eqb x y))
-    (P : program) (layout : layout_map) :
-  layout_distributes_programb rule_eqb P layout = true -> layout_distributes_program P layout.
+  inclb (source_program layout) P && inclb P (source_program layout).
+Lemma layout_distributes_programb_spec (P : program) (layout : layout_map) :
+  layout_distributes_programb P layout = true -> layout_distributes_program P layout.
 Proof.
   unfold layout_distributes_programb, layout_distributes_program. intros H.
   apply andb_true_iff in H. destruct H as [H1 H2].
-  split; [exact (incl_b_spec rule_eqb rule_eqb_spec _ _ H1)
-        | exact (incl_b_spec rule_eqb rule_eqb_spec _ _ H2)].
+  split; [exact (proj1 (inclb_incl _ _) H1) | exact (proj1 (inclb_incl _ _) H2)].
 Qed.
 
 (*----Collecting Info About Layout----*)
