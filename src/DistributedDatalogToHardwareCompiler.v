@@ -405,11 +405,6 @@ Definition compute_permutation (original_order desired_order : list var) : permu
 
 (*----Trie Generation----*)
 
-Definition permutation_eqb (p1 p2 : permutation) : bool :=
-  if eqb (length p1) (length p2) then
-    forallb (fun '(x, y) => Nat.eqb x y) (combine p1 p2)
-  else false.
-
 Definition update_node_context_with_trie (t : trie) (ncontext : node_context) : node_context :=
   {| ncid := ncontext.(ncid);
      nctries := t :: ncontext.(nctries);
@@ -421,7 +416,7 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
   let perm := compute_permutation (compute_var_order hyp) rule_var_order in
   let rel_id := hyp.(clause_rel) in
   match find (fun t =>
-    Nat.eqb t.(trel) rel_id && permutation_eqb t.(tperm) perm) existing_tries with
+    eqb t.(trel) rel_id && eqb t.(tperm) perm) existing_tries with
   | Some t => (t, ncontext)
   | None =>
     let new_trie := {| tid := ncontext.(last_trie_id); trel := rel_id; tperm := perm |} in
