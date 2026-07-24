@@ -25,7 +25,6 @@ Context {node_id_set : map.map node_id unit}.
 Context {destination_set : map.map destination unit}.
 Context {forwarding_table : map.map rel_id (list destination)}.
 Context {rel_dependency_map : map.map rel_id (node_id_set)}.
-Context {fn_id_map : map.map fn fn_id}.
 Context {rel_relid_map : map.map rel rel_id}.
 Context {relid_rel_map : map.map rel_id rel}.
 Context {var_id_map : map.map var var_id}.
@@ -47,11 +46,9 @@ Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_
 Context {node_info_map : map.map node_id node_info}.
 
 Record global_context := {
-  fn_map : fn_id_map;
   rel_map : rel_relid_map;
   rel_node_consumers : rel_dependency_map;
   rel_node_producers : rel_dependency_map;
-  last_fn_id : fn_id;
   last_rel_id : rel_id;
 }.
 
@@ -83,45 +80,20 @@ Definition node_graph := @ComputableGraph node_id node_id_set node_id_edge_set.
 
 (*----Collecting Global Info----*)
 
-Definition update_global_context_with_fn (f : fn) (gcontext : global_context) : global_context :=
-  match map.get gcontext.(fn_map) f with
-  | Some _ => gcontext
-  | None =>
-    {|
-      fn_map := map.put gcontext.(fn_map) f gcontext.(last_fn_id);
-      rel_map := gcontext.(rel_map);
-      rel_node_consumers := gcontext.(rel_node_consumers);
-      rel_node_producers := gcontext.(rel_node_producers);
-      last_fn_id := S gcontext.(last_fn_id);
-      last_rel_id := gcontext.(last_rel_id)
-    |}
-  end.
-
-Fixpoint collect_global_names_expr (e : expr) (gcontext : global_context) : global_context :=
-  match e with
-  | var_expr _ => gcontext
-  | fun_expr f args =>
-    fold_left (fun acc arg => collect_global_names_expr arg acc) args
-      (update_global_context_with_fn f gcontext)
-  end.
-
 Definition update_global_context_with_rel (r : rel) (gcontext : global_context) : global_context :=
   match map.get gcontext.(rel_map) r with
   | Some _ => gcontext
   | None =>
     {|
-      fn_map := gcontext.(fn_map);
       rel_map := map.put gcontext.(rel_map) r gcontext.(last_rel_id);
       rel_node_consumers := gcontext.(rel_node_consumers);
       rel_node_producers := gcontext.(rel_node_producers);
-      last_fn_id := gcontext.(last_fn_id);
       last_rel_id := S gcontext.(last_rel_id)
     |}
   end.
 
 Definition collect_global_names_fact (f : clause) (gcontext : global_context) : global_context :=
-  fold_left (fun acc arg => collect_global_names_expr arg acc)
-    f.(clause_args) (update_global_context_with_rel f.(clause_rel) gcontext).
+  update_global_context_with_rel f.(clause_rel) gcontext.
 
 Definition collect_global_names_rule (r : rule) (gcontext : global_context) : global_context :=
   match r with
@@ -138,20 +110,14 @@ Definition collect_global_names_layout (layout : layout_map) (gcontext : global_
   map.fold (fun acc _ program => collect_global_names_program program acc) gcontext layout.
 
 (*----Rename — now returns result to catch missing names----*)
-
-Definition rename_fn (f : fn) (gcontext : global_context) : result fn_id :=
-  match map.get gcontext.(fn_map) f with
-  | Some id => Success id
-  | None => error:("rename_fn: function not found in global context")
-  end.
+Context (fn_to_id : fn -> fn_id).
 
 Fixpoint global_rename_expr (e : expr) (gcontext : global_context) : result lowered_expr :=
   match e with
   | var_expr v => Success (var_expr v)
   | fun_expr f args =>
-    f_id <- rename_fn f gcontext ;;
     rargs <- List.all_success (List.map (fun arg => global_rename_expr arg gcontext) args) ;;
-    Success (fun_expr f_id rargs)
+    Success (fun_expr (fn_to_id f) rargs)
   end.
 
 Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_id :=
@@ -281,11 +247,9 @@ Definition add_producer_to_context (r_id : rel_id) (producer : node_id)
     | None => map.put gcontext.(rel_node_producers) r_id (map.put map.empty producer tt)
     end in
   {|
-    fn_map := gcontext.(fn_map);
     rel_map := gcontext.(rel_map);
     rel_node_consumers := gcontext.(rel_node_consumers);
     rel_node_producers := rel_node_producers;
-    last_fn_id := gcontext.(last_fn_id);
     last_rel_id := gcontext.(last_rel_id)
   |}.
 
@@ -301,11 +265,9 @@ Definition add_consumer_to_context (r_id : rel_id) (consumer : node_id)
     | None => map.put gcontext.(rel_node_consumers) r_id (map.put map.empty consumer tt)
     end in
   {|
-    fn_map := gcontext.(fn_map);
     rel_map := gcontext.(rel_map);
     rel_node_consumers := rel_node_consumers;
     rel_node_producers := gcontext.(rel_node_producers);
-    last_fn_id := gcontext.(last_fn_id);
     last_rel_id := gcontext.(last_rel_id)
   |}.
 
@@ -881,11 +843,9 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph)
 (*----Final Compilation----*)
 
 Definition initial_global_context : global_context :=
-  {| fn_map := map.empty;
-     rel_map := map.empty;
+  {| rel_map := map.empty;
      rel_node_consumers := map.empty;
      rel_node_producers := map.empty;
-     last_fn_id := 0;
      last_rel_id := 0 |}.
 
 Definition compile_node (node : node_id) (program : lowered_program)
@@ -959,12 +919,6 @@ Definition compile_rel_ids (layout : layout_map) (fact_producers fact_consumers 
 
 (* THE NUMERIC CORE: compile an ALREADY-LOWERED layout/fact-locations -- NO relabeling.  Computes
    the dependency context, the per-node programs, the forwarding tables, and the routing gates. *)
-Print check_graph_valid.
-Print check_edges_valid.
-Print check_edge_valid.
-Print check_node_valid.
-Print layout_in_graphb.
-Print collect_global_dependencies.
 Definition compile_lowered (llayout : lowered_layout_map)
     (lfact_producers lfact_consumers : lowered_fact_locations) (gcontext0 : global_context)
     (g : node_graph) : result (list node_info) :=

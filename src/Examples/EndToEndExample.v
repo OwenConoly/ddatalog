@@ -62,7 +62,7 @@ Definition grid_equiv :=
     (GridTopology.node_id_map unit) (GridTopology.node_id_map (GridTopology.node_id_map unit))
     (SortedListNat.map (list (@DistributedHardwareProgram.destination GridTopology.node_id)))
     (SortedListNat.map (GridTopology.node_id_map unit))
-    StringDatalog.fn_id_map StringDatalog.rel_relid_map
+    (fun _ => 0%nat) StringDatalog.rel_relid_map   (* fn_to_id, matching compile_program *)
     (GridTopology.node_id_map (list rule)) (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map (list (lowered_rule)))
         (GridTopology.node_id_map_ok _)
@@ -101,10 +101,11 @@ Definition G      := GridTopology.make_topo_graph topo.
 Notation lowerJ := (@DistributedDatalogToHardwareCompiler.lower_inputs
   string string string unit node_id
   (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
-  StringDatalog.fn_id_map StringDatalog.rel_relid_map
+  StringDatalog.rel_relid_map
   (GridTopology.node_id_map (list rule))
   (GridTopology.node_id_map (list (lowered_rule)))
-  (SortedListString.map (list node_id)) (SortedListNat.map (list node_id))).
+  (SortedListString.map (list node_id)) (SortedListNat.map (list node_id))
+  (fun _ => 0%nat)).
 
 (*==========================================================================*)
 (*  Step 1: the compiler runs, the relabel pass runs, and both SUCCEED.       *)
@@ -139,9 +140,9 @@ Theorem end_to_end_equiv
              (list (lowered_rule)))
     (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
                  (SortedListNat.map (list node_id)))
-    (gc : @DistributedDatalogToHardwareCompiler.global_context string string node_id
+    (gc : @DistributedDatalogToHardwareCompiler.global_context string node_id
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
-            StringDatalog.fn_id_map StringDatalog.rel_relid_map)
+            StringDatalog.rel_relid_map)
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
   lowerJ LAYOUT FPS FPS = Success (ll, lfp, lfc, gc) ->
@@ -206,9 +207,9 @@ Theorem end_to_end_equiv_reach
              (list (lowered_rule)))
     (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
                  (SortedListNat.map (list node_id)))
-    (gc : @DistributedDatalogToHardwareCompiler.global_context string string node_id
+    (gc : @DistributedDatalogToHardwareCompiler.global_context string node_id
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
-            StringDatalog.fn_id_map StringDatalog.rel_relid_map)
+            StringDatalog.rel_relid_map)
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
   lowerJ LAYOUT_r FPS_r FPS_r = Success (ll, lfp, lfc, gc) ->

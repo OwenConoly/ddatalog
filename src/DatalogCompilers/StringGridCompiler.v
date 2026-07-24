@@ -51,12 +51,12 @@ Definition compile_program
     (var_edge_set       := StringDatalog.var_edge_set)
     (forwarding_table   := SortedListNat.map (list destination))
     (rel_dependency_map := SortedListNat.map (node_id_map unit))
-    (fn_id_map          := StringDatalog.fn_id_map)
     (rel_relid_map      := StringDatalog.rel_relid_map)
     (layout_map         := node_id_map (list rule))
     (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
     (var_idx_map        := StringDatalog.var_idx_map)
     (node_ftable_map    := node_id_map (SortedListNat.map (list destination)))
+    (fun _ => 0%nat)   (* fn_to_id (explicit): bare fragment has no function symbols, so any fn->fn_id works *)
     (make_layout_map program layout) fact_producers fact_consumers
     (GridTopology.make_topo_graph topo_dims).
 
@@ -75,10 +75,10 @@ Definition compile_program_rel_ids
     (node_id            := node_id)
     (node_id_set        := node_id_map unit)
     (rel_dependency_map := SortedListNat.map (node_id_map unit))
-    (fn_id_map          := StringDatalog.fn_id_map)
     (rel_relid_map      := StringDatalog.rel_relid_map)
     (layout_map         := node_id_map (list rule))
     (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
+    (fun _ => 0%nat)   (* fn_to_id (explicit): bare fragment has no function symbols, so any fn->fn_id works *)
     (make_layout_map program layout) fact_producers fact_consumers.
 
 (* PLACEHOLDER fact-locations: make EVERY grid node an input AND output node for EVERY relation
