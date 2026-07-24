@@ -735,6 +735,10 @@ Definition nid_mem (s : node_id_set) (n : node_id) : bool :=
 Definition rel_dep_has (m : rel_dependency_map) (R : rel_id) (n : node_id) : bool :=
   match map.get m R with Some s => nid_mem s n | None => false end.
 
+(* The lowered program a layout assigns to a node (empty if the node is unassigned). *)
+Definition lprog_of (llayout : lowered_layout_map) (n : node_id) : lowered_program :=
+  match map.get llayout n with Some p => p | None => [] end.
+
 (* FORWARDING-COMPLETENESS gate: for every node [np] that concludes relation [R], [R] is a
    registered relation and [np] is a recorded producer; and for every node [nc] that hypothesizes
    [R], [nc] is a recorded consumer AND the compiler's search [get_path] found a route [np ~> nc]
@@ -749,13 +753,13 @@ Definition routes_validb (gcontext : global_context) (g : node_graph)
         && rel_dep_has gcontext.(rel_node_producers) R np
         && forallb (fun nc =>
              if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                        (match map.get llayout nc with Some p => p | None => [] end)
+                        (lprog_of llayout nc)
              then rel_dep_has gcontext.(rel_node_consumers) R nc
                   && is_Some (get_path (node_eqb := node_id_eqb) g np nc)
              else true)
            (map.keys llayout))
       (Datalog.concl_rels rule_np))
-    (match map.get llayout np with Some p => p | None => [] end))
+    (lprog_of llayout np))
   (map.keys llayout).
 
 (* The forwarding table, THREADED THROUGH THE RESULT MONAD: emitted only when the routing is
@@ -780,7 +784,7 @@ Definition input_routes_validb (gcontext : global_context) (g : node_graph)
       && rel_dep_has gcontext.(rel_node_producers) R ni
       && forallb (fun nc =>
            if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                      (match map.get llayout nc with Some p => p | None => [] end)
+                      (lprog_of llayout nc)
            then rel_dep_has gcontext.(rel_node_consumers) R nc
                 && is_Some (get_path (node_eqb := node_id_eqb) g ni nc)
            else true)
@@ -810,7 +814,7 @@ Definition output_routesb (gcontext : global_context) (g : node_graph)
              && is_Some (get_path (node_eqb := node_id_eqb) g np no))
            (fact_locs lfc R))
       (Datalog.concl_rels rule_np))
-    (match map.get llayout np with Some p => p | None => [] end))
+    (lprog_of llayout np))
   (map.keys llayout).
 
 (* OUTPUT-COMPLETENESS gate (input nodes): every declared input/EDB location of [R] forwards to some

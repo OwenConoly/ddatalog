@@ -2425,9 +2425,7 @@ Proof. reflexivity. Qed.
 (*  layout, compiled to a hardware network, computes exactly the original.       *)
 (*============================================================================*)
 
-(* The lowered program a layout assigns to a node (empty if the node is unassigned). *)
-Definition lprog_of (llayout : lowered_layout_map) (n : node_id) : lowered_program :=
-  match map.get llayout n with Some p => p | None => [] end.
+Notation lprog_of := (@DistributedDatalogToHardwareCompiler.lprog_of var aggregator node_id lowered_layout_map).
 
 (* Every node's lowered program compiles successfully (assigned nodes by [compile_all_nodes],
    unassigned ones because the empty program trivially compiles). *)
@@ -3198,27 +3196,6 @@ Proof.
            HR Hprodm Hconsm Hprodn Hconsn Hne Hgpath).
 Qed.
 
-(* CONSTRUCTION checker (producers): for every node [np] that concludes [R], the relation is
-   registered and [np] is a recorded producer, and for every node [nc] that hypothesizes [R] the
-   recorded-consumer + found-path conditions hold.  Mirrors [routes_validatedb], but the per-pair
-   condition is "[get_path] found a route" rather than "[validate_route] re-walks the table". *)
-Definition construction_routesb (gcontext : global_context) (g : node_graph)
-    (llayout : lowered_layout_map) : bool :=
-  forallb (fun np =>
-    forallb (fun rule_np =>
-      forallb (fun R =>
-        existsb (Nat.eqb R) (get_rel_ids gcontext)
-        && rel_dep_has gcontext.(DistributedDatalogToHardwareCompiler.rel_node_producers) R np
-        && forallb (fun nc =>
-             if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc)) (lprog_of llayout nc)
-             then rel_dep_has gcontext.(DistributedDatalogToHardwareCompiler.rel_node_consumers) R nc
-                  && Datalog.List.is_Some (get_path g np nc)
-             else true)
-           (map.keys llayout))
-      (Datalog.concl_rels rule_np))
-    (lprog_of llayout np))
-  (map.keys llayout).
-
 (* The declared input/EDB (or, with [lfc], output/sink) locations of relation [R]. *)
 Definition rel_locs (lfp : lowered_fact_locations) (R : rel_id) : list node_id :=
   match map.get lfp R with
@@ -3255,6 +3232,8 @@ Notation output_routesb :=
   (@DistributedDatalogToHardwareCompiler.output_routesb rel var aggregator node_id node_id_eqb node_id_set rel_dependency_map rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
 Notation input_output_routesb :=
   (@DistributedDatalogToHardwareCompiler.input_output_routesb rel node_id node_id_eqb node_id_set rel_dependency_map rel_relid_map lowered_fact_locations_map node_id_edge_set).
+Notation routes_validb :=
+  (@DistributedDatalogToHardwareCompiler.routes_validb rel var aggregator node_id node_id_eqb node_id_set rel_dependency_map rel_relid_map lowered_layout_map node_id_edge_set).
 
 Lemma construction_good_source (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) (llayout : lowered_layout_map) (lfc : lowered_fact_locations)
@@ -3262,7 +3241,7 @@ Lemma construction_good_source (gcontext : global_context) (ninfos : list node_i
   net.(DistributedDatalog.layout) = (fun n => lprog_of llayout n) ->
   net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table gcontext ninfos g ) ->
   net.(DistributedDatalog.output) = (fun n R => In n (rel_locs lfc R)) ->
-  construction_routesb gcontext g llayout = true ->
+  routes_validb gcontext g llayout = true ->
   output_routesb gcontext g llayout lfc = true ->
   forall n_prod R, DistributedDatalog.node_produces net.(DistributedDatalog.layout) n_prod R ->
     DistributedDatalog.good_source net n_prod R.
@@ -3272,7 +3251,7 @@ Proof.
   destruct (map.get llayout n_prod) as [p_np|] eqn:Hgnp;
     [|exfalso; revert Hin_np; unfold lprog_of; rewrite Hgnp; intros []].
   assert (Hkey_np : In n_prod (map.keys llayout)) by exact (map.in_keys llayout n_prod p_np Hgnp).
-  unfold construction_routesb in Hchk. rewrite forallb_forall in Hchk. specialize (Hchk n_prod Hkey_np).
+  unfold DistributedDatalogToHardwareCompiler.routes_validb in Hchk. rewrite forallb_forall in Hchk. specialize (Hchk n_prod Hkey_np).
   rewrite forallb_forall in Hchk. specialize (Hchk rule_np Hin_np).
   rewrite forallb_forall in Hchk. specialize (Hchk R HR_concl).
   apply andb_true_iff in Hchk. destruct Hchk as [Hchk Hnc].
@@ -3315,18 +3294,10 @@ Qed.
 (*  [Success] is itself the witness of routing correctness.                       *)
 (*============================================================================*)
 
-Notation routes_validb :=
-  (@DistributedDatalogToHardwareCompiler.routes_validb rel var aggregator node_id node_id_eqb node_id_set rel_dependency_map rel_relid_map lowered_layout_map node_id_edge_set).
 Notation generate_forwarding_table_checked :=
   (@DistributedDatalogToHardwareCompiler.generate_forwarding_table_checked rel var aggregator node_id node_id_eqb node_id_set forwarding_table rel_dependency_map rel_relid_map lowered_layout_map node_id_edge_set node_ftable_map).
 
 (* The compiler's forwarding gate IS (convertibly) the producer construction checker. *)
-Lemma routes_validb_construction (gcontext : global_context) (g : node_graph)
-    (llayout : lowered_layout_map) :
-  routes_validb gcontext g llayout = true ->
-  construction_routesb gcontext g llayout = true.
-Proof. intros H. exact H. Qed.
-
 (* The monadic forwarding step: on [Success] the table is the usual one AND the routing gate passed. *)
 Lemma generate_forwarding_table_checked_success (gcontext : global_context)
     (ninfos : list node_info) (g : node_graph) (llayout : lowered_layout_map)
@@ -3344,7 +3315,7 @@ Qed.
 (*  CLEAN TOP THEOREM over [compile = Success]: BOTH producer and input routing  *)
 (*  are by construction (gated inside [compile]), so the ONLY side conditions    *)
 (*  are a layout check and bareness.  Base facts [Q] enter at the declared        *)
-(*  fact-producer locations; [input_construction_routesb] is NOT used here.       *)
+(*  fact-producer locations.                                                      *)
 (*============================================================================*)
 
 Notation input_routes_validb :=
@@ -3410,7 +3381,7 @@ Proof.
 Qed.
 
 (* PHASE D (EDB streaming): the compiled network with input at fact-producer locations is
-   [good_network_streaming].  Producers good-source via [construction_routesb]; input nodes via the
+   [good_network_streaming].  Producers good-source via the [routes_validb] gate; input nodes via the
    compiler's [input_routes_validb] gate; [Q] is the declared EDB (each base fact's relation has a
    fact-producer location). *)
 Theorem compiled_good_network_streaming_edb
@@ -3419,7 +3390,7 @@ Theorem compiled_good_network_streaming_edb
     (program : list (Datalog.rule (rel := rel_id) (fn := nat))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   Graph.good_graph (cg2g g) ->
   DistributedDatalog.good_layout (fun n => lprog_of llayout n) (Graph.nodes (cg2g g)) program ->
-  construction_routesb gcontext g llayout = true ->
+  routes_validb gcontext g llayout = true ->
   input_routes_validb gcontext g llayout lfp = true ->
   output_routesb gcontext g llayout lfc = true ->
   input_output_routesb gcontext g lfp lfc = true ->
@@ -3833,8 +3804,7 @@ Proof.
                  (canonical_program llayout) Q
                  (proj1 (check_graph_correct g) Hgraph)
                  (canonical_good_layout g llayout Hkeys)
-                 (routes_validb_construction (collect_global_dependencies llayout lfp lfc gcontext) g
-                    llayout Hroutes)
+                 Hroutes
                  Hinp Houtp Hinoutp HQ)
               f)).
   apply prog_impl_fact_iff_datalog. apply canonical_bare. exact Hbare.
