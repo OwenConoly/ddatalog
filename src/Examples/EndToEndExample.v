@@ -57,18 +57,18 @@ Definition grid_equiv :=
     StringDatalog.var_idx_map  (SortedListString.ok nat)
     StringDatalog.var_node_set (SortedListString.ok unit)
     StringDatalog.var_edge_set
-    GridTopology.node_id GridTopology.node_id_eqb GridTopology.node_id_eqb_spec
+    GridGraph.Node _ _
     _ _
     (GridTopology.node_id_map unit) (GridTopology.node_id_map (GridTopology.node_id_map unit))
-    (SortedListNat.map (list (@DistributedHardwareProgram.destination GridTopology.node_id)))
+    (SortedListNat.map (list (@DistributedHardwareProgram.destination GridGraph.Node)))
     (SortedListNat.map (GridTopology.node_id_map unit))
     (fun _ => 0%nat) StringDatalog.rel_relid_map   (* fn_to_id, matching compile_program *)
     (GridTopology.node_id_map (list rule)) (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map (list (lowered_rule)))
         (GridTopology.node_id_map_ok _)
-    (GridTopology.node_id_map (SortedListNat.map (list (@DistributedHardwareProgram.destination GridTopology.node_id))))
-    (SortedListString.map (list GridTopology.node_id)) (SortedListString.ok _)
-    (SortedListNat.map (list GridTopology.node_id))    (SortedListNat.ok _)
+    (GridTopology.node_id_map (SortedListNat.map (list (@DistributedHardwareProgram.destination GridGraph.Node))))
+    (SortedListString.map (list GridGraph.Node)) (SortedListString.ok _)
+    (SortedListNat.map (list GridGraph.Node))    (SortedListNat.ok _)
     (SortedListNat.ok _)
     (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map_ok _)
@@ -148,7 +148,7 @@ Theorem end_to_end_equiv
   lowerJ LAYOUT FPS FPS = Success (ll, lfp, lfc, gc) ->
   In (Datalog.rel_of fsrc) (program_rels P) ->
   @edb_routable_src string string node_id (SortedListString.map (list node_id)) FPS Qsrc ->
-  @run_ninfos string node_id GridTopology.node_id_eqb (SortedListNat.map (list destination))
+  @run_ninfos string node_id _ (SortedListNat.map (list destination))
     ninfos
     (fun n f0 => RelabelCorrect.relabel_Q (rho_gc gc) Qsrc f0 /\
                  In n (@rel_locs node_id (SortedListNat.map (list node_id)) lfp (Datalog.rel_of f0)))
@@ -215,7 +215,7 @@ Theorem end_to_end_equiv_reach
   lowerJ LAYOUT_r FPS_r FPS_r = Success (ll, lfp, lfc, gc) ->
   In (Datalog.rel_of fsrc) (program_rels Preach) ->
   @edb_routable_src string string node_id (SortedListString.map (list node_id)) FPS_r Qsrc ->
-  @run_ninfos string node_id GridTopology.node_id_eqb (SortedListNat.map (list destination))
+  @run_ninfos string node_id _ (SortedListNat.map (list destination))
     ninfos
     (fun n f0 => RelabelCorrect.relabel_Q (rho_gc gc) Qsrc f0 /\
                  In n (@rel_locs node_id (SortedListNat.map (list node_id)) lfp (Datalog.rel_of f0)))

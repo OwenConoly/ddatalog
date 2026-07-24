@@ -186,13 +186,13 @@ Definition doutput : node_id -> rel_id -> Prop :=
 (* The distributed operational semantics, run on the compiled [ninfos], parks J(7,8) at the
    output node.  Steps: deliver A, deliver B, then the node runs its hardware program. *)
 Example J_run_distributed :
-  @run_ninfos nat node_id GridTopology.node_id_eqb (SortedListNat.map (list destination))
+  @run_ninfos nat node_id _ (SortedListNat.map (list destination))
              ninfos dinput doutput factJ.
 Proof.
   (* the compiled node's tries / trie-join program are exactly our literals *)
-  assert (HTr : @node_tries node_id GridTopology.node_id_eqb (SortedListNat.map (list destination))
+  assert (HTr : @node_tries node_id _ (SortedListNat.map (list destination))
                   ninfos node00 = tries) by (vm_compute; reflexivity).
-  assert (HP  : @node_prog  node_id GridTopology.node_id_eqb (SortedListNat.map (list destination))
+  assert (HP  : @node_prog  node_id _ (SortedListNat.map (list destination))
                   ninfos node00 = hp)    by (vm_compute; reflexivity).
   unfold run_ninfos, hw_run_output.
   (* the answer lives at node (0,0), in the config reached after delivering A,B and running *)

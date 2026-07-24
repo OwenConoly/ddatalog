@@ -14,7 +14,7 @@
      Hence the queue empties (or the target is found) within #nodes steps -- so with fuel >= #nodes the
      search never stops early for lack of fuel, and any larger fuel yields the same result. *)
 
-From coqutil Require Import Map.Interface Map.Properties.
+From coqutil Require Import Map.Interface Map.Properties Eqb.
 From Stdlib Require Import List Lia PeanoNat.
 From DatalogRocq Require Import ComputableGraph.
 From DatalogRocq Require Topologies.Graph.   (* qualified only: avoid clashing Graph.nodes with ComputableGraph.nodes *)
@@ -22,8 +22,7 @@ Import ListNotations.
 
 Section Complete.
 Context {Node : Type}.
-Context {node_eqb : Node -> Node -> bool}.
-Context {node_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
+Context {node_eqb : Eqb Node} {node_eqb_ok : Eqb_ok node_eqb}.
 Context {node_set : map.map Node unit}.
 Context {node_set_ok : map.ok node_set}.
 Context {edge_set : map.map Node node_set}.
@@ -74,7 +73,7 @@ Proof.
     assert (Hbk : map.get b k = Some v) by (apply (Hsub k v); apply map.get_put_same).
     rewrite (msize_remove b k v Hbk). apply le_n_S. apply IH.
     intros k' v' Hm.
-    destruct (node_eq_dec k' k) as [->|Hne].
+    destruct (eqb_boolspec _ k' k) as [->|Hne].
     + rewrite Hmk in Hm; discriminate.
     + rewrite (map.get_remove_diff b k' k Hne).
       apply (Hsub k' v').
@@ -130,10 +129,10 @@ Proof.
   - intros j w m acc Hmj IH. destruct acc as [uvs vis]. cbn [snd] in IH.
     destruct (map.get vis j) eqn:E; cbn [snd]; intros H.
     + destruct (IH H) as [Hl | [v Hv]]; [left; exact Hl | right; exists v].
-      destruct (node_eq_dec k j) as [->|Hne].
+      destruct (eqb_boolspec _ k j) as [->|Hne].
       * rewrite Hmj in Hv; discriminate.
       * rewrite (map.get_put_diff m k w j Hne); exact Hv.
-    + destruct (node_eq_dec k j) as [->|Hne].
+    + destruct (eqb_boolspec _ k j) as [->|Hne].
       * right; exists w. apply map.get_put_same.
       * rewrite (map.get_put_diff vis k tt j Hne) in H.
         destruct (IH H) as [Hl | [v Hv]]; [left; exact Hl | right; exists v].
@@ -283,7 +282,7 @@ Proof.
     rewrite (msize_remove g.(nodes) start v E). lia. }
   assert (Hsub0 : visited_sub (bs_visited (bfs_initial start)) g.(nodes)).
   { unfold bfs_initial, visited_sub. cbn [bs_visited]. intros k Hk.
-    destruct (node_eq_dec k start) as [->|Hne]; [exact Hstart|].
+    destruct (eqb_boolspec _ k start) as [->|Hne]; [exact Hstart|].
     rewrite map.get_put_diff in Hk by (intro; subst; congruence).
     rewrite map.get_empty in Hk. congruence. }
   assert (Hphi0 : Phi g (bfs_initial start) <= msize g.(nodes)).

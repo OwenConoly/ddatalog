@@ -12,7 +12,7 @@ From coqutil Require Import Map.Interface Map.SortedListString Result.
 Import ListNotations.
 Import StringDatalogParams.
 
-Notation node_id     := GridTopology.node_id.
+Notation node_id     := GridGraph.Node.
 Notation node_id_map := GridTopology.node_id_map.
 Notation destination := (@DistributedHardwareProgram.destination node_id).
 
@@ -44,7 +44,6 @@ Definition compile_program
     : _ :=
   compile
     (node_id            := node_id)
-    (node_id_eqb        := GridTopology.node_id_eqb)
     (node_id_set        := node_id_map unit)
     (node_id_edge_set   := node_id_map (node_id_map unit))
     (var_node_set       := StringDatalog.var_node_set)

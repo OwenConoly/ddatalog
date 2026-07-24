@@ -14,9 +14,7 @@ Section DistributedDatalogToHardwareCompiler.
 
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context {var_eqb : Eqb var}.
-Context {node_id : Type}
-        {node_id_eqb : node_id -> node_id -> bool}
-        {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
+Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 
 Notation destination := (@DistributedHardwareProgram.destination node_id).
 Notation destination_eqb := (@DistributedHardwareProgram.destination_eqb node_id node_id_eqb).
@@ -669,7 +667,7 @@ Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
   let ft := get_node_ftable node ftables in
   let matching_tries :=
-    match List.find (fun n => node_id_eqb n.(nid) node) ninfos with
+    match List.find (fun n => eqb n.(nid) node) ninfos with
     | None => []
     | Some ninfo => List.filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
     end in
@@ -709,13 +707,10 @@ Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_con
     end in
   map.fold (fun ftables producer _ =>
     map.fold (fun ftables consumer _ =>
-      if node_id_eqb producer consumer then
+      if eqb producer consumer then
         add_trie_dest_to_forwarding_table consumer rel ftables ninfos
       else
-        match get_path (node_eqb := node_id_eqb)
-                       (node_set := node_id_set)
-                       (edge_set := node_id_edge_set)
-                       g producer consumer with
+        match get_path g producer consumer with
         | None => ftables
         | Some path => add_path_to_forwarding_table rel path ftables ninfos
         end
@@ -755,7 +750,7 @@ Definition routes_validb (gcontext : global_context) (g : node_graph)
              if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
                         (lprog_of llayout nc)
              then rel_dep_has gcontext.(rel_node_consumers) R nc
-                  && is_Some (get_path (node_eqb := node_id_eqb) g np nc)
+                  && is_Some (get_path g np nc)
              else true)
            (map.keys llayout))
       (Datalog.concl_rels rule_np))
@@ -786,7 +781,7 @@ Definition input_routes_validb (gcontext : global_context) (g : node_graph)
            if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
                       (lprog_of llayout nc)
            then rel_dep_has gcontext.(rel_node_consumers) R nc
-                && is_Some (get_path (node_eqb := node_id_eqb) g ni nc)
+                && is_Some (get_path g ni nc)
            else true)
          (map.keys llayout))
     locs)
@@ -811,7 +806,7 @@ Definition output_routesb (gcontext : global_context) (g : node_graph)
         && rel_dep_has gcontext.(rel_node_producers) R np
         && existsb (fun no =>
              rel_dep_has gcontext.(rel_node_consumers) R no
-             && is_Some (get_path (node_eqb := node_id_eqb) g np no))
+             && is_Some (get_path g np no))
            (fact_locs lfc R))
       (Datalog.concl_rels rule_np))
     (lprog_of llayout np))
@@ -827,7 +822,7 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph)
       && rel_dep_has gcontext.(rel_node_producers) R ni
       && existsb (fun no =>
            rel_dep_has gcontext.(rel_node_consumers) R no
-           && is_Some (get_path (node_eqb := node_id_eqb) g ni no))
+           && is_Some (get_path g ni no))
            (fact_locs lfc R))
     locs)
   lfp.
@@ -881,7 +876,7 @@ Definition attach_forwarding_tables (ninfos : list node_info)
           nforwarding := get_node_ftable n ftables;
           ntries := [] |})
      (List.filter
-        (fun n => negb (List.existsb (fun ninfo => node_id_eqb ninfo.(nid) n) ninfos))
+        (fun n => negb (List.existsb (fun ninfo => eqb ninfo.(nid) n) ninfos))
         (map.keys ftables)).
 
 (* every node the layout assigns to is a real graph node. *)

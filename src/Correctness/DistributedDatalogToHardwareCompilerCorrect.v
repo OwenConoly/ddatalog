@@ -2275,8 +2275,7 @@ Context {var_idx_map : map.map var nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map var var_node_set}.
 Context {node_id : Type}
-        {node_id_eqb : node_id -> node_id -> bool}
-        {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
+        {node_id_eqb : Eqb node_id} {node_id_eqb_spec : Eqb_ok node_id_eqb}.
 Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Context {node_id_set : map.map node_id unit}.
 Context {node_id_edge_set : map.map node_id node_id_set}.
@@ -2394,7 +2393,7 @@ Proof.
   - intros k v m r Hgmk Hr ll Hll node v0 Hget. cbn beta iota in Hll.
     destruct r as [rl|]; cbn beta iota in Hll; [|discriminate].
     destruct (g k v) as [w0|] eqn:Hg; cbn beta iota in Hll; [|discriminate].
-    destruct (node_id_eqb_spec k node) as [->|Hne].
+    destruct (eqb_boolspec _ k node) as [->|Hne].
     + rewrite map.get_put_same in Hget. injection Hget as <-. exists w0. exact Hg.
     + rewrite (map.get_put_diff m node v k (not_eq_sym Hne)) in Hget.
       exact (Hr rl eq_refl node v0 Hget).
@@ -2468,7 +2467,7 @@ Proof.
     destruct r as [rl|]; cbn beta iota in Hll; [|discriminate].
     destruct (g k val) as [w0|] eqn:Hgk; cbn beta iota in Hll; [|discriminate].
     injection Hll as <-.
-    destruct (node_id_eqb_spec node k) as [->|Hne].
+    destruct (eqb_boolspec _ node k) as [->|Hne].
     + rewrite map.get_put_same in Hget. injection Hget as <-.
       exists w0. split; [exact Hgk | left; reflexivity].
     + rewrite (map.get_put_diff m node val k) in Hget by congruence.
@@ -2493,7 +2492,7 @@ Qed.
 
 (* The per-node info read off the returned [ninfos] (empty default if the node is absent). *)
 Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
-  match List.find (fun ni => node_id_eqb ni.(nid) n) ninfos with
+  match List.find (fun ni => eqb ni.(nid) n) ninfos with
   | Some ni => ni
   | None => {| nid := n; nprogram := []; nforwarding := map.empty; ntries := [] |}
   end.
@@ -2514,9 +2513,9 @@ Proof.
     right. split; [reflexivity | split; [reflexivity|]].
     apply filter_In in Hn'. destruct Hn' as [_ Hfilt]. apply Bool.negb_true_iff in Hfilt.
     intros ni0 Hin0 Hnid.
-    assert (Hex : List.existsb (fun ni => node_id_eqb ni.(nid) n') ninfos0 = true).
+    assert (Hex : List.existsb (fun ni => eqb ni.(nid) n') ninfos0 = true).
     { apply existsb_exists. exists ni0. split; [exact Hin0|].
-      rewrite Hnid. destruct (node_id_eqb_spec n' n'); congruence. }
+      rewrite Hnid. destruct (eqb_boolspec _ n' n'); congruence. }
     rewrite Hex in Hfilt. discriminate.
 Qed.
 
@@ -2532,10 +2531,10 @@ Lemma find_ninfo_node (llayout : lowered_layout_map) (gc : global_context)
     = match compile_node n (lprog_of llayout n) gc with Success ni => ni.(nprogram) | Failure _ => [] end.
 Proof.
   intros Hcan. unfold find_ninfo.
-  destruct (List.find (fun ni => node_id_eqb ni.(nid) n) (attach_forwarding_tables ninfos0 ft))
+  destruct (List.find (fun ni => eqb ni.(nid) n) (attach_forwarding_tables ninfos0 ft))
     as [x|] eqn:Hfind.
   - apply List.find_some in Hfind. destruct Hfind as [Hxin Hxnid].
-    destruct (node_id_eqb_spec x.(nid) n) as [Hxn|]; [|discriminate].
+    destruct (eqb_boolspec _ x.(nid) n) as [Hxn|]; [|discriminate].
     destruct (attach_in_data ninfos0 ft x Hxin) as [[ni0' [Hin0' [Hnid' [Htr' Hpr']]]] | [Hpr [Htr Hno]]].
     + (* layout node: x's data = ni0' = compile_node n (lprog_of llayout n) gc *)
       destruct (compile_all_nodes_in llayout gc ninfos0 ni0' Hcan Hin0')
@@ -2564,7 +2563,7 @@ Proof.
         left. apply in_map_iff. exists ni0. split; [reflexivity | exact Hin0]. }
       pose proof (List.find_none _ _ Hfind _ Hin) as Hfn. cbn in Hfn.
       rewrite (compile_node_nid n lprog gc ni0 Hcn) in Hfn.
-      destruct (node_id_eqb_spec n n); congruence. }
+      destruct (eqb_boolspec _ n n); congruence. }
     cbn. unfold lprog_of. rewrite Hgn. rewrite compile_node_nil. cbn. split; reflexivity.
 Qed.
 
@@ -2634,7 +2633,7 @@ Proof.
   - intros _ n p Hget. rewrite map.get_empty in Hget. discriminate.
   - intros k v m r Hgmk IH Hb n p Hget.
     apply andb_true_iff in Hb. destruct Hb as [Hr Hv].
-    destruct (node_id_eqb_spec n k) as [->|Hne].
+    destruct (eqb_boolspec _ n k) as [->|Hne].
     + rewrite map.get_put_same in Hget. injection Hget as <-. exact Hv.
     + rewrite map.get_put_diff in Hget by congruence.
       apply (IH Hr n p Hget).
@@ -2696,7 +2695,7 @@ Proof.
     apply (ForwardingCorrect.map_fold_pres_sound (M := node_id_set) (Mok := node_id_set_ok) g).
     + exact Hft.
     + intros ft' consumer _ Hft'.
-      destruct (node_id_eqb producer consumer).
+      destruct (eqb_boolspec _ producer consumer).
       * apply ForwardingCorrect.add_trie_pres_sound. exact Hft'.
       * destruct (ComputableGraph.get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
                     (edge_set := node_id_edge_set) g producer consumer ) as [path|] eqn:Hpath.
@@ -2793,7 +2792,7 @@ Proof.
              (fun ft => has_fwd_edge ft a rel0 b) _ ft1 consumers cons tt Hcon).
     + intros ft2 c _ H2. apply fwd_cell_mono. exact H2.
     + intros ft2.
-      destruct (node_id_eqb_spec prod cons) as [Heq|_]; [exfalso; apply Hne; exact Heq|].
+      destruct (eqb_boolspec _ prod cons) as [Heq|_]; [exfalso; apply Hne; exact Heq|].
       rewrite Hpath. eapply ForwardingCorrect.add_path_adds; [exact Hi | exact Hib].
 Qed.
 
@@ -2845,9 +2844,9 @@ Lemma ft_key_in_attach (ninfos0 : list node_info) (ft : node_ftable_map) (n : no
 Proof.
   intros Hget. assert (Hkey : In n (map.keys ft)) by exact (map.in_keys ft n v Hget).
   unfold DistributedDatalogToHardwareCompiler.attach_forwarding_tables.
-  destruct (List.existsb (fun ni => node_id_eqb ni.(nid) n) ninfos0) eqn:Hex.
+  destruct (List.existsb (fun ni => eqb ni.(nid) n) ninfos0) eqn:Hex.
   - apply existsb_exists in Hex. destruct Hex as [ni0 [Hin0 Heqn]].
-    destruct (node_id_eqb_spec ni0.(nid) n) as [Hni0n|]; [|discriminate].
+    destruct (eqb_boolspec _ ni0.(nid) n) as [Hni0n|]; [|discriminate].
     eexists. split.
     + rewrite in_app_iff. left. apply in_map_iff. exists ni0. split; [reflexivity | exact Hin0].
     + cbn. exact Hni0n.
@@ -2862,16 +2861,16 @@ Lemma find_ninfo_nforwarding (ninfos0 : list node_info) (ft : node_ftable_map) (
   (find_ninfo (attach_forwarding_tables ninfos0 ft) n).(nforwarding) = get_node_ftable n ft.
 Proof.
   unfold find_ninfo.
-  destruct (List.find (fun ni => node_id_eqb ni.(nid) n) (attach_forwarding_tables ninfos0 ft))
+  destruct (List.find (fun ni => eqb ni.(nid) n) (attach_forwarding_tables ninfos0 ft))
     as [x|] eqn:Hfind.
   - apply List.find_some in Hfind. destruct Hfind as [Hxin Hxnid].
-    destruct (node_id_eqb_spec x.(nid) n) as [Hxn|]; [|discriminate].
+    destruct (eqb_boolspec _ x.(nid) n) as [Hxn|]; [|discriminate].
     rewrite (attach_nforwarding ninfos0 ft x Hxin), Hxn. reflexivity.
   - assert (Hgn : map.get ft n = None).
     { destruct (map.get ft n) as [v|] eqn:Hg; [|reflexivity].
       destruct (ft_key_in_attach ninfos0 ft n v Hg) as [x [Hxin Hxn]].
       pose proof (List.find_none _ _ Hfind x Hxin) as Hfn. cbn in Hfn.
-      rewrite Hxn in Hfn. destruct (node_id_eqb_spec n n); congruence. }
+      rewrite Hxn in Hfn. destruct (eqb_boolspec _ n n); congruence. }
     cbn. unfold get_node_ftable. rewrite Hgn. reflexivity.
 Qed.
 
@@ -3084,7 +3083,7 @@ Proof.
         intros ->. rewrite Hgmk in Hget. discriminate.
       * exists k, v. split; [apply map.get_put_same | exact Hv].
     + intros [n [p [Hget Hin]]].
-      destruct (node_id_eqb_spec n k) as [->|Hne].
+      destruct (eqb_boolspec _ n k) as [->|Hne].
       * rewrite map.get_put_same in Hget. injection Hget as <-. right. exact Hin.
       * rewrite map.get_put_diff in Hget by congruence. left. apply IH. exists n, p. auto.
 Qed.
@@ -3188,7 +3187,7 @@ Lemma construction_reach (gcontext : global_context) (ninfos : list node_info)
     (fwd_list (generate_forwarding_table gcontext ninfos g )) R np nc.
 Proof.
   intros HR Hprod Hcons Hpath.
-  destruct (node_id_eqb_spec np nc) as [E|Hne]; [left; exact E | right].
+  destruct (eqb_boolspec _ np nc) as [E|Hne]; [left; exact E | right].
   destruct (get_path g np nc) as [path|] eqn:Hgpath; [| cbn in Hpath; discriminate].
   destruct (rel_dep_has_get _ _ _ Hprod) as [producers [Hprodm Hprodn]].
   destruct (rel_dep_has_get _ _ _ Hcons) as [consumers [Hconsm Hconsn]].
@@ -4183,7 +4182,7 @@ Proof.
         intros ->. rewrite Hgmk in Hget. discriminate.
       * exists k, v. split; [apply map.get_put_same | exact Hv].
     + intros [n [p [Hget Hin]]].
-      destruct (node_id_eqb_spec n k) as [->|Hne].
+      destruct (eqb_boolspec _ n k) as [->|Hne].
       * rewrite map.get_put_same in Hget. injection Hget as <-. right. exact Hin.
       * rewrite map.get_put_diff in Hget by congruence. left. apply IH. exists n, p. auto.
 Qed.
@@ -4410,7 +4409,7 @@ Proof.
   apply (map.fold_spec (fun (m : layout_map) (acc : global_context) =>
            map.get m n = Some p -> Sdom acc c.(Datalog.clause_rel))).
   - intros Hempty. rewrite map.get_empty in Hempty. discriminate.
-  - intros k v m acc Hgmk IH Hgputn. destruct (node_id_eqb_spec n k) as [->|Hne].
+  - intros k v m acc Hgmk IH Hgputn. destruct (eqb_boolspec _ n k) as [->|Hne].
     + rewrite map.get_put_same in Hgputn. injection Hgputn as Hvp. rewrite Hvp.
       exact (collect_program_covers p cs hs c acc Hinr Hc).
     + rewrite map.get_put_diff in Hgputn by congruence. apply collect_program_Sdom. exact (IH Hgputn).
