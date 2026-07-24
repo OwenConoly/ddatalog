@@ -39,8 +39,6 @@ Context {node_info_map : map.map node_id node_info}.
 
 Record global_context := {
   rel_map : rel_relid_map;
-  rel_node_consumers : rel_dependency_map;
-  rel_node_producers : rel_dependency_map;
   last_rel_id : rel_id;
 }.
 
@@ -78,8 +76,6 @@ Definition update_global_context_with_rel (r : rel) (gcontext : global_context) 
   | None =>
     {|
       rel_map := map.put gcontext.(rel_map) r gcontext.(last_rel_id);
-      rel_node_consumers := gcontext.(rel_node_consumers);
-      rel_node_producers := gcontext.(rel_node_producers);
       last_rel_id := S gcontext.(last_rel_id)
     |}
   end.
@@ -231,53 +227,8 @@ Definition collect_global_dependencies_for_rel_id (r_id : rel_id) (llayout : low
   (get_node_producers r_id llayout lfact_producers gcontext,
    get_node_consumers r_id llayout lfact_consumers gcontext).
 
-Definition add_producer_to_context (r_id : rel_id) (producer : node_id)
-    (gcontext : global_context) : global_context :=
-  let rel_node_producers :=
-    match map.get gcontext.(rel_node_producers) r_id with
-    | Some producers => map.put gcontext.(rel_node_producers) r_id (map.put producers producer tt)
-    | None => map.put gcontext.(rel_node_producers) r_id (map.put map.empty producer tt)
-    end in
-  {|
-    rel_map := gcontext.(rel_map);
-    rel_node_consumers := gcontext.(rel_node_consumers);
-    rel_node_producers := rel_node_producers;
-    last_rel_id := gcontext.(last_rel_id)
-  |}.
-
-Definition add_producers_to_context (r_id : rel_id) (producers : list node_id)
-    (gcontext : global_context) : global_context :=
-  fold_left (fun acc p => add_producer_to_context r_id p acc) producers gcontext.
-
-Definition add_consumer_to_context (r_id : rel_id) (consumer : node_id)
-    (gcontext : global_context) : global_context :=
-  let rel_node_consumers :=
-    match map.get gcontext.(rel_node_consumers) r_id with
-    | Some consumers => map.put gcontext.(rel_node_consumers) r_id (map.put consumers consumer tt)
-    | None => map.put gcontext.(rel_node_consumers) r_id (map.put map.empty consumer tt)
-    end in
-  {|
-    rel_map := gcontext.(rel_map);
-    rel_node_consumers := rel_node_consumers;
-    rel_node_producers := gcontext.(rel_node_producers);
-    last_rel_id := gcontext.(last_rel_id)
-  |}.
-
-Definition add_consumers_to_context (r_id : rel_id) (consumers : list node_id)
-    (gcontext : global_context) : global_context :=
-  fold_left (fun acc c => add_consumer_to_context r_id c acc) consumers gcontext.
-
 Definition get_rel_ids (gcontext : global_context) : list rel_id :=
   map.fold (fun acc _ rel_id => rel_id :: acc) [] gcontext.(rel_map).
-
-Definition collect_global_dependencies (llayout : lowered_layout_map) (lfact_producers : lowered_fact_locations) (lfact_consumers : lowered_fact_locations)
-    (gcontext : global_context) : global_context :=
-  fold_left (fun acc rel_id =>
-    let (producers, consumers) :=
-      collect_global_dependencies_for_rel_id rel_id llayout lfact_producers lfact_consumers gcontext in
-    add_consumers_to_context rel_id consumers
-      (add_producers_to_context rel_id producers acc)
-  ) (get_rel_ids gcontext) gcontext.
 
 (*----Stuff to keep default ordering (if desired) ----*)
 
@@ -811,8 +762,6 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph)
 
 Definition initial_global_context : global_context :=
   {| rel_map := map.empty;
-     rel_node_consumers := map.empty;
-     rel_node_producers := map.empty;
      last_rel_id := 0 |}.
 
 Definition compile_node (node : node_id) (program : lowered_program)
@@ -895,7 +844,7 @@ Definition compile_lowered (llayout : lowered_layout_map)
   _ <- (if layout_in_graphb g llayout
         then Success tt
         else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
-  let gcontext := collect_global_dependencies llayout lfact_producers lfact_consumers gcontext0 in
+  let gcontext := gcontext0 in
   ninfos <- compile_all_nodes llayout gcontext ;;
   ftables <- generate_forwarding_table_checked gcontext ninfos g llayout lfact_consumers lfact_producers ;;
   _ <- (if input_routes_validb gcontext g llayout lfact_consumers lfact_producers
