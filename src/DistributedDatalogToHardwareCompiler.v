@@ -28,14 +28,8 @@ Context {relid_rel_map : map.map rel_id rel}.
 Context {var_id_map : map.map var var_id}.
 Context {layout_map : map.map node_id program}.
 Context {lowered_layout_map : map.map node_id lowered_program}.
-Context {fact_locations_map : map.map rel (list node_id)}.
-Context {lowered_fact_locations_map : map.map rel_id (list node_id)}.
-
-(* fact-location tables: a relation -> the nodes that source/sink its facts.  These are MAPS
-   (unique keys, order-irrelevant) so a relation has exactly one node list -- no duplicate entries
-   and no dependence on insertion order. *)
-Definition fact_locations : Type := fact_locations_map.
-Definition lowered_fact_locations : Type := lowered_fact_locations_map.
+Context {fact_locations : map.map rel (list node_id)}.
+Context {lowered_fact_locations : map.map rel_id (list node_id)}.
 
 (* [node_info] now lives in [DistributedHardwareProgram] (the distributed AST); this is the
    compiler's view of it, with the topology's [node_id] and forwarding-table map fixed. *)
@@ -727,16 +721,16 @@ Definition lprog_of (llayout : lowered_layout_map) (n : node_id) : lowered_progr
    (or [np = nc]).  When this is [false] the compiler cannot certify that every produced fact
    reaches every consumer. *)
 Definition routes_validb (gcontext : global_context) (g : node_graph)
-    (llayout : lowered_layout_map) : bool :=
+    (llayout : lowered_layout_map) (lfc lfp : lowered_fact_locations) : bool :=
   forallb (fun np =>
     forallb (fun rule_np =>
       forallb (fun R =>
         existsb (Nat.eqb R) (get_rel_ids gcontext)
-        && rel_dep_has gcontext.(rel_node_producers) R np
+        && existsb (eqb np) (get_default [] lfp R)
         && forallb (fun nc =>
              if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
                         (lprog_of llayout nc)
-             then rel_dep_has gcontext.(rel_node_consumers) R nc
+             then existsb (eqb nc) (get_default [] lfc R)
                   && is_Some (get_path g np nc)
              else true)
            (map.keys llayout))
@@ -749,8 +743,8 @@ Definition routes_validb (gcontext : global_context) (g : node_graph)
    route compilation FAILS.  This is the "correct by construction" gate -- [Success] witnesses that
    the forwarding is right, so no separate route checker is needed downstream. *)
 Definition generate_forwarding_table_checked (gcontext : global_context) (ninfos : list node_info)
-    (g : node_graph) (llayout : lowered_layout_map) : result node_ftable_map :=
-  if routes_validb gcontext g llayout
+    (g : node_graph) (llayout : lowered_layout_map) lfc lfp : result node_ftable_map :=
+  if routes_validb gcontext g llayout lfc lfp
   then Success (generate_forwarding_table gcontext ninfos g)
   else error:("generate_forwarding_table: some producer cannot reach some consumer (incomplete forwarding)").
 
@@ -759,15 +753,15 @@ Definition generate_forwarding_table_checked (gcontext : global_context) (ninfos
    compilation succeeds, the nodes where base facts are injected provably reach every consumer --
    the input side is correct by construction, no input route checker needed downstream. *)
 Definition input_routes_validb (gcontext : global_context) (g : node_graph)
-    (llayout : lowered_layout_map) (lfp : lowered_fact_locations) : bool :=
+    (llayout : lowered_layout_map) (lfc lfp : lowered_fact_locations) : bool :=
   map.forallb (fun R locs =>
     forallb (fun ni =>
-      existsb (Nat.eqb R) (get_rel_ids gcontext)
-      && rel_dep_has gcontext.(rel_node_producers) R ni
+      existsb (eqb R) (get_rel_ids gcontext)
+      && existsb (eqb ni) (get_default [] lfp R)
       && forallb (fun nc =>
            if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
                       (lprog_of llayout nc)
-           then rel_dep_has gcontext.(rel_node_consumers) R nc
+           then existsb (eqb nc) (get_default [] lfc R)
                 && is_Some (get_path g ni nc)
            else true)
          (map.keys llayout))
@@ -785,15 +779,14 @@ Definition fact_locs (lf : lowered_fact_locations) (R : rel_id) : list node_id :
    declared output/sink node of [R] (a fact-consumer location).  This is what makes a producer a
    "good source" on the output side, and forces every produced relation to have a sink. *)
 Definition output_routesb (gcontext : global_context) (g : node_graph)
-    (llayout : lowered_layout_map) (lfc : lowered_fact_locations) : bool :=
+    (llayout : lowered_layout_map) (lfc lfp : lowered_fact_locations) : bool :=
   forallb (fun np =>
     forallb (fun rule_np =>
       forallb (fun R =>
-        existsb (Nat.eqb R) (get_rel_ids gcontext)
-        && rel_dep_has gcontext.(rel_node_producers) R np
-        && existsb (fun no =>
-             rel_dep_has gcontext.(rel_node_consumers) R no
-             && is_Some (get_path g np no))
+                 existsb (Nat.eqb R) (get_rel_ids gcontext)
+                 && existsb (eqb np) (get_default [] lfp R)
+                 && existsb (fun no => existsb (eqb no) (get_default [] lfc R)
+                                    && is_Some (get_path g np no))
            (fact_locs lfc R))
       (Datalog.concl_rels rule_np))
     (lprog_of llayout np))
@@ -802,13 +795,13 @@ Definition output_routesb (gcontext : global_context) (g : node_graph)
 (* OUTPUT-COMPLETENESS gate (input nodes): every declared input/EDB location of [R] forwards to some
    declared output/sink node of [R]. *)
 Definition input_output_routesb (gcontext : global_context) (g : node_graph)
-    (lfp : lowered_fact_locations) (lfc : lowered_fact_locations) : bool :=
+    (lfc lfp : lowered_fact_locations) : bool :=
   map.forallb (fun R locs =>
     forallb (fun ni =>
       existsb (Nat.eqb R) (get_rel_ids gcontext)
-      && rel_dep_has gcontext.(rel_node_producers) R ni
+      && existsb (eqb ni) (get_default [] lfp R)
       && existsb (fun no =>
-           rel_dep_has gcontext.(rel_node_consumers) R no
+           existsb (eqb no) (get_default [] lfc R)
            && is_Some (get_path g ni no))
            (fact_locs lfc R))
     locs)
@@ -904,14 +897,14 @@ Definition compile_lowered (llayout : lowered_layout_map)
         else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
   let gcontext := collect_global_dependencies llayout lfact_producers lfact_consumers gcontext0 in
   ninfos <- compile_all_nodes llayout gcontext ;;
-  ftables <- generate_forwarding_table_checked gcontext ninfos g llayout ;;
-  _ <- (if input_routes_validb gcontext g llayout lfact_producers
+  ftables <- generate_forwarding_table_checked gcontext ninfos g llayout lfact_consumers lfact_producers ;;
+  _ <- (if input_routes_validb gcontext g llayout lfact_consumers lfact_producers
         then Success tt
         else error:("compile: a declared input/EDB location cannot reach some consumer (incomplete input forwarding)")) ;;
-  _ <- (if output_routesb gcontext g llayout lfact_consumers
+  _ <- (if output_routesb gcontext g llayout lfact_consumers lfact_producers
         then Success tt
         else error:("compile: a producer cannot reach an output/sink node (incomplete output forwarding)")) ;;
-  _ <- (if input_output_routesb gcontext g lfact_producers lfact_consumers
+  _ <- (if input_output_routesb gcontext g lfact_consumers lfact_producers
         then Success tt
         else error:("compile: an input/EDB location cannot reach an output/sink node")) ;;
   Success (attach_forwarding_tables ninfos ftables).
@@ -926,9 +919,8 @@ Existing Instance SortedListNat.map.
 From coqutil Require Import SortedListString.
 Existing Instance SortedListString.map.
 
-Compute compute_permutation (var := nat) (var_eqb := Nat.eqb) [2;3;1;1] [1;2;3].
+Compute compute_permutation [2;3;1;1] [1;2;3].
 Compute generate_join
-  (var := nat) (var_eqb := Nat.eqb)
   [ {| tid := 0; trel := 0; tperm := [0; 1] |} ;
     {| tid := 1; trel := 0; tperm := [1; 0] |} ]
   1
