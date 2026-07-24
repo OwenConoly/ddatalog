@@ -394,8 +394,8 @@ Fixpoint compute_perm_aux (original_order : list var) (base_map occ_map : var_id
   match original_order with
   | [] => []
   | v :: vs =>
-    let base := match map.get base_map v with Some n => n | None => 0 end in
-    let occ  := match map.get occ_map  v with Some n => n | None => 0 end in
+    let base := get_default 0 base_map v in
+    let occ  := get_default 0 occ_map v in
     (base + occ) :: compute_perm_aux vs base_map (map.put occ_map v (occ + 1))
   end.
 
@@ -518,24 +518,18 @@ Definition compile_rule (rule : lowered_rule)
 
 Context {node_ftable_map : map.map node_id forwarding_table}.
 
-Definition get_node_ftable (node : node_id) (ftables : node_ftable_map) : forwarding_table :=
-  match map.get ftables node with
-  | Some ft => ft
-  | None => map.empty
-  end.
-
 Definition add_dest_if_absent (d : destination) (ds : list destination) : list destination :=
   if existsb (destination_eqb d) ds then ds else d :: ds.
 
 Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
-  let ft := get_node_ftable node ftables in
+  let ft := get_default map.empty ftables node in
   let matching_tries :=
     match find (fun n => eqb n.(nid) node) ninfos with
     | None => []
     | Some ninfo => filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
     end in
-  let existing := match map.get ft rel with Some ds => ds | None => [] end in
+  let existing := get_default [] ft rel in
   let updated_ft :=
     map.put ft rel
       (fold_left (fun acc t => add_dest_if_absent (DestTrie t.(tid)) acc)
@@ -549,9 +543,8 @@ Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
   | [] => ftables
   | [node] => add_trie_dest_to_forwarding_table node rel ftables ninfos
   | node :: ((next :: _) as rest) =>
-    let ft := get_node_ftable node ftables in
-    let existing := match map.get ft rel with
-                    | Some ds => ds | None => [] end in
+    let ft := get_default map.empty ftables node in
+    let existing := get_default [] ft rel in
     let ft' := map.put ft rel (add_dest_if_absent (DestEdge next) existing) in
     add_path_to_forwarding_table rel rest (map.put ftables node ft') ninfos
   end.
@@ -695,13 +688,13 @@ Definition attach_forwarding_tables (ninfos : list node_info)
   List.map (fun ninfo =>
     {| nid := ninfo.(nid);
        nprogram := ninfo.(nprogram);
-       nforwarding := get_node_ftable ninfo.(nid) ftables;
+       nforwarding := get_default map.empty ftables ninfo.(nid);
        ntries := ninfo.(ntries) |}
   ) ninfos
   ++ List.map (fun n =>
        {| nid := n;
           nprogram := [];
-          nforwarding := get_node_ftable n ftables;
+          nforwarding := get_default map.empty ftables n ;
           ntries := [] |})
      (filter
         (fun n => negb (existsb (fun ninfo => eqb ninfo.(nid) n) ninfos))
