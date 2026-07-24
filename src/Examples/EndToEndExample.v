@@ -61,7 +61,6 @@ Definition grid_equiv :=
     _ _
     (GridTopology.node_id_map unit) (GridTopology.node_id_map (GridTopology.node_id_map unit))
     (SortedListNat.map (list (@DistributedHardwareProgram.destination GridGraph.Node)))
-    (SortedListNat.map (GridTopology.node_id_map unit))
     (fun _ => 0%nat) StringDatalog.rel_relid_map   (* fn_to_id, matching compile_program *)
     (GridTopology.node_id_map (list rule)) (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map (list (lowered_rule)))
@@ -100,7 +99,6 @@ Definition G      := GridTopology.make_topo_graph topo.
 (* The relabel pass with the grid instances pinned -- exactly the [lower_inputs] the theorem uses. *)
 Notation lowerJ := (@DistributedDatalogToHardwareCompiler.lower_inputs
   string string string unit node_id
-  (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
   StringDatalog.rel_relid_map
   (GridTopology.node_id_map (list rule))
   (GridTopology.node_id_map (list (lowered_rule)))
@@ -139,8 +137,7 @@ Theorem end_to_end_equiv
     (ll  : GridTopology.node_id_map
              (list (lowered_rule)))
     (lfp lfc : SortedListNat.map (list node_id))
-    (gc : @DistributedDatalogToHardwareCompiler.global_context string node_id
-            (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
+    (gc : @DistributedDatalogToHardwareCompiler.global_context string
             StringDatalog.rel_relid_map)
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
@@ -199,8 +196,7 @@ Theorem end_to_end_equiv_reach
     (ll  : GridTopology.node_id_map
              (list (lowered_rule)))
     (lfp lfc : SortedListNat.map (list node_id))
-    (gc : @DistributedDatalogToHardwareCompiler.global_context string node_id
-            (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
+    (gc : @DistributedDatalogToHardwareCompiler.global_context string
             StringDatalog.rel_relid_map)
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->

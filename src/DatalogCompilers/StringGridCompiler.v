@@ -49,7 +49,6 @@ Definition compile_program
     (var_node_set       := StringDatalog.var_node_set)
     (var_edge_set       := StringDatalog.var_edge_set)
     (forwarding_table   := SortedListNat.map (list destination))
-    (rel_dependency_map := SortedListNat.map (node_id_map unit))
     (rel_relid_map      := StringDatalog.rel_relid_map)
     (layout_map         := node_id_map (list rule))
     (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
@@ -72,8 +71,6 @@ Definition compile_program_rel_ids
     : _ :=
   compile_rel_ids
     (node_id            := node_id)
-    (node_id_set        := node_id_map unit)
-    (rel_dependency_map := SortedListNat.map (node_id_map unit))
     (rel_relid_map      := StringDatalog.rel_relid_map)
     (layout_map         := node_id_map (list rule))
     (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
