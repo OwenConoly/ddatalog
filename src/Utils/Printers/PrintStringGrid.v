@@ -2,10 +2,10 @@ From JSON Require Import Encode Printer.
 From Stdlib Require Import String List ZArith.
 From coqutil Require Import Map.Interface Result.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler PrintHardwareEncoding.
-From DatalogRocq Require Import StringDatalogParams GridTopology SortedListNat.
+From DatalogRocq Require Import StringDatalogParams GridTopology GridGraph SortedListNat.
 From DatalogRocq Require Import FamilyCompiler BasicProgramCompiler GraphCompiler CsdaCompiler CspaCompiler Po1Compiler Po2Compiler Po3Compiler Po4Compiler Po5Compiler PointstoCompiler RanpoCompiler ReachCompiler TcCompiler TransCompiler TriangleCompiler X9Compiler Unitprop1Compiler.
 
-Notation node_id := GridTopology.node_id.
+Notation node_id := GridGraph.Node.
 Notation destination := (@DistributedHardwareProgram.destination node_id).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id (SortedListNat.map (list destination))).
 
@@ -19,10 +19,10 @@ Fixpoint coords_to_string (l : list nat) : string :=
   | x :: rest => nat_to_string x ++ ", " ++ coords_to_string rest
   end.
 
-Definition node_id_to_string (n : GridTopology.node_id) : string :=
+Definition node_id_to_string (n : GridGraph.Node) : string :=
   "(" ++ coords_to_string n ++ ")".
 
-Instance JEncode__grid_node_id : JEncode GridTopology.node_id :=
+Instance JEncode__grid_node_id : JEncode GridGraph.Node :=
   fun n => JSON__String (node_id_to_string n).
 
 Redirect "json_examples/compiled_family_program" Eval vm_compute in (to_string (encode compiled_family)).

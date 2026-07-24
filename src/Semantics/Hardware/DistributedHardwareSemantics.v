@@ -29,8 +29,7 @@ Context `{sig : signature nat aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
 (* The node-identifier type is a parameter (was the hardcoded [nat*nat]). *)
 Context {node_id : Type}
-        {node_id_eqb : node_id -> node_id -> bool}
-        {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
+        {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 
 (* ground/runtime facts at this (numeric-id) layer *)
 Notation dl_fact := (@Datalog.fact rel_id T).

@@ -14,7 +14,7 @@
      Hence the queue empties (or the target is found) within #nodes steps -- so with fuel >= #nodes the
      search never stops early for lack of fuel, and any larger fuel yields the same result. *)
 
-From coqutil Require Import Map.Interface Map.Properties.
+From coqutil Require Import Map.Interface Map.Properties Eqb.
 From Stdlib Require Import List Lia PeanoNat.
 From DatalogRocq Require Import ComputableGraph.
 From DatalogRocq Require Topologies.Graph.   (* qualified only: avoid clashing Graph.nodes with ComputableGraph.nodes *)
@@ -22,8 +22,7 @@ Import ListNotations.
 
 Section Complete.
 Context {Node : Type}.
-Context {node_eqb : Node -> Node -> bool}.
-Context {node_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
+Context {node_eqb : Eqb Node} {node_eqb_ok : Eqb_ok node_eqb}.
 Context {node_set : map.map Node unit}.
 Context {node_set_ok : map.ok node_set}.
 Context {edge_set : map.map Node node_set}.
@@ -39,9 +38,7 @@ Local Notation bfs := (@bfs Node node_eqb node_set edge_set).
 
 (* Cardinality via a counting fold (f ignores keys/values, so f_comm is trivial and fold_put/
    fold_empty apply directly -- unlike length(keys), whose cons-fold isn't commutative). *)
-Definition msize (m : node_set) : nat := map.fold (fun n _ _ => S n) 0 m.
-
-Lemma msize_empty : msize map.empty = 0.
+Lemma msize_empty : msize (map.empty : node_set) = 0.
 Proof. unfold msize. apply map.fold_empty. Qed.
 
 Lemma msize_put (m : node_set) (k : Node) (v : unit) :
@@ -76,7 +73,7 @@ Proof.
     assert (Hbk : map.get b k = Some v) by (apply (Hsub k v); apply map.get_put_same).
     rewrite (msize_remove b k v Hbk). apply le_n_S. apply IH.
     intros k' v' Hm.
-    destruct (node_eq_dec k' k) as [->|Hne].
+    destruct (eqb_boolspec _ k' k) as [->|Hne].
     + rewrite Hmk in Hm; discriminate.
     + rewrite (map.get_remove_diff b k' k Hne).
       apply (Hsub k' v').
@@ -132,10 +129,10 @@ Proof.
   - intros j w m acc Hmj IH. destruct acc as [uvs vis]. cbn [snd] in IH.
     destruct (map.get vis j) eqn:E; cbn [snd]; intros H.
     + destruct (IH H) as [Hl | [v Hv]]; [left; exact Hl | right; exists v].
-      destruct (node_eq_dec k j) as [->|Hne].
+      destruct (eqb_boolspec _ k j) as [->|Hne].
       * rewrite Hmj in Hv; discriminate.
       * rewrite (map.get_put_diff m k w j Hne); exact Hv.
-    + destruct (node_eq_dec k j) as [->|Hne].
+    + destruct (eqb_boolspec _ k j) as [->|Hne].
       * right; exists w. apply map.get_put_same.
       * rewrite (map.get_put_diff vis k tt j Hne) in H.
         destruct (IH H) as [Hl | [v Hv]]; [left; exact Hl | right; exists v].
@@ -270,13 +267,14 @@ Proof.
            apply IH; [exact Hsub' | lia | lia].
 Qed.
 
-(* grid_fuel = #nodes is a sufficient routing fuel: with any fuel >= #nodes the BFS path search
-   returns the same answer, so compiling with [grid_fuel] equals compiling with unbounded fuel. *)
+(* the BFS core is fuel-stable above #nodes: from the initial state, any two fuels >= #nodes
+   give [bfs_aux] the same answer. ([bfs] fixes the fuel to [graph_fuel], so this is stated on
+   [bfs_aux] directly.) *)
 Lemma bfs_fuel_stable (g : ComputableGraph) (start target : Node) :
   check_graph_valid g = true ->
   map.get g.(nodes) start <> None ->
   forall fuel fuel', msize g.(nodes) <= fuel -> msize g.(nodes) <= fuel' ->
-  bfs g start target fuel = bfs g start target fuel'.
+  bfs_aux g target (bfs_initial start) fuel = bfs_aux g target (bfs_initial start) fuel'.
 Proof.
   intros Hvalid Hstart fuel fuel' Hf Hf'.
   assert (Hnz : 1 <= msize g.(nodes)).
@@ -284,25 +282,21 @@ Proof.
     rewrite (msize_remove g.(nodes) start v E). lia. }
   assert (Hsub0 : visited_sub (bs_visited (bfs_initial start)) g.(nodes)).
   { unfold bfs_initial, visited_sub. cbn [bs_visited]. intros k Hk.
-    destruct (node_eq_dec k start) as [->|Hne]; [exact Hstart|].
+    destruct (eqb_boolspec _ k start) as [->|Hne]; [exact Hstart|].
     rewrite map.get_put_diff in Hk by (intro; subst; congruence).
     rewrite map.get_empty in Hk. congruence. }
   assert (Hphi0 : Phi g (bfs_initial start) <= msize g.(nodes)).
   { unfold Phi, bfs_initial. cbn [bs_visited bs_queue length].
     rewrite msize_put by apply map.get_empty. rewrite msize_empty. lia. }
-  unfold bfs. apply (bfs_aux_stable g target Hvalid); [exact Hsub0 | lia | lia].
+  apply (bfs_aux_stable g target Hvalid); [exact Hsub0 | lia | lia].
 Qed.
 
 Corollary bfs_fuel_canonical (g : ComputableGraph) (start target : Node) (f : nat) :
   check_graph_valid g = true ->
   map.get g.(nodes) start <> None ->
   msize g.(nodes) <= f ->
-  bfs g start target (msize g.(nodes)) = bfs g start target f.
+  bfs_aux g target (bfs_initial start) (msize g.(nodes)) = bfs_aux g target (bfs_initial start) f.
 Proof. intros Hvalid Hstart Hf. apply bfs_fuel_stable; auto. Qed.
-
-(* ----- the adequate fuel is GENERAL, computed from an arbitrary graph's node set ----- *)
-
-Definition graph_fuel (g : ComputableGraph) : nat := msize g.(nodes).
 
 (* in a valid graph a non-node has no outgoing edges *)
 Lemma cg_neighbors_empty_of_not_node (g : ComputableGraph) (a : Node) :
@@ -329,11 +323,11 @@ Qed.
 (* a non-node start: the search ends in one step, so its result is fuel-independent (fuel >= 1) *)
 Lemma bfs_no_node_stable (g : ComputableGraph) (a b : Node) (f : nat) :
   check_graph_valid g = true -> map.get g.(nodes) a = None -> 1 <= f ->
-  bfs g a b f = (if node_eqb a b then Some [a] else None).
+  bfs_aux g b (bfs_initial a) f = (if node_eqb a b then Some [a] else None).
 Proof.
   intros Hvalid Hna Hf.
   pose proof (cg_neighbors_empty_of_not_node g a Hvalid Hna) as Hemp.
-  destruct f as [|f']; [lia|]. unfold bfs. cbn [bfs_aux].
+  destruct f as [|f']; [lia|]. cbn [bfs_aux].
   destruct (node_eqb a b) eqn:Htgt.
   - assert (Hb : bfs_step g b (bfs_initial a) = inr (List.rev [a]))
       by (unfold bfs_step, bfs_initial; cbn [bs_queue]; rewrite Htgt; reflexivity).
@@ -342,10 +336,10 @@ Proof.
 Qed.
 
 (* GENERAL fuel-stability: for ANY valid graph, [graph_fuel = #nodes] is enough -- raising fuel
-   beyond it never changes a path search.  grid_fuel is just the grid instance of this. *)
+   beyond it never changes a path search.  ([bfs] itself runs at exactly [graph_fuel].) *)
 Lemma bfs_graph_fuel_stable (g : ComputableGraph) (a b : Node) (f : nat) :
   check_graph_valid g = true -> 0 < msize g.(nodes) -> graph_fuel g <= f ->
-  bfs g a b (graph_fuel g) = bfs g a b f.
+  bfs_aux g b (bfs_initial a) (graph_fuel g) = bfs_aux g b (bfs_initial a) f.
 Proof.
   intros Hvalid Hnz Hf. unfold graph_fuel in *.
   destruct (map.get g.(nodes) a) as [v|] eqn:Ha.

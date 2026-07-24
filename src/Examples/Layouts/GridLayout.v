@@ -23,7 +23,7 @@ Section GridLayout.
 
   Definition mk_layout_from_indexed_layout (dims : list nat) (indexed_layout : list (Node * list nat)) (program : list rule) (n : Node) : list rule :=
       if check_node_in_bounds dims n then
-      match find (fun p => GridGraph.node_eqb (fst p) n) indexed_layout with
+      match find (fun p => eqb (fst p) n) indexed_layout with
       | None => []
       | Some (_, ris) =>
           fold_right

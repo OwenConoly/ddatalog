@@ -13,16 +13,7 @@ From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridGraph S
 From coqutil Require Import Map.Interface.
 Import ListNotations.
 
-(* Node ids are grid coordinates: [list nat], the same type [GridGraph] uses. *)
-Definition node_id : Type := GridGraph.Node.
-
-Definition node_id_eqb (n1 n2 : node_id) : bool := GridGraph.node_eqb n1 n2.
-
-Definition node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)
-  := GridGraph.node_eqb_spec.
-
-(* A sorted-list map keyed by node ids ([list nat]). *)
-Definition node_id_map T := @SortedListList.map nat Nat.ltb SortedListNat.Nat_strict_order T.
+#[global] Instance node_id_map T : map.map Node T := @SortedListList.map nat Nat.ltb SortedListNat.Nat_strict_order T.
 
 Lemma node_id_map_ok T : map.ok (node_id_map T).
 Proof. exact (@SortedListList.ok nat Nat.ltb SortedListNat.Nat_strict_order T). Qed.
@@ -48,6 +39,6 @@ Definition build_topo_edge_set (dims : GridGraph.Dimensions)
     nodes map.empty.
 
 Definition make_topo_graph (dims : GridGraph.Dimensions)
-    : @ComputableGraph node_id (node_id_map unit) (node_id_map (node_id_map unit)) :=
+    : @ComputableGraph Node (node_id_map unit) (node_id_map (node_id_map unit)) :=
   {| nodes := build_topo_node_set dims;
      edges := build_topo_edge_set dims |}.

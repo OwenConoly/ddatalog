@@ -10,16 +10,6 @@ Section GridGraph.
 
   Variable dims : Dimensions.
 
-  Definition node_eqb (n1 n2 : Node) : bool := list_eqb Nat.eqb n1 n2.
-
-  Lemma node_eqb_spec :
-    forall n1 n2 : Node,
-      BoolSpec (n1 = n2) (n1 <> n2) (node_eqb n1 n2).
-  Proof.
-    unfold node_eqb.
-    apply list_eqb_spec.
-  Qed.
-
   Inductive is_graph_node : Dimensions -> Node -> Prop :=
   | valid_nil : is_graph_node [] []
   | valid_cons : forall (d : nat) (ds : list nat) (coord : nat) (rest : Node),
@@ -32,7 +22,7 @@ Section GridGraph.
     | [], [] => true
     | c :: cs, d :: ds => (c <? d) && check_node_in_bounds_h cs ds
     | _, _ => false
-    end. 
+    end.
 
   Definition check_node_in_bounds (n : Node) : bool :=
     check_node_in_bounds_h n dims.
@@ -71,27 +61,27 @@ Section GridGraph.
 
   (* This definition says if a node is n steps away from another node by manhattan distance,
      and here we don't care about the dimensions *)
-  Inductive manhattan_distance : nat -> Node -> Node -> Prop := 
+  Inductive manhattan_distance : nat -> Node -> Node -> Prop :=
   | neighbor_zero_steps : forall n,
       manhattan_distance 0 n n
   | neighbor_steps : forall prev_diff next_coord_diff n1 n2 c1 c2,
-      manhattan_distance prev_diff n1 n2 -> 
-      abs c1 c2 = next_coord_diff -> 
+      manhattan_distance prev_diff n1 n2 ->
+      abs c1 c2 = next_coord_diff ->
       manhattan_distance (prev_diff + next_coord_diff) (c1 :: n1) (c2 :: n2).
-    
+
   (* Simple adjacency: differs by +1 on exactly one coordinate *)
-  Inductive is_graph_edge : Dimensions -> Node -> Node -> Prop := 
+  Inductive is_graph_edge : Dimensions -> Node -> Node -> Prop :=
   | valid_edge : forall (dims : Dimensions) (u v : Node),
                  is_graph_node dims u ->
-                 is_graph_node dims v -> 
+                 is_graph_node dims v ->
                  manhattan_distance 1 u v ->
                  is_graph_edge dims u v.
 
   Fixpoint is_mth_neighbor (n1 n2 : Node) (m : nat) : bool :=
-    match n1, n2 with 
+    match n1, n2 with
     | [], [] => if m =? 0 then true else false
-    | c :: cs, c' :: cs' => 
-      if m <? (abs c c') then false 
+    | c :: cs, c' :: cs' =>
+      if m <? (abs c c') then false
       else is_mth_neighbor cs cs' (m - (abs c c'))
     | _, _ => false
     end.
@@ -102,8 +92,8 @@ Section GridGraph.
    is_mth_neighbor n1 n2 1.
 
   Lemma abs_same : forall n, abs n n = 0.
-  Proof. 
-    induction n; auto. 
+  Proof.
+    induction n; auto.
   Qed.
 
   Lemma is_mth_neighbor_self : forall n,
@@ -114,7 +104,7 @@ Section GridGraph.
     apply IHn.
   Qed.
 
-  Lemma is_mth_neighbor_is_manhattan_distance : forall n1 n2 m, 
+  Lemma is_mth_neighbor_is_manhattan_distance : forall n1 n2 m,
     is_mth_neighbor n1 n2 m = true <-> manhattan_distance m n1 n2.
   Proof.
     split.
@@ -191,7 +181,7 @@ Section GridGraph.
         let rest := all_nodes_h ds in
         flat_map (add_dimension rest) (seq 0 d)
     end.
-  
+
   Definition all_nodes : list Node := all_nodes_h dims.
 
   Lemma all_nodes_h_correct : forall (n : Node),
@@ -201,7 +191,7 @@ Section GridGraph.
     - intros Hnode.
       induction Hnode.
       + simpl. left. reflexivity.
-      + simpl. apply in_flat_map. 
+      + simpl. apply in_flat_map.
         exists coord. split.
         * apply in_seq. simpl. lia.
         * apply in_map. apply IHHnode.
@@ -239,7 +229,7 @@ Section GridGraph.
         { apply IHl; exists x; split; assumption. }
         lia.
   Qed.
-  
+
   Theorem all_nodes_nonzero_dim_nonempty :
     forall dims0,
       (forall d, In d dims0 -> d > 0) ->
@@ -461,11 +451,11 @@ Section GridGraph.
   Proof.
     apply grid_connected_h.
   Qed.
-  
+
   Definition all_edges : list (Node * Node) :=
       filter (fun '(n1, n2) => is_neighbor n1 n2)
         (list_prod all_nodes all_nodes).
- 
+
   Lemma all_edges_correct : forall n1 n2,
     is_graph_edge dims n1 n2 <-> In (n1, n2) all_edges.
   Proof.
