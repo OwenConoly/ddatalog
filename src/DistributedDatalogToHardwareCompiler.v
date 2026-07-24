@@ -532,8 +532,8 @@ Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
   map.put ftables node updated_ft.
 
 (* TODO later maybe do edges by which node it connects to instead of direction? *)
-Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
-    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
+Fixpoint add_path_to_forwarding_table (ninfos : list node_info) (rel : rel_id)
+    (ftables : node_ftable_map) (path : list node_id) : node_ftable_map :=
   match path with
   | [] => ftables
   | [node] => add_trie_dest_to_forwarding_table node rel ftables ninfos
@@ -541,31 +541,30 @@ Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
     let ft := get_default map.empty ftables node in
     let existing := get_default [] ft rel in
     let ft' := map.put ft rel (add_dest_if_absent (DestEdge next) existing) in
-    add_path_to_forwarding_table rel rest (map.put ftables node ft') ninfos
+    add_path_to_forwarding_table ninfos rel (map.put ftables node ft') rest
   end.
 
-Definition update_forwarding_table_for_rel (rel : rel_id)
-    (ninfos : list node_info) (ftables : node_ftable_map)
-    (g : node_graph) lfc lfp : node_ftable_map :=
+Definition add_paths_to_forwarding_table (rel : rel_id) (paths : list (list node_id))
+    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
+  fold_left (add_path_to_forwarding_table ninfos rel) paths ftables.
+
+Definition update_forwarding_table_for_rel
+  (g : node_graph) lfc lfp (ninfos : list node_info)
+  (ftables : node_ftable_map) (rel : rel_id) : node_ftable_map :=
   let producers := get_default [] lfp rel in
   let consumers := get_default [] lfc rel in
-  fold_left (fun ftables producer =>
-    fold_left (fun ftables consumer =>
-      if eqb producer consumer then
-        add_trie_dest_to_forwarding_table consumer rel ftables ninfos
-      else
-        match get_path g producer consumer with
-        | None => ftables
-        | Some path => add_path_to_forwarding_table rel path ftables ninfos
-        end
-    ) consumers ftables
-  ) producers ftables .
+  let paths :=
+    flat_map (fun '(producer, consumer) =>
+                match get_path g producer consumer with
+                | None => []
+                | Some path => [path]
+                end)
+      (list_prod producers consumers) in
+  add_paths_to_forwarding_table rel paths ftables ninfos.
 
 Definition generate_forwarding_table (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) lfc lfp : node_ftable_map :=
-  fold_left (fun ftables rel =>
-    update_forwarding_table_for_rel rel ninfos ftables g lfc lfp
-    ) (get_rel_ids gcontext) map.empty.
+  fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) (get_rel_ids gcontext) map.empty.
 
 (* FORWARDING-COMPLETENESS gate: for every node [np] that concludes relation [R], [R] is a
    registered relation and [np] is a recorded producer; and for every node [nc] that hypothesizes
