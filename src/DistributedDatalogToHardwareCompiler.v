@@ -627,16 +627,8 @@ Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
 Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_context)
     (ninfos : list node_info) (ftables : node_ftable_map)
     (g : node_graph) lfc lfp : node_ftable_map :=
-  let producers :=
-    match map.get lfp rel with
-    | Some ps => ps
-    | None => []
-    end in
-  let consumers :=
-    match map.get lfc rel with
-    | Some cs => cs
-    | None => []
-    end in
+  let producers := get_default [] lfp rel in
+  let consumers := get_default [] lfc rel in
   fold_left (fun ftables producer =>
     fold_left (fun ftables consumer =>
       if eqb producer consumer then
@@ -653,7 +645,7 @@ Definition generate_forwarding_table (gcontext : global_context) (ninfos : list 
     (g : node_graph) lfc lfp : node_ftable_map :=
   fold_left (fun ftables rel =>
     update_forwarding_table_for_rel rel gcontext ninfos ftables g lfc lfp
-  ) (get_rel_ids gcontext) map.empty.
+    ) (get_rel_ids gcontext) map.empty.
 
 (* membership of a node in a node_id_set / dependency map, as bools (for the gate below). *)
 Definition nid_mem (s : node_id_set) (n : node_id) : bool :=
@@ -664,7 +656,7 @@ Definition rel_dep_has (m : rel_dependency_map) (R : rel_id) (n : node_id) : boo
 
 (* The lowered program a layout assigns to a node (empty if the node is unassigned). *)
 Definition lprog_of (llayout : lowered_layout_map) (n : node_id) : lowered_program :=
-  match map.get llayout n with Some p => p | None => [] end.
+  get_default [] llayout n.
 
 (* FORWARDING-COMPLETENESS gate: for every node [np] that concludes relation [R], [R] is a
    registered relation and [np] is a recorded producer; and for every node [nc] that hypothesizes
