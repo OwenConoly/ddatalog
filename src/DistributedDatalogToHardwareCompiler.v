@@ -642,9 +642,7 @@ Definition output_routesb (gcontext : global_context) (g : node_graph)
       forallb (fun R =>
                  existsb (Nat.eqb R) (get_rel_ids gcontext)
                  && existsb (eqb np) (get_default [] lfp R)
-                 && existsb (fun no => existsb (eqb no) (get_default [] lfc R)
-                                    && is_Some (get_path g np no))
-           (get_default [] lfc R))
+                 && existsb (fun no => is_Some (get_path g np no)) (get_default [] lfc R))
       (Datalog.concl_rels rule_np))
     (get_default [] llayout np))
   (map.keys llayout).
@@ -657,11 +655,8 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph)
     forallb (fun ni =>
       existsb (Nat.eqb R) (get_rel_ids gcontext)
       && existsb (eqb ni) (get_default [] lfp R)
-      && existsb (fun no =>
-           existsb (eqb no) (get_default [] lfc R)
-           && is_Some (get_path g ni no))
-           (get_default [] lfc R))
-    locs)
+      && existsb (fun no => is_Some (get_path g ni no)) (get_default [] lfc R))
+      locs)
   lfp.
 
 (*----Final Compilation----*)
