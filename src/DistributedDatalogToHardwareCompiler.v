@@ -632,13 +632,6 @@ Definition input_routes_validb (gcontext : global_context) (g : node_graph)
     locs)
   lfp.
 
-(* The declared locations of relation [R] in a (lowered) fact-location list. *)
-Definition fact_locs (lf : lowered_fact_locations) (R : rel_id) : list node_id :=
-  match map.get lf R with
-  | Some locs => locs
-  | None => []
-  end.
-
 (* OUTPUT-COMPLETENESS gate (producers): every node [np] that concludes [R] forwards to some
    declared output/sink node of [R] (a fact-consumer location).  This is what makes a producer a
    "good source" on the output side, and forces every produced relation to have a sink. *)
@@ -651,7 +644,7 @@ Definition output_routesb (gcontext : global_context) (g : node_graph)
                  && existsb (eqb np) (get_default [] lfp R)
                  && existsb (fun no => existsb (eqb no) (get_default [] lfc R)
                                     && is_Some (get_path g np no))
-           (fact_locs lfc R))
+           (get_default [] lfc R))
       (Datalog.concl_rels rule_np))
     (get_default [] llayout np))
   (map.keys llayout).
@@ -667,7 +660,7 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph)
       && existsb (fun no =>
            existsb (eqb no) (get_default [] lfc R)
            && is_Some (get_path g ni no))
-           (fact_locs lfc R))
+           (get_default [] lfc R))
     locs)
   lfp.
 
@@ -747,7 +740,7 @@ Definition compile_rel_ids (layout : layout_map) (fact_producers fact_consumers 
 (* THE NUMERIC CORE: compile an ALREADY-LOWERED layout/fact-locations -- NO relabeling.  Computes
    the dependency context, the per-node programs, the forwarding tables, and the routing gates. *)
 Definition compile_lowered (llayout : lowered_layout_map)
-    (lfact_producers lfact_consumers : lowered_fact_locations) (gcontext0 : global_context)
+    (lfact_producers lfact_consumers : lowered_fact_locations) (gcontext : global_context)
     (g : node_graph) : result (list node_info) :=
   _ <- (if check_graph_valid g
         then Success tt
@@ -755,7 +748,6 @@ Definition compile_lowered (llayout : lowered_layout_map)
   _ <- (if layout_in_graphb g llayout
         then Success tt
         else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
-  let gcontext := gcontext0 in
   ninfos <- compile_all_nodes llayout ;;
   ftables <- generate_forwarding_table_checked gcontext ninfos g llayout lfact_consumers lfact_producers ;;
   _ <- (if input_routes_validb gcontext g llayout lfact_consumers lfact_producers
