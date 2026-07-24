@@ -99,12 +99,10 @@ Definition collect_global_names_layout (layout : layout_map) (gcontext : global_
 (*----Rename — now returns result to catch missing names----*)
 Context (fn_to_id : fn -> fn_id).
 
-Fixpoint global_rename_expr (e : expr) : result lowered_expr :=
+Fixpoint global_rename_expr (e : expr) : lowered_expr :=
   match e with
-  | var_expr v => Success (var_expr v)
-  | fun_expr f args =>
-    rargs <- List.all_success (List.map (fun arg => global_rename_expr arg) args) ;;
-    Success (fun_expr (fn_to_id f) rargs)
+  | var_expr v => var_expr v
+  | fun_expr f args => fun_expr (fn_to_id f) (List.map global_rename_expr args)
   end.
 
 Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_id :=
@@ -115,7 +113,7 @@ Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_
 
 Definition global_rename_fact (f : clause) (gcontext : global_context) : result lowered_fact :=
   r_id <- global_rename_rel f.(clause_rel) gcontext ;;
-  rargs <- List.all_success (List.map (fun arg => global_rename_expr arg) f.(clause_args)) ;;
+  let rargs := List.map global_rename_expr f.(clause_args) in
   Success {| clause_rel := r_id; clause_args := rargs |}.
 
 (* the compiler only handles the bare fragment: rename the concls/hyps of a
