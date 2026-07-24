@@ -1341,34 +1341,20 @@ Proof.
   intros H. injection H as <-. apply index_of_var_sound; exact Hi.
 Qed.
 
-(* [all_success] succeeds exactly when every element already succeeded: the input list is then
-   [map Success] of the returned values.  This replaces the earlier hand-rolled [fold_left]
-   spec/error helpers, now that the compiler builds its lists with [List.all_success (List.map ..)]
-   instead of a reversing [fold_left]. *)
-Lemma all_success_eq_map_Success {A} :
-  forall (l : list (result A)) (l' : list A),
-  List.all_success l = Success l' -> l = List.map Success l'.
-Proof.
-  induction l as [|r l IH]; intros l' H; cbn in H.
-  - injection H as <-. reflexivity.
-  - destruct r as [a|e]; [|discriminate].
-    destruct (List.all_success l) as [ls|e] eqn:Hl; [|discriminate].
-    injection H as <-. cbn. f_equal. apply IH; reflexivity.
-Qed.
-
-(* Consequently, if each element's producer [g] sends a [Success] result to a fact [P a b], then
-   [all_success (map g l)] yields the pointwise [Forall2 P]. *)
+(* If each element's producer [g] sends a [Success] result to a fact [P a b], then
+   [all_success (map g l)] yields the pointwise [Forall2 P].  ([List.all_success_Success_iff]
+   from coqutil supplies the underlying elementwise inversion.) *)
 Lemma all_success_map_spec {A B} (g : A -> result B) (P : A -> B -> Prop) :
   forall (l : list A) (out : list B),
   Forall (fun a => forall b, g a = Success b -> P a b) l ->
   List.all_success (List.map g l) = Success out ->
   Forall2 P l out.
 Proof.
-  intros l out HF Has. apply all_success_eq_map_Success in Has.
-  revert out Has. induction HF as [|a l Ha HF IH]; intros out Has; cbn in Has.
-  - destruct out; cbn in Has; [constructor | discriminate].
-  - destruct out as [|b out]; cbn in Has; [discriminate|].
-    injection Has as Hab Hrest. constructor; [apply Ha; exact Hab | apply IH; exact Hrest].
+  intros l out HF Has.
+  apply List.all_success_Success_iff, Forall2_map_l in Has.
+  eapply Forall2_impl_strong; [exact Has|].
+  rewrite Forall_forall in HF.
+  intros a b Hga Hin _. exact (HF a Hin b Hga).
 Qed.
 
 (* A compiled (bare) conclusion's join_output relation and indices correspond to the
@@ -3938,7 +3924,7 @@ Qed.
 
 (*----[all_success (map ..)] helpers----*)
 (* The renamers build their lists with [List.all_success (List.map g ..)], so the correspondences
-   below carry NO [rev].  [all_success_eq_map_Success] (proved earlier) is the underlying fact. *)
+   below carry NO [rev].  [List.all_success_Success_iff] (from coqutil) is the underlying fact. *)
 
 (* forward: pointwise [Success (h x)] lifts to the whole list. *)
 Lemma all_success_map_pointwise {A B} (g : A -> result B) (h : A -> B) (xs : list A) :
