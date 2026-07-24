@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool ZArith.
-From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result Eqb.
+From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
 From Datalog Require Import Datalog List Map.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
@@ -513,9 +513,6 @@ Definition compile_rule (rule : lowered_rule)
 
 Context {node_ftable_map : map.map node_id forwarding_table}.
 
-Definition add_dest_if_absent (d : destination) (ds : list destination) : list destination :=
-  if existsb (destination_eqb d) ds then ds else d :: ds.
-
 Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
   let ft := get_default map.empty ftables node in
@@ -527,8 +524,7 @@ Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
   let existing := get_default [] ft rel in
   let updated_ft :=
     map.put ft rel
-      (fold_left (fun acc t => add_dest_if_absent (DestTrie t.(tid)) acc)
-        matching_tries existing) in
+      (list_union eqb (List.map (fun t => DestTrie t.(tid)) matching_tries) existing) in
   map.put ftables node updated_ft.
 
 (* TODO later maybe do edges by which node it connects to instead of direction? *)
@@ -540,7 +536,7 @@ Fixpoint add_path_to_forwarding_table (ninfos : list node_info) (rel : rel_id)
   | node :: ((next :: _) as rest) =>
     let ft := get_default map.empty ftables node in
     let existing := get_default [] ft rel in
-    let ft' := map.put ft rel (add_dest_if_absent (DestEdge next) existing) in
+    let ft' := map.put ft rel (list_union eqb [DestEdge next] existing) in
     add_path_to_forwarding_table ninfos rel (map.put ftables node ft') rest
   end.
 
