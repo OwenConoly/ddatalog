@@ -99,11 +99,11 @@ Definition collect_global_names_layout (layout : layout_map) (gcontext : global_
 (*----Rename — now returns result to catch missing names----*)
 Context (fn_to_id : fn -> fn_id).
 
-Fixpoint global_rename_expr (e : expr) (gcontext : global_context) : result lowered_expr :=
+Fixpoint global_rename_expr (e : expr) : result lowered_expr :=
   match e with
   | var_expr v => Success (var_expr v)
   | fun_expr f args =>
-    rargs <- List.all_success (List.map (fun arg => global_rename_expr arg gcontext) args) ;;
+    rargs <- List.all_success (List.map (fun arg => global_rename_expr arg) args) ;;
     Success (fun_expr (fn_to_id f) rargs)
   end.
 
@@ -115,7 +115,7 @@ Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_
 
 Definition global_rename_fact (f : clause) (gcontext : global_context) : result lowered_fact :=
   r_id <- global_rename_rel f.(clause_rel) gcontext ;;
-  rargs <- List.all_success (List.map (fun arg => global_rename_expr arg gcontext) f.(clause_args)) ;;
+  rargs <- List.all_success (List.map (fun arg => global_rename_expr arg) f.(clause_args)) ;;
   Success {| clause_rel := r_id; clause_args := rargs |}.
 
 (* the compiler only handles the bare fragment: rename the concls/hyps of a
@@ -431,7 +431,7 @@ Definition update_node_context_with_trie (t : trie) (ncontext : node_context) : 
      last_trie_id := S ncontext.(last_trie_id) |}.
 
 Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
-    (existing_tries : list trie) (gcontext : global_context)
+    (existing_tries : list trie)
     (ncontext : node_context) : trie * node_context :=
   let perm := compute_permutation (compute_var_order hyp) rule_var_order in
   let rel_id := hyp.(clause_rel) in
@@ -483,7 +483,7 @@ Definition generate_query (tries : list trie) (rule_var_order : list var)
   List.map (fun v => generate_join tries v hyps) rule_var_order.
 
 Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
-    (existing_tries : list trie) (gcontext : global_context) (ncontext : node_context)
+    (existing_tries : list trie) (ncontext : node_context)
     : query * node_context :=
   (* [pool] is the dedup pool threaded into [generate_trie] (existing tries followed by
      the ones we generate, newest first).  [per_hyp_rev] is the trie chosen for each
@@ -492,14 +492,14 @@ Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
      must be the *per-hypothesis* tries in forward order — not the reversed pool. *)
   let '(pool, per_hyp_rev, ncontext) :=
     fold_left (fun '(pool, per_hyp_rev, ncontext) hyp =>
-      let (t, ncontext) := generate_trie hyp rule_var_order pool gcontext ncontext in
+      let (t, ncontext) := generate_trie hyp rule_var_order pool ncontext in
       (t :: pool, t :: per_hyp_rev, ncontext)) hyps (existing_tries, [], ncontext) in
   (generate_query (List.rev per_hyp_rev) rule_var_order hyps, ncontext).
 
 Definition initial_node_context (nid : node_id) : node_context :=
   {| ncid := nid; nctries := []; last_trie_id := 0 |}.
 
-Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
+Definition compile_concl (concl : lowered_fact)
     (rule_var_order : list var) : result join_output :=
   var_indices <- List.all_success (List.map (fun arg =>
     match arg with
@@ -509,21 +509,21 @@ Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
   Success {| output_rel := concl.(clause_rel);
              output_var_indices := var_indices |}.
 
-Definition compile_concls (concls : list lowered_fact) (gcontext : global_context)
+Definition compile_concls (concls : list lowered_fact)
     (rule_var_order : list var) : result (list join_output) :=
-  List.all_success (List.map (fun concl => compile_concl concl gcontext rule_var_order) concls).
+  List.all_success (List.map (fun concl => compile_concl concl rule_var_order) concls).
 
 (* Version that tries to keep original ordering.  Bare fragment: only
    [normal_rule]s are compiled. *)
-Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
+Definition compile_rule (rule : lowered_rule)
     (ncontext : node_context) : result (hardware_rule * node_context) :=
   match rule with
   | normal_rule rconcls rhyps =>
     let dep_g := create_dependency_graph rhyps in
     let rule_var_order := compute_variable_ordering_ordered dep_g rhyps in  (* pass hyps for ordering *)
     let '(query, ncontext) :=
-      compile_hyps rhyps rule_var_order ncontext.(nctries) gcontext ncontext in
-    concls <- compile_concls rconcls gcontext rule_var_order ;;
+      compile_hyps rhyps rule_var_order ncontext.(nctries) ncontext in
+    concls <- compile_concls rconcls rule_var_order ;;
     Success ({| hhyps := query; hconcls := concls;
                 hsig := List.map (fun h => (h.(clause_rel), List.length h.(clause_args))) rhyps |}, ncontext)
   | _ => error:("compile_rule: aggregation/meta rules are not supported")
@@ -571,7 +571,7 @@ Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
     add_path_to_forwarding_table rel rest (map.put ftables node ft') ninfos
   end.
 
-Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_context)
+Definition update_forwarding_table_for_rel (rel : rel_id)
     (ninfos : list node_info) (ftables : node_ftable_map)
     (g : node_graph) lfc lfp : node_ftable_map :=
   let producers := get_default [] lfp rel in
@@ -591,7 +591,7 @@ Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_con
 Definition generate_forwarding_table (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) lfc lfp : node_ftable_map :=
   fold_left (fun ftables rel =>
-    update_forwarding_table_for_rel rel gcontext ninfos ftables g lfc lfp
+    update_forwarding_table_for_rel rel ninfos ftables g lfc lfp
     ) (get_rel_ids gcontext) map.empty.
 
 (* FORWARDING-COMPLETENESS gate: for every node [np] that concludes relation [R], [R] is a
@@ -692,12 +692,11 @@ Definition initial_global_context : global_context :=
   {| rel_map := map.empty;
      last_rel_id := 0 |}.
 
-Definition compile_node (node : node_id) (program : lowered_program)
-    (gcontext : global_context) : result node_info :=
+Definition compile_node (node : node_id) (program : lowered_program) : result node_info :=
   '(compiled_rules, ncontext) <-
     fold_left (fun acc rule =>
       '(rules, ncontext) <- acc ;;
-      '(hr, ncontext) <- compile_rule rule gcontext ncontext ;;
+      '(hr, ncontext) <- compile_rule rule ncontext ;;
       Success (hr :: rules, ncontext)%list
     ) program (Success ([], initial_node_context node)) ;;
   Success {| nid := node;
@@ -705,11 +704,10 @@ Definition compile_node (node : node_id) (program : lowered_program)
              nforwarding := map.empty;
              ntries := List.rev ncontext.(nctries) |}.
 
-Definition compile_all_nodes (llayout : lowered_layout_map)
-    (gcontext : global_context) : result (list node_info) :=
+Definition compile_all_nodes (llayout : lowered_layout_map) : result (list node_info) :=
   ninfos <- map.fold (fun acc node program =>
     ninfos <- acc ;;
-    ninfo <- compile_node node program gcontext ;;
+    ninfo <- compile_node node program ;;
     Success (ninfo :: ninfos)
   ) (Success []) llayout ;;
   Success (ninfos).
@@ -773,7 +771,7 @@ Definition compile_lowered (llayout : lowered_layout_map)
         then Success tt
         else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
   let gcontext := gcontext0 in
-  ninfos <- compile_all_nodes llayout gcontext ;;
+  ninfos <- compile_all_nodes llayout ;;
   ftables <- generate_forwarding_table_checked gcontext ninfos g llayout lfact_consumers lfact_producers ;;
   _ <- (if input_routes_validb gcontext g llayout lfact_consumers lfact_producers
         then Success tt
