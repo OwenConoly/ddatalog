@@ -7,10 +7,11 @@
    we run [NodeHardwareSemantics] on those generated tries and the inputs A(7,8), B(8,7), and
    prove the node derives J(7,8).
 
-   The compiler assigns relation ids in first-seen order: A = 0, B = 1, J = 2.  The interesting
-   bit is B's clause stores its columns swapped ((y,x)), so the compiler gives B's trie the
-   non-trivial column permutation [1;0]; [trie_read] inverts it, so "level i" always means the
-   i-th variable in the ordering regardless of where it physically sits.
+   The compiler assigns relation ids in first-seen order: A = 0, B = 1, J = 2.  It orders the
+   join variables (y, x) (last-occurrence over the body A(x,y), B(y,x)); B already stores its
+   columns in that order, but A -- stored (x,y) -- gets the non-trivial column permutation
+   [1;0].  [trie_read] inverts it, so "level i" always means the i-th variable in the ordering
+   regardless of where it physically sits.
 
    This file is a test in the repo's sense: it must type-check.  A successful build IS the test. *)
 
@@ -54,19 +55,19 @@ Definition gen_prog : hardware_program :=
 (*  ... and a proof that they are EXACTLY the compiler's output.              *)
 (*==========================================================================*)
 
-Definition trieA : trie := {| tid := 0; trel := 0; tperm := [0; 1] |}.  (* A's columns (x,y): identity *)
-Definition trieB : trie := {| tid := 1; trel := 1; tperm := [1; 0] |}.  (* B's columns (y,x): swapped  *)
+Definition trieA : trie := {| tid := 0; trel := 0; tperm := [1; 0] |}.  (* A stores (x,y); ordering (y,x): swapped   *)
+Definition trieB : trie := {| tid := 1; trel := 1; tperm := [0; 1] |}.  (* B stores (y,x); ordering (y,x): identity *)
 Definition tries : list trie := [trieA; trieB].
 
-Definition joinX : join :=
-  {| HardwareProgram.tries := [0; 1]; trie_levels := [0; 0]; clauses := [0; 1] |}.  (* x, level 0 *)
 Definition joinY : join :=
-  {| HardwareProgram.tries := [0; 1]; trie_levels := [1; 1]; clauses := [0; 1] |}.  (* y, level 1 *)
+  {| HardwareProgram.tries := [0; 1]; trie_levels := [0; 0]; clauses := [0; 1] |}.  (* y, level 0 *)
+Definition joinX : join :=
+  {| HardwareProgram.tries := [0; 1]; trie_levels := [1; 1]; clauses := [0; 1] |}.  (* x, level 1 *)
 
-Definition concl : join_output := {| output_rel := 2; output_var_indices := [0; 1] |}.  (* J(x,y) *)
+Definition concl : join_output := {| output_rel := 2; output_var_indices := [1; 0] |}.  (* J(x,y): x=level 1, y=level 0 *)
 
 Definition hrJ : hardware_rule :=
-  {| hhyps := [joinX; joinY]; hconcls := [concl]; hsig := [(0, 2); (1, 2)] |}.
+  {| hhyps := [joinY; joinX]; hconcls := [concl]; hsig := [(0, 2); (1, 2)] |}.
 Definition hp : hardware_program := [hrJ].
 
 (* The compiler really does generate these tries and this trie-join rule from [ruleJ]. *)
@@ -89,23 +90,23 @@ Definition factJ : @Datalog.fact rel_id nat := Datalog.normal_fact 2 [7; 8].  (*
 (*  Layer 1: the permutation reads ([inv_perm_index] / [trie_read]).          *)
 (*==========================================================================*)
 
-(* Inverting B's swapped trie: level 0 lives at original column 1. *)
+(* Inverting A's swapped trie: level 0 lives at original column 1. *)
 Example ex_inv_perm : inv_perm_index [1; 0] 0 = Some 1 := eq_refl.
 
-(* Reading B's stored tuple [8;7] (= (y,x)): level 0 recovers x = 7, level 1 recovers y = 8. *)
-Example ex_read_Bx : trie_read (T := nat) [1; 0] [8; 7] 0 = Some 7 := eq_refl.
-Example ex_read_By : trie_read (T := nat) [1; 0] [8; 7] 1 = Some 8 := eq_refl.
+(* Reading A's stored tuple [7;8] (= (x,y)) under ordering (y,x): level 0 recovers y = 8, level 1 recovers x = 7. *)
+Example ex_read_Ay : trie_read (T := nat) [1; 0] [7; 8] 0 = Some 8 := eq_refl.
+Example ex_read_Ax : trie_read (T := nat) [1; 0] [7; 8] 1 = Some 7 := eq_refl.
 
-(* Reading A's stored tuple [7;8] (= (x,y)) with the identity permutation. *)
-Example ex_read_Ax : trie_read (T := nat) [0; 1] [7; 8] 0 = Some 7 := eq_refl.
-Example ex_read_Ay : trie_read (T := nat) [0; 1] [7; 8] 1 = Some 8 := eq_refl.
+(* Reading B's stored tuple [8;7] (= (y,x)) with the identity permutation. *)
+Example ex_read_By : trie_read (T := nat) [0; 1] [8; 7] 0 = Some 8 := eq_refl.
+Example ex_read_Bx : trie_read (T := nat) [0; 1] [8; 7] 1 = Some 7 := eq_refl.
 
 (*==========================================================================*)
 (*  Layer 2: projecting the conclusion ([join_output_fact]).                  *)
 (*==========================================================================*)
 
-(* Binding [x;y] = [7;8] projected through output indices [0;1] gives J(7,8). *)
-Example ex_project : join_output_fact (T := nat) [7; 8] concl = Some factJ := eq_refl.
+(* Binding [y;x] = [8;7] projected through output indices [1;0] gives J(7,8). *)
+Example ex_project : join_output_fact (T := nat) [8; 7] concl = Some factJ := eq_refl.
 
 (*==========================================================================*)
 (*  Layer 3: the rule fires ([hw_rule_impl] derives J(7,8) from A(7,8),B(8,7)).*)
@@ -116,20 +117,20 @@ Proof.
   unfold hw_rule_impl. cbn [hrJ hhyps hconcls hsig]. split.
   - (* shape gate: each hypothesis fact matches its (relation, arity) signature *)
     repeat constructor.
-  - (* the binding x = 7, y = 8 *)
-    exists [7; 8]. split.
+  - (* the binding y = 8, x = 7 (ordering is (y,x)) *)
+    exists [8; 7]. split.
     + (* query_sat: both joins are satisfied *)
       unfold query_sat. cbn [hhyps length seq combine]. split; [reflexivity |].
       apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]].
-      * (* join for x: every entry reads 7 *)
-        cbn. exists 7. split; [reflexivity |].
-        cbn [joinX HardwareProgram.tries trie_levels clauses zip3].
-        apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]]; cbn.
-        -- exists trieA, [7; 8]. repeat split; reflexivity.   (* A reads x = 7 *)
-        -- exists trieB, [8; 7]. repeat split; reflexivity.   (* B (swapped) also reads x = 7 *)
-      * (* join for y: every entry reads 8 *)
+      * (* join for y (level 0): every entry reads 8 *)
         cbn. exists 8. split; [reflexivity |].
         cbn [joinY HardwareProgram.tries trie_levels clauses zip3].
+        apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]]; cbn.
+        -- exists trieA, [7; 8]. repeat split; reflexivity.   (* A (swapped) reads y = 8 *)
+        -- exists trieB, [8; 7]. repeat split; reflexivity.   (* B also reads y = 8 *)
+      * (* join for x (level 1): every entry reads 7 *)
+        cbn. exists 7. split; [reflexivity |].
+        cbn [joinX HardwareProgram.tries trie_levels clauses zip3].
         apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]]; cbn.
         -- exists trieA, [7; 8]. repeat split; reflexivity.
         -- exists trieB, [8; 7]. repeat split; reflexivity.

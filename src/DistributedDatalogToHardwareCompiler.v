@@ -1,6 +1,6 @@
-From Datalog Require Import Datalog List Map.
 From Stdlib Require Import List String Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result Eqb.
+From Datalog Require Import Datalog List Map.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
@@ -300,23 +300,10 @@ Definition collect_vars_fact (f : lowered_fact) : list var :=
 Definition collect_vars_hyps (hyps : list lowered_fact) : list var :=
   List.flat_map collect_vars_fact hyps.
 
-(* Deduplicate keeping first occurrence *)
-Fixpoint dedup (seen : var_node_set) (l : list var) : list var :=
-  match l with
-  | [] => []
-  | v :: rest =>
-    match map.get seen v with
-    | Some _ => dedup seen rest
-    | None => v :: dedup (map.put seen v tt) rest
-    end
-  end.
-
 Definition hyp_var_order (hyps : list lowered_fact) : list var :=
-  dedup map.empty (collect_vars_hyps hyps).
+  dedup (collect_vars_hyps hyps).
 
 (*----Variable ordering----*)
-
-Context {var_set : map.map var unit}.
 
 Definition vg_neighbors (g : var_graph) (v : var) : var_node_set :=
   match map.get g.(edges) v with

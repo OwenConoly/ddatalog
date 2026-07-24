@@ -16,9 +16,9 @@
    [compile_rule] produces, i.e. the *generic-join correctness*: the trie-join query
    [generate_query] admits exactly the variable bindings under which the lowered rule fires. *)
 
-From Datalog Require Import Datalog.
 From Stdlib Require Import List Bool ZArith Lia.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Datatypes.Result Eqb.
+From Datalog Require Import Datalog List.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
 From DatalogRocq Require Import ForwardingCorrect RelabelCorrect.
@@ -1181,7 +1181,7 @@ Proof.
       symmetry. exact (map.getmany_of_list_get ord i ctx vals v t Hvals Hi Evt). }
     (* transport the hypotheses' interpretation to [ctx'] *)
     assert (Hfa' : Forall2 (interp_clause ctx') (hyps) hyps').
-    { eapply Forall2_impl_strong; [|exact Hfa].
+    { eapply Forall2_impl_strong; [exact Hfa|].
       intros lf y Hif Hinlf _.
       eapply Datalog.interp_clause_agree_on; [exact Hif|].
       apply Forall_forall. intros v Hvin. red. symmetry. apply Hagree.
@@ -1568,7 +1568,6 @@ Notation var_graph := (@DistributedDatalogToHardwareCompiler.var_graph var var_n
 Notation lowered_fact := (@HardwareProgram.lowered_fact var).
 Notation choose := (@DistributedDatalogToHardwareCompiler.choose_next_var_ordered var var_node_set var_edge_set).
 Notation visit_node := (@DistributedDatalogToHardwareCompiler.visit_node var var_node_set var_edge_set).
-Notation dedup := (@DistributedDatalogToHardwareCompiler.dedup var var_node_set).
 Notation collect_vars_fact := (@DistributedDatalogToHardwareCompiler.collect_vars_fact var).
 Notation collect_vars_hyps := (@DistributedDatalogToHardwareCompiler.collect_vars_hyps var).
 Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var).
@@ -1655,41 +1654,6 @@ Proof.
   apply (fold_mstep_None ctx.(dep_graph).(nodes) (DistributedDatalogToHardwareCompiler.compute_degree ctx.(dep_graph)) cs None)
     in H2.
   destruct H2 as [_ H2]. apply H2; exact Hv.
-Qed.
-
-(*----dedup: membership and NoDup----*)
-
-(* [dedup] keeps exactly the not-yet-seen members of the list. *)
-Lemma dedup_in (l : list var) : forall (seen : var_node_set) (v : var),
-  In v (dedup seen l) <-> (In v l /\ map.get seen v = None).
-Proof.
-  induction l as [|x l IH]; intros seen v; simpl.
-  - split; [intros [] | intros [[] _]].
-  - destruct (map.get seen x) as [u|] eqn:Hx.
-    + rewrite IH. split.
-      * intros [Hin Hsv]. split; [right; exact Hin | exact Hsv].
-      * intros [[<-|Hin] Hsv]; [rewrite Hx in Hsv; discriminate | split; assumption].
-    + simpl. rewrite IH. split.
-      * intros [<- | [Hin Hsv]].
-        -- split; [left; reflexivity | exact Hx].
-        -- destruct (var_eqb_spec x v) as [->|Hne].
-           ++ rewrite map.get_put_same in Hsv. discriminate.
-           ++ rewrite (map.get_put_diff seen v tt x (not_eq_sym Hne)) in Hsv.
-              split; [right; exact Hin | exact Hsv].
-      * intros [[<-|Hin] Hsv].
-        -- left; reflexivity.
-        -- destruct (var_eqb_spec x v) as [->|Hne].
-           ++ left; reflexivity.
-           ++ right. split;
-                [exact Hin | rewrite (map.get_put_diff seen v tt x (not_eq_sym Hne)); exact Hsv].
-Qed.
-
-Lemma dedup_NoDup (l : list var) : forall (seen : var_node_set), NoDup (dedup seen l).
-Proof.
-  induction l as [|x l IH]; intros seen; simpl; [constructor|].
-  destruct (map.get seen x) eqn:Hx; [apply IH|].
-  constructor; [|apply IH].
-  rewrite dedup_in. intros [_ Hc]. rewrite map.get_put_same in Hc. discriminate.
 Qed.
 
 (*----bare hypotheses: collected vars coincide with the variable ordering's vars----*)
@@ -1930,7 +1894,7 @@ Lemma length_filter_le {A} (f : A -> bool) (l : list A) : length (filter f l) <=
 Proof. induction l as [|x l IH]; simpl; [lia | destruct (f x); simpl; lia]. Qed.
 
 Notation compute_variable_ordering_ordered :=
-  (@DistributedDatalogToHardwareCompiler.compute_variable_ordering_ordered var var_node_set var_edge_set).
+  (@DistributedDatalogToHardwareCompiler.compute_variable_ordering_ordered var var_eqb var_node_set var_edge_set).
 Notation create_dependency_graph :=
   (@DistributedDatalogToHardwareCompiler.create_dependency_graph var var_node_set var_edge_set).
 Notation initial_ordering_context :=
@@ -1954,9 +1918,9 @@ Proof.
   set (g := create_dependency_graph hyps).
   set (cs := DistributedDatalogToHardwareCompiler.hyp_var_order hyps).
   assert (HcandIn : forall v, In v cs <-> In v (collect_vars_hyps hyps)).
-  { intros v. unfold cs, DistributedDatalogToHardwareCompiler.hyp_var_order. rewrite dedup_in, map.get_empty.
-    split; [intros [H _]; exact H | intros H; split; [exact H | reflexivity]]. }
-  assert (Hcs : NoDup cs) by (unfold cs, DistributedDatalogToHardwareCompiler.hyp_var_order; apply dedup_NoDup).
+  { intros v. unfold cs, DistributedDatalogToHardwareCompiler.hyp_var_order.
+    symmetry. apply dedup_preserves_In. }
+  assert (Hcs : NoDup cs) by (unfold cs, DistributedDatalogToHardwareCompiler.hyp_var_order; apply NoDup_dedup).
   assert (HP1 : NoDup (initial_ordering_context g).(order)) by (simpl; constructor).
   assert (HP2 : forall w, In w (initial_ordering_context g).(order) -> In w cs)
     by (simpl; intros w []).

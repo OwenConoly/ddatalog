@@ -52,13 +52,6 @@ Definition get_const (e : expr) : option fn :=
   | _ => None
   end.
 
-Definition dedup {A} {aeqb : Eqb A} (lst : list A) : list A :=
-  fold_right (fun x acc =>
-                if existsb (eqb x) acc then acc
-                else x :: acc) [] lst.
-
-(* [Eqb] for [clause]/[meta_clause]/[rule] lives in [EqbSpec]; here we just use [eqb]. *)
-
 (* Pruning.  The compiler only ever produces [normal_rule]s (the bare fragment),
    so concls/hyps are read by matching that constructor directly. *)
 Definition prune_empty_concl_rules (p : program) : program :=
