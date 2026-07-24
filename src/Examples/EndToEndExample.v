@@ -133,13 +133,12 @@ Example check_distributes : layout_distributes_programb P LAYOUT = true. Proof. 
 (*  queried fact [fsrc] of [P], the distributed run of the COMPILED network     *)
 (*  parks the renamed [fsrc] at an output node  iff  [P] derives [fsrc].        *)
 (*==========================================================================*)
-
+Opaque compile.
 Theorem end_to_end_equiv
     (ninfos : list (@node_info node_id (SortedListNat.map (list destination))))
     (ll  : GridTopology.node_id_map
              (list (lowered_rule)))
-    (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
-                 (SortedListNat.map (list node_id)))
+    (lfp lfc : SortedListNat.map (list node_id))
     (gc : @DistributedDatalogToHardwareCompiler.global_context string node_id
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
             StringDatalog.rel_relid_map)
@@ -156,13 +155,7 @@ Theorem end_to_end_equiv
     (RelabelCorrect.relabel_fact (rho_gc gc) fsrc)
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
-  intros Hcompile Hlower Hin Hedb.
-  apply (grid_equiv LAYOUT FPS FPS G ninfos ll lfp lfc gc P Qsrc fsrc
-           Hcompile Hlower);
-    [ vm_compute; reflexivity   (* bare_layoutb LAYOUT = true *)
-    | vm_compute; reflexivity
-    | exact Hin
-    | exact Hedb ].
+  intros. eapply grid_equiv; eassumption || reflexivity.
 Qed.
 
 (*==========================================================================*)
@@ -205,8 +198,7 @@ Theorem end_to_end_equiv_reach
     (ninfos : list (@node_info node_id (SortedListNat.map (list destination))))
     (ll  : GridTopology.node_id_map
              (list (lowered_rule)))
-    (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
-                 (SortedListNat.map (list node_id)))
+    (lfp lfc : SortedListNat.map (list node_id))
     (gc : @DistributedDatalogToHardwareCompiler.global_context string node_id
             (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
             StringDatalog.rel_relid_map)
