@@ -3184,18 +3184,14 @@ Lemma construction_reach (gcontext : global_context) (ninfos : list node_info)
   In R (get_rel_ids gcontext) ->
   rel_dep_has gcontext.(DistributedDatalogToHardwareCompiler.rel_node_producers) R np = true ->
   rel_dep_has gcontext.(DistributedDatalogToHardwareCompiler.rel_node_consumers) R nc = true ->
-  (node_id_eqb np nc
-   || match get_path g np nc with Some _ => true | None => false end) = true ->
+  Datalog.List.is_Some (get_path g np nc) = true ->
   np = nc \/
   @DistributedDatalog.forwarding_reachable rel_id node_id
     (fwd_list (generate_forwarding_table gcontext ninfos g )) R np nc.
 Proof.
   intros HR Hprod Hcons Hpath.
   destruct (node_id_eqb_spec np nc) as [E|Hne]; [left; exact E | right].
-  assert (Hgp : match get_path g np nc with Some _ => true | None => false end = true).
-  { apply orb_true_iff in Hpath. destruct Hpath as [Hc|Hc]; [|exact Hc].
-    destruct (node_id_eqb_spec np nc); [contradiction | discriminate]. }
-  destruct (get_path g np nc ) as [path|] eqn:Hgpath; [|discriminate].
+  destruct (get_path g np nc) as [path|] eqn:Hgpath; [| cbn in Hpath; discriminate].
   destruct (rel_dep_has_get _ _ _ Hprod) as [producers [Hprodm Hprodn]].
   destruct (rel_dep_has_get _ _ _ Hcons) as [consumers [Hconsm Hconsn]].
   exact (generate_forwarding_reachable g gcontext ninfos R np nc path producers consumers
@@ -3216,8 +3212,7 @@ Definition construction_routesb (gcontext : global_context) (g : node_graph)
         && forallb (fun nc =>
              if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc)) (lprog_of llayout nc)
              then rel_dep_has gcontext.(DistributedDatalogToHardwareCompiler.rel_node_consumers) R nc
-                  && (node_id_eqb np nc
-                      || match get_path g np nc with Some _ => true | None => false end)
+                  && Datalog.List.is_Some (get_path g np nc)
              else true)
            (map.keys llayout))
       (Datalog.concl_rels rule_np))

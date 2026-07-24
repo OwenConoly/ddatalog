@@ -751,10 +751,7 @@ Definition routes_validb (gcontext : global_context) (g : node_graph)
              if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
                         (match map.get llayout nc with Some p => p | None => [] end)
              then rel_dep_has gcontext.(rel_node_consumers) R nc
-                  && (node_id_eqb np nc
-                      || match get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                                        (edge_set := node_id_edge_set) g np nc with
-                         | Some _ => true | None => false end)
+                  && is_Some (get_path (node_eqb := node_id_eqb) g np nc)
              else true)
            (map.keys llayout))
       (Datalog.concl_rels rule_np))
@@ -785,10 +782,7 @@ Definition input_routes_validb (gcontext : global_context) (g : node_graph)
            if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
                       (match map.get llayout nc with Some p => p | None => [] end)
            then rel_dep_has gcontext.(rel_node_consumers) R nc
-                && (node_id_eqb ni nc
-                    || match get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                                      (edge_set := node_id_edge_set) g ni nc with
-                       | Some _ => true | None => false end)
+                && is_Some (get_path (node_eqb := node_id_eqb) g ni nc)
            else true)
          (map.keys llayout))
     locs)
@@ -813,10 +807,7 @@ Definition output_routesb (gcontext : global_context) (g : node_graph)
         && rel_dep_has gcontext.(rel_node_producers) R np
         && existsb (fun no =>
              rel_dep_has gcontext.(rel_node_consumers) R no
-             && (node_id_eqb np no
-                 || match get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                                   (edge_set := node_id_edge_set) g np no with
-                    | Some _ => true | None => false end))
+             && is_Some (get_path (node_eqb := node_id_eqb) g np no))
            (fact_locs lfc R))
       (Datalog.concl_rels rule_np))
     (match map.get llayout np with Some p => p | None => [] end))
@@ -832,11 +823,8 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph)
       && rel_dep_has gcontext.(rel_node_producers) R ni
       && existsb (fun no =>
            rel_dep_has gcontext.(rel_node_consumers) R no
-           && (node_id_eqb ni no
-               || match get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                                 (edge_set := node_id_edge_set) g ni no with
-                  | Some _ => true | None => false end))
-         (fact_locs lfc R))
+           && is_Some (get_path (node_eqb := node_id_eqb) g ni no))
+           (fact_locs lfc R))
     locs)
   lfp.
 
