@@ -1,4 +1,4 @@
-From Stdlib Require Import List String Bool ZArith.
+From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result Eqb.
 From Datalog Require Import Datalog List Map.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
@@ -145,7 +145,7 @@ Definition global_rename_fact_locations (fact_locations : fact_locations) (gcont
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
 Definition source_program (layout : layout_map) : program :=
-  map.fold (fun acc _ p => (acc ++ p)%list) (@nil rule) layout.
+  concat (values layout).
 
 (* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([prog_impl] of a
    bare program depends only on its rule set, so the compiled network then implements [P].) *)
@@ -167,31 +167,18 @@ Qed.
 (*----Collecting Info About Layout----*)
 
 Definition lowered_fact_contains_rel (f : lowered_fact) (r_id : rel_id) : bool :=
-  Nat.eqb r_id f.(clause_rel).
+  eqb r_id f.(clause_rel).
 
 Definition lowered_facts_contains_rel (facts : list lowered_fact) (r_id : rel_id) : bool :=
-  List.existsb (fun f => lowered_fact_contains_rel f r_id) facts.
+  existsb (fun f => lowered_fact_contains_rel f r_id) facts.
 
 Definition get_rel_ids (gcontext : global_context) : list rel_id :=
-  map.fold (fun acc _ rel_id => rel_id :: acc) [] gcontext.(rel_map).
+  values gcontext.(rel_map).
 
 (*----Stuff to keep default ordering (if desired) ----*)
 
-(* Collect vars in order of first appearance in hypotheses *)
-Fixpoint collect_vars_expr (e : lowered_expr) : list var :=
-  match e with
-  | var_expr v => [v]
-  | fun_expr _ args => List.flat_map collect_vars_expr args
-  end.
-
-Definition collect_vars_fact (f : lowered_fact) : list var :=
-  List.flat_map collect_vars_expr f.(clause_args).
-
-Definition collect_vars_hyps (hyps : list lowered_fact) : list var :=
-  List.flat_map collect_vars_fact hyps.
-
 Definition hyp_var_order (hyps : list lowered_fact) : list var :=
-  dedup (collect_vars_hyps hyps).
+  dedup (flat_map vars_of_clause hyps).
 
 (*----Variable ordering----*)
 
@@ -361,9 +348,9 @@ Fixpoint compute_variable_ordering_ordered_h (ctx : ordering_context)
 
 Definition compute_variable_ordering_ordered (g : var_graph) (hyps : list lowered_fact) : list var :=
   let candidates := hyp_var_order hyps in
-  List.rev
+  rev
     (compute_variable_ordering_ordered_h (initial_ordering_context g)
-       candidates (List.length candidates)).(order).
+       candidates (length candidates)).(order).
 
 (*----Trie Allocation----*)
 
@@ -374,7 +361,7 @@ Definition vars_of_arg (arg : lowered_expr) : list var :=
   end.
 
 Definition compute_var_order (lf : lowered_fact) : list var :=
-  List.flat_map vars_of_arg lf.(clause_args).
+  flat_map vars_of_arg lf.(clause_args).
 
 Context {var_idx_map : map.map var nat}.
 
@@ -419,8 +406,8 @@ Definition compute_permutation (original_order desired_order : list var) : permu
 (*----Trie Generation----*)
 
 Definition permutation_eqb (p1 p2 : permutation) : bool :=
-  if Nat.eqb (List.length p1) (List.length p2) then
-    List.forallb (fun '(x, y) => Nat.eqb x y) (List.combine p1 p2)
+  if eqb (length p1) (length p2) then
+    forallb (fun '(x, y) => Nat.eqb x y) (combine p1 p2)
   else false.
 
 Definition update_node_context_with_trie (t : trie) (ncontext : node_context) : node_context :=
@@ -433,7 +420,7 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
     (ncontext : node_context) : trie * node_context :=
   let perm := compute_permutation (compute_var_order hyp) rule_var_order in
   let rel_id := hyp.(clause_rel) in
-  match List.find (fun t =>
+  match find (fun t =>
     Nat.eqb t.(trel) rel_id && permutation_eqb t.(tperm) perm) existing_tries with
   | Some t => (t, ncontext)
   | None =>
@@ -466,15 +453,15 @@ Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lower
       let '(ts', levels', cs') :=
         fold_left (fun inner_acc arg_idx =>
           let '(ts', levels', cs') := inner_acc in
-          (t.(tid) :: ts', List.nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
+          (t.(tid) :: ts', nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
           (get_hyp_arg_indices hyp.(clause_args) v 0) (ts, levels, cs)
       in
       (ts', levels', cs', S clause))
-      (List.combine tries_by_hyp hyps) ([], [], [], 0)
+      (combine tries_by_hyp hyps) ([], [], [], 0)
   in
-  {| tries := List.rev ts;
-     trie_levels := List.rev levels;
-     clauses := List.rev cs |}.
+  {| tries := rev ts;
+     trie_levels := rev levels;
+     clauses := rev cs |}.
 
 Definition generate_query (tries : list trie) (rule_var_order : list var)
     (hyps : list lowered_fact) : query :=
@@ -492,7 +479,7 @@ Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
     fold_left (fun '(pool, per_hyp_rev, ncontext) hyp =>
       let (t, ncontext) := generate_trie hyp rule_var_order pool ncontext in
       (t :: pool, t :: per_hyp_rev, ncontext)) hyps (existing_tries, [], ncontext) in
-  (generate_query (List.rev per_hyp_rev) rule_var_order hyps, ncontext).
+  (generate_query (rev per_hyp_rev) rule_var_order hyps, ncontext).
 
 Definition initial_node_context (nid : node_id) : node_context :=
   {| ncid := nid; nctries := []; last_trie_id := 0 |}.
@@ -523,7 +510,7 @@ Definition compile_rule (rule : lowered_rule)
       compile_hyps rhyps rule_var_order ncontext.(nctries) ncontext in
     concls <- compile_concls rconcls rule_var_order ;;
     Success ({| hhyps := query; hconcls := concls;
-                hsig := List.map (fun h => (h.(clause_rel), List.length h.(clause_args))) rhyps |}, ncontext)
+                hsig := List.map (fun h => (h.(clause_rel), length h.(clause_args))) rhyps |}, ncontext)
   | _ => error:("compile_rule: aggregation/meta rules are not supported")
   end.
 
@@ -538,15 +525,15 @@ Definition get_node_ftable (node : node_id) (ftables : node_ftable_map) : forwar
   end.
 
 Definition add_dest_if_absent (d : destination) (ds : list destination) : list destination :=
-  if List.existsb (destination_eqb d) ds then ds else d :: ds.
+  if existsb (destination_eqb d) ds then ds else d :: ds.
 
 Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
   let ft := get_node_ftable node ftables in
   let matching_tries :=
-    match List.find (fun n => eqb n.(nid) node) ninfos with
+    match find (fun n => eqb n.(nid) node) ninfos with
     | None => []
-    | Some ninfo => List.filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
+    | Some ninfo => filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
     end in
   let existing := match map.get ft rel with Some ds => ds | None => [] end in
   let updated_ft :=
@@ -698,9 +685,9 @@ Definition compile_node (node : node_id) (program : lowered_program) : result no
       Success (hr :: rules, ncontext)%list
     ) program (Success ([], initial_node_context node)) ;;
   Success {| nid := node;
-             nprogram := List.rev compiled_rules;
+             nprogram := rev compiled_rules;
              nforwarding := map.empty;
-             ntries := List.rev ncontext.(nctries) |}.
+             ntries := rev ncontext.(nctries) |}.
 
 Definition compile_all_nodes (llayout : lowered_layout_map) : result (list node_info) :=
   ninfos <- map.fold (fun acc node program =>
@@ -728,8 +715,8 @@ Definition attach_forwarding_tables (ninfos : list node_info)
           nprogram := [];
           nforwarding := get_node_ftable n ftables;
           ntries := [] |})
-     (List.filter
-        (fun n => negb (List.existsb (fun ninfo => eqb ninfo.(nid) n) ninfos))
+     (filter
+        (fun n => negb (existsb (fun ninfo => eqb ninfo.(nid) n) ninfos))
         (map.keys ftables)).
 
 (* every node the layout assigns to is a real graph node. *)
