@@ -22,7 +22,6 @@ Notation destination_eqb := (@DistributedHardwareProgram.destination_eqb node_id
 Context {node_id_set : map.map node_id unit}.
 Context {destination_set : map.map destination unit}.
 Context {forwarding_table : map.map rel_id (list destination)}.
-Context {rel_dependency_map : map.map rel_id (node_id_set)}.
 Context {rel_relid_map : map.map rel rel_id}.
 Context {relid_rel_map : map.map rel_id rel}.
 Context {var_id_map : map.map var var_id}.
@@ -174,58 +173,6 @@ Definition lowered_fact_contains_rel (f : lowered_fact) (r_id : rel_id) : bool :
 
 Definition lowered_facts_contains_rel (facts : list lowered_fact) (r_id : rel_id) : bool :=
   List.existsb (fun f => lowered_fact_contains_rel f r_id) facts.
-
-Definition lowered_program_produces_rel (program : lowered_program) (r_id : rel_id) : bool :=
-  List.existsb (fun rule =>
-    match rule with
-    | normal_rule concls _ => lowered_facts_contains_rel concls r_id
-    | _ => false
-    end) program.
-
-Definition lowered_program_consumes_rel (program : lowered_program) (r_id : rel_id) : bool :=
-  List.existsb (fun rule =>
-    match rule with
-    | normal_rule _ hyps => lowered_facts_contains_rel hyps r_id
-    | _ => false
-    end) program.
-
-Definition node_produces_rel (r_id : rel_id) (llayout : lowered_layout_map) (node_id : node_id) : bool :=
-  match map.get llayout node_id with
-  | Some program => lowered_program_produces_rel program r_id
-  | None => false
-  end.
-
-Definition node_consumes_rel (r_id : rel_id) (llayout : lowered_layout_map) (node_id : node_id) : bool :=
-  match map.get llayout node_id with
-  | Some program => lowered_program_consumes_rel program r_id
-  | None => false
-  end.
-
-Definition get_node_producers (r_id : rel_id) (llayout : lowered_layout_map) (lfact_locations : lowered_fact_locations) (gcontext : global_context) : list node_id :=
-  let layout_producers :=
-    List.filter (node_produces_rel r_id llayout) (map.keys llayout) in
-  let fact_locations :=
-    match map.get lfact_locations r_id with
-    | Some locations => locations
-    | None => []
-    end in
-  layout_producers ++ fact_locations.
-
-Definition get_node_consumers (r_id : rel_id) (llayout : lowered_layout_map)
-    (lfact_locations : lowered_fact_locations) (gcontext : global_context) : list node_id :=
-  let layout_consumers :=
-    List.filter (node_consumes_rel r_id llayout) (map.keys llayout) in
-  let fact_locations :=
-    match map.get lfact_locations r_id with
-    | Some locations => locations
-    | None => []
-    end in
-  layout_consumers ++ fact_locations.
-
-Definition collect_global_dependencies_for_rel_id (r_id : rel_id) (llayout : lowered_layout_map) (lfact_producers : lowered_fact_locations) (lfact_consumers : lowered_fact_locations)
-    (gcontext : global_context) : (list node_id * list node_id) :=
-  (get_node_producers r_id llayout lfact_producers gcontext,
-   get_node_consumers r_id llayout lfact_consumers gcontext).
 
 Definition get_rel_ids (gcontext : global_context) : list rel_id :=
   map.fold (fun acc _ rel_id => rel_id :: acc) [] gcontext.(rel_map).
@@ -646,13 +593,6 @@ Definition generate_forwarding_table (gcontext : global_context) (ninfos : list 
   fold_left (fun ftables rel =>
     update_forwarding_table_for_rel rel gcontext ninfos ftables g lfc lfp
     ) (get_rel_ids gcontext) map.empty.
-
-(* membership of a node in a node_id_set / dependency map, as bools (for the gate below). *)
-Definition nid_mem (s : node_id_set) (n : node_id) : bool :=
-  match map.get s n with Some _ => true | None => false end.
-
-Definition rel_dep_has (m : rel_dependency_map) (R : rel_id) (n : node_id) : bool :=
-  match map.get m R with Some s => nid_mem s n | None => false end.
 
 (* FORWARDING-COMPLETENESS gate: for every node [np] that concludes relation [R], [R] is a
    registered relation and [np] is a recorded producer; and for every node [nc] that hypothesizes
