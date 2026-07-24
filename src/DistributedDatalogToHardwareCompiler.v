@@ -675,19 +675,19 @@ Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
 
 Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_context)
     (ninfos : list node_info) (ftables : node_ftable_map)
-    (g : node_graph) : node_ftable_map :=
+    (g : node_graph) lfc lfp : node_ftable_map :=
   let producers :=
-    match map.get gcontext.(rel_node_producers) rel with
+    match map.get lfp rel with
     | Some ps => ps
-    | None => map.empty
+    | None => []
     end in
   let consumers :=
-    match map.get gcontext.(rel_node_consumers) rel with
+    match map.get lfc rel with
     | Some cs => cs
-    | None => map.empty
+    | None => []
     end in
-  map.fold (fun ftables producer _ =>
-    map.fold (fun ftables consumer _ =>
+  fold_left (fun ftables producer =>
+    fold_left (fun ftables consumer =>
       if eqb producer consumer then
         add_trie_dest_to_forwarding_table consumer rel ftables ninfos
       else
@@ -695,13 +695,13 @@ Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_con
         | None => ftables
         | Some path => add_path_to_forwarding_table rel path ftables ninfos
         end
-    ) ftables consumers
-  ) ftables producers.
+    ) consumers ftables
+  ) producers ftables .
 
 Definition generate_forwarding_table (gcontext : global_context) (ninfos : list node_info)
-    (g : node_graph) : node_ftable_map :=
+    (g : node_graph) lfc lfp : node_ftable_map :=
   fold_left (fun ftables rel =>
-    update_forwarding_table_for_rel rel gcontext ninfos ftables g
+    update_forwarding_table_for_rel rel gcontext ninfos ftables g lfc lfp
   ) (get_rel_ids gcontext) map.empty.
 
 (* membership of a node in a node_id_set / dependency map, as bools (for the gate below). *)
@@ -745,7 +745,7 @@ Definition routes_validb (gcontext : global_context) (g : node_graph)
 Definition generate_forwarding_table_checked (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) (llayout : lowered_layout_map) lfc lfp : result node_ftable_map :=
   if routes_validb gcontext g llayout lfc lfp
-  then Success (generate_forwarding_table gcontext ninfos g)
+  then Success (generate_forwarding_table gcontext ninfos g lfc lfp)
   else error:("generate_forwarding_table: some producer cannot reach some consumer (incomplete forwarding)").
 
 (* INPUT-COMPLETENESS gate: every declared input/EDB location [ni] of relation [R] (from
