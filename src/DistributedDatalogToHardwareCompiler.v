@@ -17,14 +17,10 @@ Context {var_eqb : Eqb var}.
 Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 
 Notation destination := (@DistributedHardwareProgram.destination node_id).
-Notation destination_eqb := (@DistributedHardwareProgram.destination_eqb node_id node_id_eqb).
 
 Context {node_id_set : map.map node_id unit}.
-Context {destination_set : map.map destination unit}.
 Context {forwarding_table : map.map rel_id (list destination)}.
 Context {rel_relid_map : map.map rel rel_id}.
-Context {relid_rel_map : map.map rel_id rel}.
-Context {var_id_map : map.map var var_id}.
 Context {layout_map : map.map node_id program}.
 Context {lowered_layout_map : map.map node_id lowered_program}.
 Context {fact_locations : map.map rel (list node_id)}.
@@ -34,20 +30,13 @@ Context {lowered_fact_locations : map.map rel_id (list node_id)}.
    compiler's view of it, with the topology's [node_id] and forwarding-table map fixed. *)
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
-Context {node_info_map : map.map node_id node_info}.
 
 Record global_context := {
   rel_map : rel_relid_map;
   last_rel_id : rel_id;
 }.
 
-Record rule_context := {
-  var_map : var_id_map;
-  last_var_id : var_id;
-}.
-
 Record node_context := {
-  ncid : node_id;
   nctries : list trie;
   last_trie_id : trie_id;
 }.
@@ -165,12 +154,6 @@ Proof.
 Qed.
 
 (*----Collecting Info About Layout----*)
-
-Definition lowered_fact_contains_rel (f : lowered_fact) (r_id : rel_id) : bool :=
-  eqb r_id f.(clause_rel).
-
-Definition lowered_facts_contains_rel (facts : list lowered_fact) (r_id : rel_id) : bool :=
-  existsb (fun f => lowered_fact_contains_rel f r_id) facts.
 
 Definition get_rel_ids (gcontext : global_context) : list rel_id :=
   values gcontext.(rel_map).
@@ -406,8 +389,7 @@ Definition compute_permutation (original_order desired_order : list var) : permu
 (*----Trie Generation----*)
 
 Definition update_node_context_with_trie (t : trie) (ncontext : node_context) : node_context :=
-  {| ncid := ncontext.(ncid);
-     nctries := t :: ncontext.(nctries);
+  {| nctries := t :: ncontext.(nctries);
      last_trie_id := S ncontext.(last_trie_id) |}.
 
 Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
@@ -476,8 +458,8 @@ Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
       (t :: pool, t :: per_hyp_rev, ncontext)) hyps (existing_tries, [], ncontext) in
   (generate_query (rev per_hyp_rev) rule_var_order hyps, ncontext).
 
-Definition initial_node_context (nid : node_id) : node_context :=
-  {| ncid := nid; nctries := []; last_trie_id := 0 |}.
+Definition initial_node_context : node_context :=
+  {| nctries := []; last_trie_id := 0 |}.
 
 Definition compile_concl (concl : lowered_fact)
     (rule_var_order : list var) : result join_output :=
@@ -654,7 +636,7 @@ Definition compile_node (node : node_id) (program : lowered_program) : result no
       '(rules, ncontext) <- acc ;;
       '(hr, ncontext) <- compile_rule rule ncontext ;;
       Success (hr :: rules, ncontext)%list
-    ) program (Success ([], initial_node_context node)) ;;
+    ) program (Success ([], initial_node_context)) ;;
   Success {| nid := node;
              nprogram := rev compiled_rules;
              nforwarding := map.empty;
