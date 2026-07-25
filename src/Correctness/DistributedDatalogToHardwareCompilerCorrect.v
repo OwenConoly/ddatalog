@@ -1242,11 +1242,11 @@ Notation lowered_fact := (@HardwareProgram.lowered_fact var).
 Notation lowered_expr := (@HardwareProgram.lowered_expr var).
 Notation global_context :=
   (@DistributedDatalogToHardwareCompiler.global_context rel rel_relid_map).
-Notation node_context := (@DistributedDatalogToHardwareCompiler.node_context node_id).
+Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
 Notation generate_trie :=
-  (@DistributedDatalogToHardwareCompiler.generate_trie var var_eqb node_id var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.generate_trie var var_eqb var_idx_map).
 Notation compile_hyps :=
-  (@DistributedDatalogToHardwareCompiler.compile_hyps var var_eqb node_id var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_hyps var var_eqb var_idx_map).
 Notation compile_concl :=
   (@DistributedDatalogToHardwareCompiler.compile_concl var var_eqb).
 Notation compile_concls :=
@@ -1945,12 +1945,12 @@ Context {var_idx_map : map.map var nat}.
 
 Notation global_context :=
   (@DistributedDatalogToHardwareCompiler.global_context rel rel_relid_map).
-Notation node_context := (@DistributedDatalogToHardwareCompiler.node_context node_id).
+Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
 Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation compile_rule :=
-  (@DistributedDatalogToHardwareCompiler.compile_rule var aggregator var_eqb node_id var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_rule var aggregator var_eqb var_node_set var_edge_set var_idx_map).
 Notation compile_node :=
   (@DistributedDatalogToHardwareCompiler.compile_node var aggregator var_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 
@@ -2019,9 +2019,9 @@ Proof.
       destruct (fold_left F prog init) as [[rules nc1]|] eqn:Hfold
   end; cbn beta iota zeta in H; [|discriminate].
   injection H as <-.
-  assert (Hwf0 : wf_nc (DistributedDatalogToHardwareCompiler.initial_node_context node))
+  assert (Hwf0 : wf_nc (DistributedDatalogToHardwareCompiler.initial_node_context))
     by (split; [intros t [] | constructor]).
-  destruct (compile_node_fold_wf gc prog [] (DistributedDatalogToHardwareCompiler.initial_node_context node) rules nc1
+  destruct (compile_node_fold_wf gc prog [] (DistributedDatalogToHardwareCompiler.initial_node_context) rules nc1
               Hfold Hwf0) as [[_ Hnd] _].
   cbn [DistributedHardwareProgram.ntries]. rewrite map_rev. apply NoDup_rev. exact Hnd.
 Qed.
@@ -2055,13 +2055,13 @@ Context {rel_relid_map : map.map rel rel_id}.
 
 Notation global_context :=
   (@DistributedDatalogToHardwareCompiler.global_context rel rel_relid_map).
-Notation node_context := (@DistributedDatalogToHardwareCompiler.node_context node_id).
+Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
 Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation lowered_fact := (@HardwareProgram.lowered_fact var).
 Notation compile_rule :=
-  (@DistributedDatalogToHardwareCompiler.compile_rule var aggregator var_eqb node_id var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_rule var aggregator var_eqb var_node_set var_edge_set var_idx_map).
 Notation compile_node :=
   (@DistributedDatalogToHardwareCompiler.compile_node var aggregator var_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 
@@ -2181,14 +2181,14 @@ Proof.
       destruct (fold_left F prog init) as [[compiled_rev nc_final]|] eqn:Hfold
   end; cbn beta iota zeta in H; [|discriminate].
   injection H as <-.
-  assert (Hwf0 : wf_nc (DistributedDatalogToHardwareCompiler.initial_node_context node))
+  assert (Hwf0 : wf_nc (DistributedDatalogToHardwareCompiler.initial_node_context))
     by (split; [intros t [] | constructor]).
   assert (Hincl : incl nc_final.(nctries) (rev nc_final.(nctries)))
     by (intros t Ht; rewrite <- in_rev; exact Ht).
   cbn [DistributedHardwareProgram.ntries] in Hndt, Hincl |- *.
   cbn [DistributedHardwareProgram.nprogram].
   destruct (compile_node_fold_matches gc (rev nc_final.(nctries)) prog env []
-              (DistributedDatalogToHardwareCompiler.initial_node_context node) compiled_rev nc_final
+              (DistributedDatalogToHardwareCompiler.initial_node_context) compiled_rev nc_final
               Hfold Hbare Hwf0 Hincl Hndt) as [hrs [Hcomp HF]].
   rewrite Hcomp, app_nil_r, rev_involutive.
   apply Forall2_map_lrule. exact HF.
@@ -2622,22 +2622,14 @@ Notation update_forwarding_table_for_rel :=
 Lemma update_rel_pres_sound (g : node_graph) (rel0 : rel_id)
     (ninfos : list node_info) (ftables : node_ftable_map) (lfc lfp : lowered_fact_locations_map) :
   ftable_edges_sound g ftables ->
-  ftable_edges_sound g (update_forwarding_table_for_rel rel0 ninfos ftables g lfc lfp).
+  ftable_edges_sound g (update_forwarding_table_for_rel g lfc lfp ninfos ftables rel0).
 Proof.
   intros Hsound. unfold DistributedDatalogToHardwareCompiler.update_forwarding_table_for_rel.
-  apply ForwardingCorrect.fold_left_pres_sound.
-  - exact Hsound.
-  - intros ft producer Hft.
-    apply ForwardingCorrect.fold_left_pres_sound.
-    + exact Hft.
-    + intros ft' consumer Hft'.
-      destruct (eqb_boolspec _ producer consumer).
-      * apply ForwardingCorrect.add_trie_pres_sound. exact Hft'.
-      * destruct (ComputableGraph.get_path (node_eqb := node_id_eqb) (node_set := node_id_set)
-                    (edge_set := node_id_edge_set) g producer consumer ) as [path|] eqn:Hpath.
-        -- eapply ForwardingCorrect.add_path_pres_sound; [| exact Hft'].
-           eapply ComputableGraph.get_path_spec. exact Hpath.
-        -- exact Hft'.
+  apply ForwardingCorrect.add_paths_pres_sound; [|exact Hsound].
+  apply Forall_forall. intros path Hin.
+  apply in_flat_map in Hin. destruct Hin as [[p c] [_ Hpc]].
+  destruct (get_path g p c) as [pth|] eqn:Hgp; cbn in Hpc; [|destruct Hpc].
+  destruct Hpc as [<-|[]]. exists p, c. eapply ComputableGraph.get_path_spec. exact Hgp.
 Qed.
 
 (* the whole table, folded over all relation ids from the empty table, is edge-sound. *)
@@ -2668,37 +2660,15 @@ Notation add_trie_dest :=
 Notation add_path :=
   (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 
-(* the per-(producer,consumer) cell only adds forwarding edges (any edge relation [r] survives) *)
-Lemma fwd_cell_mono (g : node_graph) (rel0 : rel_id) (ninfos : list node_info)
-    (producer consumer : node_id) (a b : node_id) (r : rel_id) (ft : node_ftable_map) :
-  has_fwd_edge ft a r b ->
-  has_fwd_edge
-    (if node_id_eqb producer consumer
-     then add_trie_dest consumer rel0 ft ninfos
-     else match get_path g producer consumer with
-          | None => ft
-          | Some path => add_path rel0 path ft ninfos
-          end) a r b.
-Proof.
-  intros H. destruct (node_id_eqb producer consumer).
-  - apply ForwardingCorrect.add_trie_mono. exact H.
-  - destruct (get_path g producer consumer ) as [path|].
-    + apply ForwardingCorrect.add_path_mono. exact H.
-    + exact H.
-Qed.
-
 (* routing one relation only adds forwarding edges *)
 Lemma update_rel_mono (g : node_graph) (rel0 : rel_id)
     (ninfos : list node_info) (a b : node_id) (r : rel_id) (ft : node_ftable_map)
     (lfc lfp : lowered_fact_locations_map) :
   has_fwd_edge ft a r b ->
-  has_fwd_edge (update_forwarding_table_for_rel rel0 ninfos ft g lfc lfp) a r b.
+  has_fwd_edge (update_forwarding_table_for_rel g lfc lfp ninfos ft rel0) a r b.
 Proof.
   intros H. unfold DistributedDatalogToHardwareCompiler.update_forwarding_table_for_rel.
-  apply (ForwardingCorrect.fold_left_pres (fun ft => has_fwd_edge ft a r b)); [exact H|].
-  intros ft1 producer H1.
-  apply (ForwardingCorrect.fold_left_pres (fun ft => has_fwd_edge ft a r b)); [exact H1|].
-  intros ft2 consumer H2. apply fwd_cell_mono. exact H2.
+  apply ForwardingCorrect.add_paths_mono. exact H.
 Qed.
 
 (* routing relation [rel0] lays every consecutive edge of the path it found from [prod] to [cons] *)
@@ -2713,23 +2683,17 @@ Lemma update_rel_adds (g : node_graph) (rel0 : rel_id)
   prod <> cons ->
   get_path g prod cons = Some path ->
   nth_error path i = Some a -> nth_error path (S i) = Some b ->
-  has_fwd_edge (update_forwarding_table_for_rel rel0 ninfos ft g lfc lfp) a rel0 b.
+  has_fwd_edge (update_forwarding_table_for_rel g lfc lfp ninfos ft rel0) a rel0 b.
 Proof.
   intros Hprods Hcons Hprod Hcon Hne Hpath Hi Hib.
   unfold DistributedDatalogToHardwareCompiler.update_forwarding_table_for_rel.
   rewrite (get_default_Some _ _ _ _ Hprods), (get_default_Some _ _ _ _ Hcons).
-  apply (ForwardingCorrect.fold_left_adds
-           (fun ft => has_fwd_edge ft a rel0 b) _ producers ft prod Hprod).
-  - intros ft1 p H1.
-    apply (ForwardingCorrect.fold_left_pres (fun ft => has_fwd_edge ft a rel0 b)); [exact H1|].
-    intros ft2 c H2. apply fwd_cell_mono. exact H2.
-  - intros ft1.
-    apply (ForwardingCorrect.fold_left_adds
-             (fun ft => has_fwd_edge ft a rel0 b) _ consumers ft1 cons Hcon).
-    + intros ft2 c H2. apply fwd_cell_mono. exact H2.
-    + intros ft2.
-      destruct (eqb_boolspec _ prod cons) as [Heq|_]; [exfalso; apply Hne; exact Heq|].
-      rewrite Hpath. eapply ForwardingCorrect.add_path_adds; [exact Hi | exact Hib].
+  apply (ForwardingCorrect.add_paths_adds rel0 ninfos _ ft path i a b).
+  - apply in_flat_map. exists (prod, cons). split.
+    + apply in_prod; assumption.
+    + rewrite Hpath. left. reflexivity.
+  - exact Hi.
+  - exact Hib.
 Qed.
 
 (* MAIN C2 ENGINE: the consecutive forwarding edge survives into the whole generated table. *)
@@ -2750,7 +2714,7 @@ Proof.
   intros Hrel Hprods Hcons Hprod Hcon Hne Hpath Hi Hib.
   unfold DistributedDatalogToHardwareCompiler.generate_forwarding_table.
   apply (ForwardingCorrect.fold_left_adds (fun ft => has_fwd_edge ft a rel0 b)
-           (fun ftables rel => update_forwarding_table_for_rel rel ninfos ftables g lfc lfp)
+           (fun ftables rel => update_forwarding_table_for_rel g lfc lfp ninfos ftables rel)
            (get_rel_ids gcontext) map.empty rel0 Hrel).
   - intros acc r H1. apply update_rel_mono. exact H1.
   - intros acc. eapply update_rel_adds; eauto.

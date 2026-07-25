@@ -5,7 +5,7 @@
    the compiled network's own forwarding tables. *)
 
 From Stdlib Require Import List Bool Lia PeanoNat.
-From coqutil Require Import Map.Interface Map.Properties.
+From coqutil Require Import Map.Interface Map.Properties Datatypes.ListSet Eqb.
 From Datalog Require Import Map.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
 Import ListNotations.
@@ -13,8 +13,7 @@ Import ListNotations.
 Section ForwardingCorrect.
 
 Context {node_id : Type}.
-Context {node_id_eqb : node_id -> node_id -> bool}
-        {node_id_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
+Context {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 Context {node_id_set : map.map node_id unit} {node_id_set_ok : map.ok node_id_set}.
 Context {node_id_edge_set : map.map node_id node_id_set} {node_id_edge_set_ok : map.ok node_id_edge_set}.
 
@@ -30,7 +29,6 @@ Context {node_ftable_map : map.map node_id forwarding_table}
 
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation get_node_ftable node ftables := (get_default map.empty ftables node).
-Notation add_dest_if_absent := (@DistributedDatalogToHardwareCompiler.add_dest_if_absent node_id node_id_eqb).
 Notation add_trie_dest := (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 Notation add_path := (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 
@@ -39,6 +37,31 @@ Definition dest_edges (ds : list destination) : list node_id :=
   flat_map (fun d => match d with
                      | DistributedHardwareProgram.DestEdge n => [n]
                      | DistributedHardwareProgram.DestTrie _ => [] end) ds.
+
+(* [x] is a [DestEdge] target of [ds] iff [DestEdge x] is literally in [ds]. *)
+Lemma In_dest_edges (x : node_id) (ds : list destination) :
+  In x (dest_edges ds) <-> In (DistributedHardwareProgram.DestEdge x) ds.
+Proof.
+  unfold dest_edges. rewrite in_flat_map. split.
+  - intros [d [Hin Hx]]. destruct d as [n|t]; cbn in Hx; [|destruct Hx].
+    destruct Hx as [<-|[]]. exact Hin.
+  - intros Hin. exists (DistributedHardwareProgram.DestEdge x). split; [exact Hin | left; reflexivity].
+Qed.
+
+(* the compiler now grows destination lists with coqutil's [list_union eqb]; membership
+   distributes over it, so [dest_edges] does too. *)
+Lemma dest_edges_union (A B : list destination) (x : node_id) :
+  In x (dest_edges (list_union eqb A B)) <-> In x (dest_edges A) \/ In x (dest_edges B).
+Proof.
+  rewrite !In_dest_edges. apply In_list_union_spec.
+Qed.
+
+(* a list of only [DestTrie]s contributes no [DestEdge]s. *)
+Lemma dest_edges_map_trie {A : Type} (f : A -> trie_id) (l : list A) :
+  dest_edges (List.map (fun t => DistributedHardwareProgram.DestTrie (f t)) l) = [].
+Proof. induction l as [|t l IH]; cbn [List.map dest_edges flat_map]; [reflexivity | exact IH]. Qed.
+
+Notation node_id_eqb_spec := (@eqb_boolspec node_id node_id_eqb node_id_eqb_ok).
 
 (* the forwarding edges node [node] has for relation [rel] in [ftables] *)
 Definition node_rel_dests (ftables : node_ftable_map) (node : node_id) (rel : rel_id) : list destination :=
@@ -49,34 +72,21 @@ Definition has_fwd_edge (ftables : node_ftable_map) (node : node_id) (rel : rel_
 
 (*----dest_edges facts----*)
 
-Lemma dest_edges_mono (d : destination) (ds : list destination) (x : node_id) :
-  In x (dest_edges ds) -> In x (dest_edges (add_dest_if_absent d ds)).
-Proof.
-  intros H. unfold DistributedDatalogToHardwareCompiler.add_dest_if_absent.
-  destruct (existsb _ ds); [exact H|]. destruct d; cbn; [right|]; exact H.
-Qed.
+Lemma dest_edges_mono (new ds : list destination) (x : node_id) :
+  In x (dest_edges ds) -> In x (dest_edges (list_union eqb new ds)).
+Proof. intros H. apply dest_edges_union. right. exact H. Qed.
 
 Lemma dest_edges_add_edge (m : node_id) (ds : list destination) :
-  In m (dest_edges (add_dest_if_absent (DistributedHardwareProgram.DestEdge m) ds)).
-Proof.
-  unfold DistributedDatalogToHardwareCompiler.add_dest_if_absent.
-  destruct (existsb _ ds) eqn:E.
-  - (* DestEdge m already present *)
-    apply existsb_exists in E. destruct E as [d [Hin Heq]].
-    destruct d as [n|t]; cbn in Heq; [|discriminate].
-    destruct (node_id_eqb_spec m n); [subst|discriminate].
-    apply in_flat_map. exists (DistributedHardwareProgram.DestEdge n).
-    split; [exact Hin | left; reflexivity].
-  - cbn. left. reflexivity.
-Qed.
+  In m (dest_edges (list_union eqb [DistributedHardwareProgram.DestEdge m] ds)).
+Proof. apply dest_edges_union. left. apply In_dest_edges. left. reflexivity. Qed.
 
-(* adding [DestTrie]s preserves the [DestEdge] set (the fold runs over tries via [tid]) *)
-Lemma dest_edges_fold_trie {A : Type} (f : A -> trie_id) (l : list A) (ds : list destination) (x : node_id) :
-  In x (dest_edges ds) ->
-  In x (dest_edges (fold_left (fun acc t => add_dest_if_absent (DistributedHardwareProgram.DestTrie (f t)) acc) l ds)).
+(* a [list_union] whose fresh list is only [DestTrie]s adds no [DestEdge]. *)
+Lemma dest_edges_trie_union_inv {A : Type} (f : A -> trie_id) (l : list A) (ds : list destination) (x : node_id) :
+  In x (dest_edges (list_union eqb (List.map (fun t => DistributedHardwareProgram.DestTrie (f t)) l) ds)) ->
+  In x (dest_edges ds).
 Proof.
-  revert ds. induction l as [|t l IH]; intros ds H; cbn; [exact H|].
-  apply IH. apply (dest_edges_mono (DistributedHardwareProgram.DestTrie (f t))). exact H.
+  intros H. apply dest_edges_union in H. destruct H as [H|H]; [|exact H].
+  rewrite dest_edges_map_trie in H. destruct H.
 Qed.
 
 (*----how a map.put changes node_rel_dests----*)
@@ -134,9 +144,9 @@ Lemma add_trie_mono (node0 : node_id) (rel : rel_id) (ninfos : list node_info)
 Proof.
   intros Hhas. unfold DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table.
   apply (has_fwd_edge_put_relupdate ftables node0 rel
-           (fun ds => fold_left (fun acc t => add_dest_if_absent
-                        (DistributedHardwareProgram.DestTrie t.(tid)) acc) _ ds)).
-  - intros ds x Hx. apply (dest_edges_fold_trie (fun t => t.(tid))). exact Hx.
+           (fun ds => list_union eqb
+                        (List.map (fun t => DistributedHardwareProgram.DestTrie t.(tid)) _) ds)).
+  - intros ds x Hx. apply dest_edges_mono. exact Hx.
   - exact Hhas.
 Qed.
 
@@ -144,14 +154,14 @@ Qed.
 Lemma add_path_mono (rel : rel_id) (ninfos : list node_info) :
   forall (path : list node_id) (ftables : node_ftable_map) (node : node_id) (rel0 : rel_id) (m : node_id),
   has_fwd_edge ftables node rel0 m ->
-  has_fwd_edge (add_path rel path ftables ninfos) node rel0 m.
+  has_fwd_edge (add_path ninfos rel ftables path) node rel0 m.
 Proof.
   induction path as [|node0 [|next rest] IH]; intros ftables node rel0 m Hhas; cbn.
   - exact Hhas.
   - apply add_trie_mono. exact Hhas.
   - apply IH.
     apply (has_fwd_edge_put_relupdate ftables node0 rel
-             (fun ds => add_dest_if_absent (DistributedHardwareProgram.DestEdge next) ds)).
+             (fun ds => list_union eqb [DistributedHardwareProgram.DestEdge next] ds)).
     + intros ds x Hx. apply dest_edges_mono. exact Hx.
     + exact Hhas.
 Qed.
@@ -160,19 +170,19 @@ Qed.
    into a stuck [match] on the abstract tail) *)
 Lemma add_path_cons2 (rel : rel_id) (node0 next : node_id) (rest : list node_id)
     (ftables : node_ftable_map) (ninfos : list node_info) :
-  add_path rel (node0 :: next :: rest) ftables ninfos =
-  add_path rel (next :: rest)
+  add_path ninfos rel ftables (node0 :: next :: rest) =
+  add_path ninfos rel
     (map.put ftables node0
        (map.put (get_node_ftable node0 ftables) rel
-          (add_dest_if_absent (DistributedHardwareProgram.DestEdge next)
-             (node_rel_dests ftables node0 rel)))) ninfos.
+          (list_union eqb [DistributedHardwareProgram.DestEdge next]
+             (node_rel_dests ftables node0 rel)))) (next :: rest).
 Proof. reflexivity. Qed.
 
 (* MAIN (Phase B): along the laid-out path, each node forwards [rel] to its successor. *)
 Lemma add_path_adds (rel : rel_id) (ninfos : list node_info) :
   forall (path : list node_id) (ftables : node_ftable_map) (i : nat) (a b : node_id),
   nth_error path i = Some a -> nth_error path (S i) = Some b ->
-  has_fwd_edge (add_path rel path ftables ninfos) a rel b.
+  has_fwd_edge (add_path ninfos rel ftables path) a rel b.
 Proof.
   induction path as [|node0 [|next rest] IH]; intros ftables i a b Hi Hib.
   - destruct i; discriminate.
@@ -205,23 +215,12 @@ Proof.
 Qed.
 
 Lemma dest_edges_add_edge_inv (next : node_id) (ds : list destination) (m : node_id) :
-  In m (dest_edges (add_dest_if_absent (DistributedHardwareProgram.DestEdge next) ds)) ->
+  In m (dest_edges (list_union eqb [DistributedHardwareProgram.DestEdge next] ds)) ->
   m = next \/ In m (dest_edges ds).
 Proof.
-  unfold DistributedDatalogToHardwareCompiler.add_dest_if_absent. destruct (existsb _ ds).
-  - intros H. right. exact H.
-  - cbn. intros [<- | H]; [left; reflexivity | right; exact H].
-Qed.
-
-Lemma dest_edges_add_trie_eq (t : trie_id) (ds : list destination) :
-  dest_edges (add_dest_if_absent (DistributedHardwareProgram.DestTrie t) ds) = dest_edges ds.
-Proof. unfold DistributedDatalogToHardwareCompiler.add_dest_if_absent. destruct (existsb _ ds); reflexivity. Qed.
-
-Lemma dest_edges_fold_trie_eq {A : Type} (f : A -> trie_id) (l : list A) (ds : list destination) :
-  dest_edges (fold_left (fun acc t => add_dest_if_absent (DistributedHardwareProgram.DestTrie (f t)) acc) l ds) = dest_edges ds.
-Proof.
-  revert ds. induction l as [|t l IH]; intros ds; cbn; [reflexivity|].
-  rewrite IH. apply dest_edges_add_trie_eq.
+  intros H. apply dest_edges_union in H. destruct H as [H|H].
+  - apply In_dest_edges in H. destruct H as [Heq|[]]. injection Heq as ->. left. reflexivity.
+  - right. exact H.
 Qed.
 
 (* [add_trie_dest] only adds [DestTrie]s, so it changes no forwarding edge *)
@@ -233,7 +232,7 @@ Proof.
   unfold has_fwd_edge, DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table. cbv zeta. intros H.
   destruct (node_id_eqb_spec node node0) as [->|Hne].
   - destruct (Nat.eqb_spec rel0 rel) as [->|Hrne].
-    + rewrite node_rel_dests_put_self in H. rewrite dest_edges_fold_trie_eq in H. exact H.
+    + rewrite node_rel_dests_put_self in H. apply dest_edges_trie_union_inv in H. exact H.
     + rewrite node_rel_dests_put_self_diff in H by exact Hrne. exact H.
   - rewrite node_rel_dests_put_diff in H by congruence. exact H.
 Qed.
@@ -241,7 +240,7 @@ Qed.
 (* characterization of [add_path]'s edges: each is either pre-existing or a path step *)
 Lemma add_path_edges (rel : rel_id) (ninfos : list node_info) :
   forall (path : list node_id) (ftables : node_ftable_map) (node : node_id) (rel0 : rel_id) (m : node_id),
-  has_fwd_edge (add_path rel path ftables ninfos) node rel0 m ->
+  has_fwd_edge (add_path ninfos rel ftables path) node rel0 m ->
   has_fwd_edge ftables node rel0 m \/
   (rel0 = rel /\ exists i, nth_error path i = Some node /\ nth_error path (S i) = Some m).
 Proof.
@@ -280,7 +279,7 @@ Lemma add_path_pres_sound (g : node_graph) (rel : rel_id) (ninfos : list node_in
     (path : list node_id) (ftables : node_ftable_map) (s e : node_id) :
   is_path g s e path ->
   ftable_edges_sound g ftables ->
-  ftable_edges_sound g (add_path rel path ftables ninfos).
+  ftable_edges_sound g (add_path ninfos rel ftables path).
 Proof.
   intros [_ [_ [_ Hwalk]]] Hsound node rel0 m H.
   apply add_path_edges in H. destruct H as [H | [_ [i [Hi Hib]]]].
@@ -295,6 +294,46 @@ Lemma add_trie_pres_sound (g : node_graph) (node0 : node_id) (rel : rel_id) (nin
   ftable_edges_sound g (add_trie_dest node0 rel ftables ninfos).
 Proof.
   intros Hsound node rel0 m H. apply add_trie_edges in H. exact (Hsound node rel0 m H).
+Qed.
+
+(* the compiler assembles a relation's routing as [add_paths_to_forwarding_table] = a [fold_left]
+   of [add_path] over the paths [get_path] found; lift the per-path facts to the whole fold. *)
+Lemma add_paths_mono (rel : rel_id) (ninfos : list node_info) (paths : list (list node_id))
+    (ftables : node_ftable_map) (node : node_id) (rel0 : rel_id) (m : node_id) :
+  has_fwd_edge ftables node rel0 m ->
+  has_fwd_edge (DistributedDatalogToHardwareCompiler.add_paths_to_forwarding_table rel paths ftables ninfos) node rel0 m.
+Proof.
+  unfold DistributedDatalogToHardwareCompiler.add_paths_to_forwarding_table. revert ftables.
+  induction paths as [|path paths IH]; intros ftables Hhas; cbn [fold_left]; [exact Hhas|].
+  apply IH. apply add_path_mono. exact Hhas.
+Qed.
+
+Lemma add_paths_pres_sound (g : node_graph) (rel : rel_id) (ninfos : list node_info)
+    (paths : list (list node_id)) (ftables : node_ftable_map) :
+  Forall (fun path => exists s e, is_path g s e path) paths ->
+  ftable_edges_sound g ftables ->
+  ftable_edges_sound g (DistributedDatalogToHardwareCompiler.add_paths_to_forwarding_table rel paths ftables ninfos).
+Proof.
+  unfold DistributedDatalogToHardwareCompiler.add_paths_to_forwarding_table. revert ftables.
+  induction paths as [|path paths IH]; intros ftables HF Hsound; cbn [fold_left]; [exact Hsound|].
+  inversion HF as [|? ? [s [e Hpath]] HF']; subst.
+  apply IH; [exact HF'|].
+  exact (add_path_pres_sound g rel ninfos path ftables s e Hpath Hsound).
+Qed.
+
+Lemma add_paths_adds (rel : rel_id) (ninfos : list node_info) (paths : list (list node_id))
+    (ftables : node_ftable_map) (path : list node_id) (i : nat) (a b : node_id) :
+  In path paths -> nth_error path i = Some a -> nth_error path (S i) = Some b ->
+  has_fwd_edge (DistributedDatalogToHardwareCompiler.add_paths_to_forwarding_table rel paths ftables ninfos) a rel b.
+Proof.
+  intros Hin Hi Hib.
+  unfold DistributedDatalogToHardwareCompiler.add_paths_to_forwarding_table. revert ftables Hin.
+  induction paths as [|p paths IH]; intros ftables Hin; cbn [fold_left]; [destruct Hin|].
+  destruct Hin as [-> | Hin].
+  - change (fold_left (add_path ninfos rel) paths (add_path ninfos rel ftables path))
+      with (DistributedDatalogToHardwareCompiler.add_paths_to_forwarding_table rel paths (add_path ninfos rel ftables path) ninfos).
+    apply add_paths_mono. exact (add_path_adds rel ninfos path ftables i a b Hi Hib).
+  - apply IH. exact Hin.
 Qed.
 
 (* generic combinators that lift a per-step preservation through the two fold shapes the
