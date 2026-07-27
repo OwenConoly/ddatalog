@@ -3580,6 +3580,13 @@ Proof.
   apply prog_impl_fact_iff_datalog. apply canonical_bare. exact Hbare.
 Qed.
 
+Lemma source_program_in (layout : layout_map) (r : Datalog.rule (rel := rel_id) (fn := fn)) :
+  In r (DistributedDatalogToHardwareCompiler.source_program layout) <->
+  exists n p, map.get layout n = Some p /\ In r p.
+Proof.
+  unfold DistributedDatalogToHardwareCompiler.source_program. apply In_concat_values.
+Qed.
+
 Context {rel : relT} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
 
 Definition program_rels (p : list (@Datalog.rule rel var fn aggregator)) : list rel :=
@@ -3589,7 +3596,7 @@ Definition relabel_Q (rho : rel -> rel_id) (Q : @Datalog.fact rel T -> Prop)
     : @Datalog.fact rel_id T -> Prop :=
   fun f' => exists f, f' = RelMap.map_fact rho f /\ Q f.
 
-Theorem compile_nattify_distributes
+Theorem nattify_and_compile_correct
     (p : list (@Datalog.rule rel var fn aggregator))
     (layout : layout_map) (fps fcs : fact_locations_map) (g : node_graph)
     (ninfos : list node_info)
@@ -3606,6 +3613,36 @@ Theorem compile_nattify_distributes
       (fun n R => In n (rel_locs fcs R))
       (nattify_rel_fact (program_rels p) p fsrc)
     <-> Datalog.prog_impl p Qsrc fsrc ).
-Admitted.
+Proof.
+  intros Hcomp Hbare Hdist Hscope Hedb.
+  (* the compiled canonical program and the nattified source program are the same rule set *)
+  assert (Hset : same_set (canonical_program layout)
+                   (NattifyRel.nattify_rel_prog (program_rels p) p)).
+  { intros r. unfold DistributedDatalogToHardwareCompiler.layout_distributes_program in Hdist.
+    destruct Hdist as [Hsub1 Hsub2]. split; intro H.
+    - apply Hsub1. apply (proj2 (source_program_in layout r)).
+      apply (proj1 (canonical_program_in layout r)). exact H.
+    - apply (proj2 (canonical_program_in layout r)).
+      apply (proj1 (source_program_in layout r)). apply Hsub2. exact H. }
+  (* [prog_impl] over the compiled program and over the nattified program agree (same rule set) *)
+  assert (HB : Datalog.prog_impl (canonical_program layout)
+                 (relabel_Q (encode_rel (program_rels p) p) Qsrc)
+                 (nattify_rel_fact (program_rels p) p fsrc)
+               <-> Datalog.prog_impl (NattifyRel.nattify_rel_prog (program_rels p) p)
+                 (relabel_Q (encode_rel (program_rels p) p) Qsrc)
+                 (nattify_rel_fact (program_rels p) p fsrc)).
+  { split; intro H'.
+    - eapply prog_impl_same_set; [exact H' | exact Hset].
+    - eapply prog_impl_same_set; [exact H' | exact (fun r => iff_sym (Hset r))]. }
+  (* numeric core; swap canonical -> nattified by [HB]; undo the nattification *)
+  eapply iff_trans;
+    [ exact (compile_distributed_correct layout fps fcs g ninfos
+               (relabel_Q (encode_rel (program_rels p) p) Qsrc) Hcomp Hbare Hedb
+               (nattify_rel_fact (program_rels p) p fsrc))
+    | ].
+  eapply iff_trans; [ exact HB | ].
+  symmetry.
+  apply (nattify_rel_correct (program_rels p) p Qsrc fsrc Hscope).
+Qed.
 
 End CompileTop.
