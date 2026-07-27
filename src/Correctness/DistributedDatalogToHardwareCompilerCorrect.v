@@ -18,7 +18,7 @@
 
 From Stdlib Require Import List Bool ZArith Lia.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Datatypes.Result Eqb.
-From Datalog Require Import Datalog List Map Default.
+From Datalog Require Import Datalog Interpreter List Map Default.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
 From DatalogRocq Require Import ForwardingCorrect RelabelCorrect.
@@ -271,7 +271,6 @@ Qed.
 (*  compute_permutation is a NoDup permutation list of the right length        *)
 (*============================================================================*)
 
-Notation ccount := (@DistributedDatalogToHardwareCompiler.count_occ var var_eqb).
 Notation cperm_aux := (@DistributedDatalogToHardwareCompiler.compute_perm_aux var var_idx_map).
 Notation cperm := (@DistributedDatalogToHardwareCompiler.compute_permutation var var_eqb var_idx_map).
 Notation bbm := (@DistributedDatalogToHardwareCompiler.build_base_map var var_eqb var_idx_map).
@@ -284,13 +283,16 @@ Proof. destruct (var_eqb_spec v v); congruence. Qed.
 
 (*----count_occ / firstn helpers----*)
 
-Lemma count_occ_cons (q x : var) (l : list var) :
-  ccount q (x :: l) = (if var_eqb x q then 1 else 0) + ccount q l.
+Lemma count_occ_nil (q : var) : count_occ q [] = 0.
 Proof. reflexivity. Qed.
 
-Lemma count_occ_app (v : var) (l1 l2 : list var) :
-  ccount v (l1 ++ l2) = ccount v l1 + ccount v l2.
-Proof. induction l1 as [|x l1 IH]; simpl; [reflexivity | rewrite IH; lia]. Qed.
+Lemma count_occ_cons (q x : var) (l : list var) :
+  count_occ q (x :: l) = (if var_eqb x q then 1 else 0) + count_occ q l.
+Proof.
+  unfold count_occ. cbn [filter].
+  rewrite (Eqb.eqb_sym q x : var_eqb q x = var_eqb x q).
+  destruct (var_eqb x q); reflexivity.
+Qed.
 
 Lemma firstn_S_nth (l : list var) (i : nat) (d : var) :
   i < length l -> firstn (S i) l = firstn i l ++ [nth i l d].
@@ -303,13 +305,14 @@ Qed.
 
 Lemma count_occ_firstn_S (v : var) (l : list var) (i : nat) (d : var) :
   i < length l ->
-  ccount v (firstn (S i) l) = ccount v (firstn i l) + (if var_eqb (nth i l d) v then 1 else 0).
+  count_occ v (firstn (S i) l) = count_occ v (firstn i l) + (if var_eqb (nth i l d) v then 1 else 0).
 Proof.
-  intros Hi. rewrite (firstn_S_nth l i d Hi), count_occ_app. simpl. lia.
+  intros Hi. rewrite (firstn_S_nth l i d Hi), count_occ_app, count_occ_cons, count_occ_nil.
+  lia.
 Qed.
 
 Lemma count_firstn_mono (v : var) (l : list var) (i j : nat) :
-  i <= j -> ccount v (firstn i l) <= ccount v (firstn j l).
+  i <= j -> count_occ v (firstn i l) <= count_occ v (firstn j l).
 Proof.
   intros Hij. induction Hij as [|j Hij IH]; [lia|].
   destruct (Nat.lt_ge_cases j (length l)) as [Hlt|Hge].
@@ -320,10 +323,10 @@ Qed.
 
 Lemma count_firstn_strict (v : var) (l : list var) (i j : nat) (d : var) :
   i < j -> nth i l d = v -> i < length l ->
-  ccount v (firstn i l) < ccount v (firstn j l).
+  count_occ v (firstn i l) < count_occ v (firstn j l).
 Proof.
   intros Hij Hnth Hi.
-  apply Nat.lt_le_trans with (m := ccount v (firstn (S i) l)).
+  apply Nat.lt_le_trans with (m := count_occ v (firstn (S i) l)).
   - rewrite (count_occ_firstn_S v l i d Hi), Hnth, var_eqb_refl. lia.
   - apply count_firstn_mono. lia.
 Qed.
@@ -331,12 +334,12 @@ Qed.
 (* Occurrence index of position i is strictly below the total count of that variable. *)
 Lemma occ_lt_count (v : var) (l : list var) (i : nat) (d : var) :
   i < length l -> nth i l d = v ->
-  ccount v (firstn i l) < ccount v l.
+  count_occ v (firstn i l) < count_occ v l.
 Proof.
   intros Hi Hnth.
-  assert (H1 : ccount v (firstn (S i) l) = ccount v (firstn i l) + 1).
+  assert (H1 : count_occ v (firstn (S i) l) = count_occ v (firstn i l) + 1).
   { rewrite (count_occ_firstn_S v l i d Hi), Hnth, var_eqb_refl. lia. }
-  assert (H2 : ccount v (firstn (S i) l) <= ccount v (firstn (length l) l)).
+  assert (H2 : count_occ v (firstn (S i) l) <= count_occ v (firstn (length l) l)).
   { apply count_firstn_mono. lia. }
   rewrite firstn_all in H2. lia.
 Qed.
@@ -366,11 +369,11 @@ Lemma cperm_aux_nth (bm : var_idx_map) (l : list var) :
   forall (om : var_idx_map) (i : nat) (d : var),
   i < length l ->
   nth i (cperm_aux l bm om) 0 =
-    mget0 bm (nth i l d) + mget0 om (nth i l d) + ccount (nth i l d) (firstn i l).
+    mget0 bm (nth i l d) + mget0 om (nth i l d) + count_occ (nth i l d) (firstn i l).
 Proof.
   induction l as [|v vs IH]; intros om i d Hi; simpl in Hi; [lia|].
   rewrite cperm_aux_cons. destruct i as [|i'].
-  - cbn [nth firstn DistributedDatalogToHardwareCompiler.count_occ]. lia.
+  - cbn [nth firstn]. rewrite count_occ_nil. lia.
   - cbn [nth]. rewrite (IH (map.put om v (mget0 om v + 1)) i' d) by lia.
     change (firstn (S i') (v :: vs)) with (v :: firstn i' vs).
     rewrite (count_occ_cons (nth i' vs d) v (firstn i' vs)).
@@ -387,19 +390,19 @@ Fixpoint base_fn (desired original : list var) (offset : nat) (v : var) : nat :=
   match desired with
   | [] => offset
   | w :: ws => if var_eqb w v then offset
-               else base_fn ws original (offset + ccount w original) v
+               else base_fn ws original (offset + count_occ w original) v
   end.
 
 Lemma base_fn_ge (desired original : list var) (offset : nat) (v : var) :
   offset <= base_fn desired original offset v.
 Proof.
   revert offset. induction desired as [|w ws IH]; intros offset; simpl; [lia|].
-  destruct (var_eqb w v); [lia|]. specialize (IH (offset + ccount w original)). lia.
+  destruct (var_eqb w v); [lia|]. specialize (IH (offset + count_occ w original)). lia.
 Qed.
 
 Lemma bbm_cons (w : var) (ws original : list var) (offset : nat) (m : var_idx_map) :
   bbm (w :: ws) original offset m
-  = bbm ws original (offset + ccount w original) (map.put m w offset).
+  = bbm ws original (offset + count_occ w original) (map.put m w offset).
 Proof. reflexivity. Qed.
 
 Lemma build_base_map_get_notin (desired original : list var) (offset : nat)
@@ -429,8 +432,8 @@ Qed.
    the other. *)
 Lemma base_fn_mono (desired original : list var) (offset : nat) (v w : var) :
   NoDup desired -> In v desired -> In w desired -> v <> w ->
-  base_fn desired original offset v + ccount v original <= base_fn desired original offset w
-  \/ base_fn desired original offset w + ccount w original <= base_fn desired original offset v.
+  base_fn desired original offset v + count_occ v original <= base_fn desired original offset w
+  \/ base_fn desired original offset w + count_occ w original <= base_fn desired original offset v.
 Proof.
   revert offset. induction desired as [|u us IH]; intros offset Hnd Hv Hw Hvw;
     simpl in Hv, Hw; [contradiction|].
@@ -439,11 +442,11 @@ Proof.
   destruct (var_eqb_spec u v) as [Huv|Huv]; destruct (var_eqb_spec u w) as [Huw|Huw].
   - congruence.
   - subst u. destruct Hw as [Hwv|Hwin]; [congruence|].
-    left. pose proof (base_fn_ge us original (offset + ccount v original) w). lia.
+    left. pose proof (base_fn_ge us original (offset + count_occ v original) w). lia.
   - subst u. destruct Hv as [Hvu|Hvin]; [congruence|].
-    right. pose proof (base_fn_ge us original (offset + ccount w original) v). lia.
+    right. pose proof (base_fn_ge us original (offset + count_occ w original) v). lia.
   - destruct Hv as [Hvu|Hvin]; [congruence|]. destruct Hw as [Hwu|Hwin]; [congruence|].
-    apply (IH (offset + ccount u original) Hnd' Hvin Hwin Hvw).
+    apply (IH (offset + count_occ u original) Hnd' Hvin Hwin Hvw).
 Qed.
 
 (*----compute_permutation: length, value, NoDup----*)
@@ -459,7 +462,7 @@ Lemma compute_permutation_nth (original desired : list var) (i : nat) (d : var) 
   i < length original ->
   nth i (cperm original desired) 0 =
     mget0 (bbm desired original 0 map.empty) (nth i original d)
-      + ccount (nth i original d) (firstn i original).
+      + count_occ (nth i original d) (firstn i original).
 Proof.
   intros Hi. unfold DistributedDatalogToHardwareCompiler.compute_permutation.
   rewrite (cperm_aux_nth (bbm desired original 0 map.empty) original map.empty i d Hi).
@@ -548,7 +551,7 @@ Definition gj_entries (tb : list trie) (v : var) (hyps : list lowered_fact)
   : list (trie_id * nat * clause_id) :=
   flat_map (fun ci => let '(c, t_hyp) := ci in let '(t, hyp) := t_hyp in
               map (fun a => (t.(tid), nth a t.(tperm) 0, c))
-                  (get_hyp_arg_indices (var_eqb := var_eqb) hyp.(Datalog.clause_args) v 0))
+                  (indexes_of (var_expr v) hyp.(Datalog.clause_args)))
            (combine (seq 0 (length (combine tb hyps))) (combine tb hyps)).
 
 (* The outer fold over (trie, hypothesis) pairs, tracking the clause counter. *)
@@ -562,7 +565,7 @@ Lemma outer_fold_spec (v : var) (pairs : list (trie * lowered_fact)) :
         fold_left (fun (inner_acc : list nat * list nat * list nat) (arg_idx : nat) =>
           let '(ts', levels', cs') := inner_acc in
           (t.(tid) :: ts', nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
-          (get_hyp_arg_indices (var_eqb := var_eqb) hyp.(Datalog.clause_args) v 0) (ts, levels, cs) in
+          (indexes_of (var_expr v) hyp.(Datalog.clause_args)) (ts, levels, cs) in
       (ts', levels', cs', S clause))
       pairs (ts, levels, cs, clause0)
   with (ts', levels', cs', _) =>
@@ -571,14 +574,14 @@ Lemma outer_fold_spec (v : var) (pairs : list (trie * lowered_fact)) :
       = zip3 (rev ts) (rev levels) (rev cs)
         ++ flat_map (fun ci => let '(c, t_hyp) := ci in let '(t, hyp) := t_hyp in
                 map (fun a => (t.(tid), nth a t.(tperm) 0, c))
-                    (get_hyp_arg_indices (var_eqb := var_eqb) hyp.(Datalog.clause_args) v 0))
+                    (indexes_of (var_expr v) hyp.(Datalog.clause_args)))
              (combine (seq clause0 (length pairs)) pairs)
   end.
 Proof.
   induction pairs as [|[t hyp] pairs IH]; intros clause0 ts levels cs Hl1 Hl2.
   - simpl. rewrite app_nil_r. auto.
   - cbn [fold_left]. rewrite inner_fold_spec.
-    set (idxs := get_hyp_arg_indices (var_eqb := var_eqb) hyp.(Datalog.clause_args) v 0).
+    set (idxs := indexes_of (var_expr v) hyp.(Datalog.clause_args)).
     assert (HpA : length (rev (map (fun _ : nat => t.(tid)) idxs) ++ ts)
                 = length (rev (map (fun a : nat => nth a t.(tperm) 0) idxs) ++ levels))
       by (rewrite !length_app, !length_rev, !length_map; f_equal; exact Hl1).
@@ -644,35 +647,6 @@ Proof.
       * right. apply IH. exists k. split; [lia | exact Hk].
 Qed.
 
-(* Membership in the argument-position list. *)
-Lemma get_hyp_arg_indices_In
-    (args : list (@HardwareProgram.lowered_expr var)) (v : var) (i a : nat) :
-  In a (DistributedDatalogToHardwareCompiler.get_hyp_arg_indices (var_eqb := var_eqb) args v i) <->
-  (exists k, a = i + k /\ nth_error args k = Some (var_expr v)).
-Proof.
-  revert i. induction args as [|arg args IH]; intros i; simpl.
-  - split; [contradiction|]. intros [k [_ Hk]]. destruct k; discriminate.
-  - destruct arg as [v' | f l].
-    + destruct (var_eqb_spec v v') as [Heqv | Hne].
-      * subst v'. split.
-        -- intros [-> | Hin].
-           ++ exists 0. split; [lia | reflexivity].
-           ++ apply IH in Hin. destruct Hin as [k [-> Hk]]. exists (S k). split; [lia | exact Hk].
-        -- intros [k [Hak Hk]]. destruct k as [|k]; simpl in Hk.
-           ++ left; lia.
-           ++ right. apply IH. exists k. split; [lia | exact Hk].
-      * split.
-        -- intros Hin. apply IH in Hin. destruct Hin as [k [-> Hk]]. exists (S k). split; [lia | exact Hk].
-        -- intros [k [Hak Hk]]. destruct k as [|k]; simpl in Hk.
-           ++ injection Hk as <-. congruence.
-           ++ apply IH. exists k. split; [lia | exact Hk].
-    + split.
-      * intros Hin. apply IH in Hin. destruct Hin as [k [-> Hk]]. exists (S k). split; [lia | exact Hk].
-      * intros [k [Hak Hk]]. destruct k as [|k]; simpl in Hk.
-        -- discriminate.
-        -- apply IH. exists k. split; [lia | exact Hk].
-Qed.
-
 (* Membership in generate_join's entry list. *)
 Lemma gj_entries_In (tb : list trie) (v : var) (hyps : list lowered_fact)
     (e : trie_id * nat * clause_id) :
@@ -686,14 +660,13 @@ Proof.
   - intros [[c [t hyp]] [Hin Hin2]].
     apply In_combine_seq in Hin. destruct Hin as [k [Hck Hk]]. simpl in Hck; subst c.
     apply in_map_iff in Hin2. destruct Hin2 as [a [He Ha]].
-    apply (get_hyp_arg_indices_In hyp.(Datalog.clause_args) v 0 a) in Ha.
-    destruct Ha as [a' [-> Ha']]. rewrite Nat.add_0_l in He.
-    exists k, t, hyp, a'. split; [exact Hk | split; [exact Ha' | symmetry; exact He]].
+    apply indexes_of_spec in Ha.
+    exists k, t, hyp, a. split; [exact Hk | split; [exact Ha | symmetry; exact He]].
   - intros [c [t [hyp [a [Hk [Ha ->]]]]]].
     exists (c, (t, hyp)). split.
     + apply In_combine_seq. exists c. split; [lia | exact Hk].
     + apply in_map_iff. exists a. split; [reflexivity|].
-      apply (get_hyp_arg_indices_In hyp.(Datalog.clause_args) v 0 a). exists a. split; [lia | exact Ha].
+      apply indexes_of_spec. exact Ha.
 Qed.
 
 (* Reading a lowered fact as a datalog fact, factored. *)
@@ -1255,8 +1228,6 @@ Notation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query
 Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var).
 Notation compute_permutation := (@DistributedDatalogToHardwareCompiler.compute_permutation var var_eqb var_idx_map).
 Notation get_rule_var_index := (@DistributedDatalogToHardwareCompiler.get_rule_var_index var var_eqb).
-Notation index_of_var := (@DistributedDatalogToHardwareCompiler.index_of_var var var_eqb).
-Notation index_of_var_aux := (@DistributedDatalogToHardwareCompiler.index_of_var_aux var var_eqb).
 
 (* [generate_trie] always returns a trie indexing the hypothesis's relation by the
    permutation computed for that hypothesis -- whether it freshly allocates one or
@@ -1304,32 +1275,13 @@ Qed.
 
 (*----conclusion index correspondence----*)
 
-(* [index_of_var] locates a variable: the returned index really points at it. *)
-Lemma index_of_var_aux_sound (v : var) (vars : list var) :
-  forall (i idx : nat),
-  index_of_var_aux v vars i = Some idx ->
-  exists k, idx = i + k /\ List.nth_error vars k = Some v.
-Proof.
-  induction vars as [|w vars IH]; intros i idx H; simpl in H; [discriminate|].
-  destruct (var_eqb_spec v w) as [->|Hne].
-  - injection H as <-. exists 0. split; [lia | reflexivity].
-  - destruct (IH (S i) idx H) as [k [-> Hk]]. exists (S k). split; [lia | exact Hk].
-Qed.
-
-Lemma index_of_var_sound (v : var) (vars : list var) (idx : nat) :
-  index_of_var v vars = Some idx -> List.nth_error vars idx = Some v.
-Proof.
-  unfold DistributedDatalogToHardwareCompiler.index_of_var. intros H.
-  destruct (index_of_var_aux_sound v vars 0 idx H) as [k [-> Hk]].
-  rewrite Nat.add_0_l. exact Hk.
-Qed.
-
+(* [get_rule_var_index] locates a variable: the returned index really points at it. *)
 Lemma get_rule_var_index_sound (ord : list var) (v : var) (idx : nat) :
   get_rule_var_index ord v = Success idx -> List.nth_error ord idx = Some v.
 Proof.
   unfold DistributedDatalogToHardwareCompiler.get_rule_var_index.
-  destruct (index_of_var v ord) as [i|] eqn:Hi; [|discriminate].
-  intros H. injection H as <-. apply index_of_var_sound; exact Hi.
+  destruct (index_of v ord) as [i|] eqn:Hi; [|discriminate].
+  intros H. injection H as <-. apply index_of_Some. exact Hi.
 Qed.
 
 (* If each element's producer [g] sends a [Success] result to a fact [P a b], then

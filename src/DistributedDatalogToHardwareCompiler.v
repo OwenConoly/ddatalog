@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
-From Datalog Require Import Datalog List Map Default.
+From Datalog Require Import Datalog Interpreter List Map Default.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
@@ -345,21 +345,6 @@ Definition compute_var_order (lf : lowered_fact) : list var :=
 
 Context {var_idx_map : map.map var nat}.
 
-Fixpoint index_of_var_aux (v : var) (vars : list var) (i : nat) : option nat :=
-  match vars with
-  | [] => None
-  | v' :: rest => if var_eqb v v' then Some i else index_of_var_aux v rest (S i)
-  end.
-
-Definition index_of_var (v : var) (vars : list var) : option nat :=
-  index_of_var_aux v vars 0.
-
-Fixpoint count_occ (v : var) (l : list var) : nat :=
-  match l with
-  | [] => 0
-  | x :: xs => (if var_eqb x v then 1 else 0) + count_occ v xs
-  end.
-
 Fixpoint build_base_map (desired_order : list var) (original_order : list var)
     (offset : nat) (m : var_idx_map) : var_idx_map :=
   match desired_order with
@@ -403,20 +388,9 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
   end.
 
 Definition get_rule_var_index (rule_var_order : list var) (v : var) : result nat :=
-  match index_of_var v rule_var_order with
+  match index_of v rule_var_order with
   | Some idx => Success idx
   | None => error:("get_rule_var_index: variable not found in rule_var_order")
-  end.
-
-Fixpoint get_hyp_arg_indices (args : list lowered_expr) (v : var) (i : nat) : list nat :=
-  match args with
-  | [] => []
-  | arg :: rest =>
-    let acc := get_hyp_arg_indices rest v (S i) in
-    match arg with
-    | var_expr v' => if var_eqb v v' then i :: acc else acc
-    | fun_expr _ _ => acc
-    end
   end.
 
 Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lowered_fact) : join :=
@@ -428,7 +402,7 @@ Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lower
         fold_left (fun inner_acc arg_idx =>
           let '(ts', levels', cs') := inner_acc in
           (t.(tid) :: ts', nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
-          (get_hyp_arg_indices hyp.(clause_args) v 0) (ts, levels, cs)
+          (indexes_of (var_expr v) hyp.(clause_args)) (ts, levels, cs)
       in
       (ts', levels', cs', S clause))
       (combine tries_by_hyp hyps) ([], [], [], 0)
