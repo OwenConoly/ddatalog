@@ -7,7 +7,8 @@
    we run [NodeHardwareSemantics] on those generated tries and the inputs A(7,8), B(8,7), and
    prove the node derives J(7,8).
 
-   The compiler assigns relation ids in first-seen order: A = 0, B = 1, J = 2.  It orders the
+   The compiler assigns relation ids in first-seen order over [concl_rels ++ hyp_rels]: J = 0,
+   A = 1, B = 2.  It orders the
    join variables (y, x) (last-occurrence over the body A(x,y), B(y,x)); B already stores its
    columns in that order, but A -- stored (x,y) -- gets the non-trivial column permutation
    [1;0].  [trie_read] inverts it, so "level i" always means the i-th variable in the ordering
@@ -55,8 +56,8 @@ Definition gen_prog : hardware_program :=
 (*  ... and a proof that they are EXACTLY the compiler's output.              *)
 (*==========================================================================*)
 
-Definition trieA : trie := {| tid := 0; trel := 0; tperm := [1; 0] |}.  (* A stores (x,y); ordering (y,x): swapped   *)
-Definition trieB : trie := {| tid := 1; trel := 1; tperm := [0; 1] |}.  (* B stores (y,x); ordering (y,x): identity *)
+Definition trieA : trie := {| tid := 0; trel := 1; tperm := [1; 0] |}.  (* A stores (x,y); ordering (y,x): swapped   *)
+Definition trieB : trie := {| tid := 1; trel := 2; tperm := [0; 1] |}.  (* B stores (y,x); ordering (y,x): identity *)
 Definition tries : list trie := [trieA; trieB].
 
 Definition joinY : join :=
@@ -64,10 +65,10 @@ Definition joinY : join :=
 Definition joinX : join :=
   {| HardwareProgram.tries := [0; 1]; trie_levels := [1; 1]; clauses := [0; 1] |}.  (* x, level 1 *)
 
-Definition concl : join_output := {| output_rel := 2; output_var_indices := [1; 0] |}.  (* J(x,y): x=level 1, y=level 0 *)
+Definition concl : join_output := {| output_rel := 0; output_var_indices := [1; 0] |}.  (* J(x,y): x=level 1, y=level 0 *)
 
 Definition hrJ : hardware_rule :=
-  {| hhyps := [joinY; joinX]; hconcls := [concl]; hsig := [(0, 2); (1, 2)] |}.
+  {| hhyps := [joinY; joinX]; hconcls := [concl]; hsig := [(1, 2); (2, 2)] |}.
 Definition hp : hardware_program := [hrJ].
 
 (* The compiler really does generate these tries and this trie-join rule from [ruleJ]. *)
@@ -81,10 +82,10 @@ Proof. vm_compute. reflexivity. Qed.
 (*  type), so we instantiate the run with [nat] values for readability.       *)
 (*==========================================================================*)
 
-Definition factA : @Datalog.fact rel_id nat := Datalog.normal_fact 0 [7; 8].  (* A(7,8) *)
-Definition factB : @Datalog.fact rel_id nat := Datalog.normal_fact 1 [8; 7].  (* B(8,7) *)
+Definition factA : @Datalog.fact rel_id nat := Datalog.normal_fact 1 [7; 8].  (* A(7,8) *)
+Definition factB : @Datalog.fact rel_id nat := Datalog.normal_fact 2 [8; 7].  (* B(8,7) *)
 Definition hyps' : list (@Datalog.fact rel_id nat) := [factA; factB].
-Definition factJ : @Datalog.fact rel_id nat := Datalog.normal_fact 2 [7; 8].  (* J(7,8) *)
+Definition factJ : @Datalog.fact rel_id nat := Datalog.normal_fact 0 [7; 8].  (* J(7,8) *)
 
 (*==========================================================================*)
 (*  Layer 1: the permutation reads ([inv_perm_index] / [trie_read]).          *)
@@ -178,11 +179,11 @@ Definition ninfos : list (@node_info node_id (SortedListNat.map (list destinatio
 Definition node00 : node_id := [0; 0]%nat.
 
 (* The runtime EDB: deliver A(7,8) and B(8,7) at node (0,0).  The output sink: node (0,0)
-   answers for J (relation id 2). *)
+   answers for J (relation id 0). *)
 Definition dinput : node_id -> @Datalog.fact rel_id nat -> Prop :=
   fun n f => n = node00 /\ (f = factA \/ f = factB).
 Definition doutput : node_id -> rel_id -> Prop :=
-  fun n r => n = node00 /\ r = 2.
+  fun n r => n = node00 /\ r = 0.
 
 (* The distributed operational semantics, run on the compiled [ninfos], parks J(7,8) at the
    output node.  Steps: deliver A, deliver B, then the node runs its hardware program. *)

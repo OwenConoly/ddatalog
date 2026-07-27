@@ -8,7 +8,7 @@ From coqutil Require Import Map.Interface Map.SortedListString.
 Import StringDatalogParams.
 
 (* Relation names are strings, mapped to numeric ids; variables and functions are strings. *)
-Definition rel_relid_map := SortedListString.map rel_id.
-Definition var_node_set  := SortedListString.map unit.
-Definition var_edge_set  := SortedListString.map (SortedListString.map unit).
-Definition var_idx_map   := SortedListString.map nat.
+#[global] Instance rel_relid_map : map.map _ _ := SortedListString.map rel_id.
+#[global] Instance var_node_set : map.map _ _ := SortedListString.map unit.
+#[global] Instance var_edge_set : map.map _ _ := SortedListString.map (SortedListString.map unit).
+#[global] Instance var_idx_map : map.map _ _ := SortedListString.map nat.

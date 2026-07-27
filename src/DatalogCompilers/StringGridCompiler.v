@@ -5,7 +5,7 @@
    Given a program and an (indexed) layout it compiles end to end. *)
 
 From Stdlib Require Import List ZArith String.
-From Datalog Require Import Datalog.
+From Datalog Require Import Datalog NattifyRel RelMap.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridTopology StringDatalog StringDatalogParams
   GridGraph SortedListNat DistributedHardwareProgram.
 From coqutil Require Import Map.Interface Map.SortedListString Result.
@@ -33,8 +33,22 @@ Definition make_layout_map
       map.put acc nid rules)
     layout map.empty.
 
-(* The end-to-end compiler: wire the string datalog backend and the grid topology into the
-   fuel-free [compile], which computes the routing fuel (= #grid-nodes) itself. *)
+(* [compile] now consumes an already-numbered ([rel_id]) program, so the string relations are
+   nattified here first (via [NattifyRel.encode_rel] over the program's own relations -- matching
+   [nattify_and_compile_correct]'s [input_rels := program_rels p]). *)
+Definition rel_ids (program : list rule) : string -> rel_id :=
+  encode_rel (List.flat_map Datalog.all_rels program) program.
+
+Definition nattify_layout (enc : string -> rel_id)
+    (slayout : node_id_map (list rule)) : node_id_map (list HardwareProgram.lowered_rule) :=
+  map.fold (fun acc nid rules => map.put acc nid (List.map (map_rule_rels enc) rules)) map.empty slayout.
+
+Definition nattify_fact_locs (enc : string -> rel_id) (fl : rel_locs_map) : relid_locs_map :=
+  map.fold (fun acc R locs => map.put acc (enc R) locs) map.empty fl.
+
+(* The end-to-end compiler: nattify the string layout / fact-locations, then wire the numbered
+   program and the grid topology into the fuel-free [compile] (which computes the routing fuel
+   = #grid-nodes itself). *)
 Definition compile_program
     (program        : list rule)
     (layout         : list (node_id * list nat))
@@ -42,38 +56,18 @@ Definition compile_program
     (fact_consumers : rel_locs_map)
     (topo_dims      : GridGraph.Dimensions)
     : _ :=
+  let enc := rel_ids program in
   compile
-    (node_id            := node_id)
-    (node_id_set        := node_id_map unit)
-    (node_id_edge_set   := node_id_map (node_id_map unit))
-    (var_node_set       := StringDatalog.var_node_set)
-    (var_edge_set       := StringDatalog.var_edge_set)
-    (forwarding_table   := SortedListNat.map (list destination))
-    (rel_relid_map      := StringDatalog.rel_relid_map)
-    (layout_map         := node_id_map (list rule))
-    (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
-    (var_idx_map        := StringDatalog.var_idx_map)
-    (node_ftable_map    := node_id_map (SortedListNat.map (list destination)))
-    (make_layout_map program layout) fact_producers fact_consumers
+    (nattify_layout enc (make_layout_map program layout))
+    (nattify_fact_locs enc fact_producers) (nattify_fact_locs enc fact_consumers)
     (GridTopology.make_topo_graph topo_dims).
 
-(* The rel-name <-> rel-id table [compile_program] assigns internally (first-seen order),
-   exposed for tooling that needs to relate a fact keyed by relation name to the compiled
-   program's numeric [output_rel]/[trel] ids -- e.g. a human-authored/random input-fact
-   workload alongside the compiled program. Reuses [compile_rel_ids] (in turn [lower_inputs]),
-   the exact relabeling pass [compile_program] itself runs, so the ids are guaranteed to match. *)
-Definition compile_program_rel_ids
-    (program        : list rule)
-    (layout         : list (node_id * list nat))
-    (fact_producers : rel_locs_map)
-    (fact_consumers : rel_locs_map)
-    : _ :=
-  compile_rel_ids
-    (node_id            := node_id)
-    (rel_relid_map      := StringDatalog.rel_relid_map)
-    (layout_map         := node_id_map (list rule))
-    (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
-    (make_layout_map program layout) fact_producers fact_consumers.
+(* The rel-name <-> rel-id table the frontend assigns (via [NattifyRel]'s [rel_table] / [encode_rel]),
+   exposed for tooling that needs to relate a fact keyed by relation name to the compiled program's
+   numeric [output_rel]/[trel] ids -- e.g. a human-authored/random input-fact workload. *)
+Definition compile_program_rel_ids (program : list rule) : list (string * rel_id) :=
+  let enc := rel_ids program in
+  List.map (fun R => (R, enc R)) (rel_table (List.flat_map Datalog.all_rels program) program).
 
 (* PLACEHOLDER fact-locations: make EVERY grid node an input AND output node for EVERY relation
    appearing in [program].  Useful for examples that have not (yet) designated real input/output
