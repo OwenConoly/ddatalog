@@ -2173,7 +2173,7 @@ Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.de
 Context {rel_dependency_map : map.map rel_id node_id_set}.
 Context (fn_to_id : fn -> fn_id).
 Context {rel_relid_map : map.map rel rel_id}.
-Context {layout_map : map.map node_id (@HardwareProgram.program rel var fn aggregator)}
+Context {layout_map : map.map node_id (@DependencyGenerator.program rel var fn aggregator)}
         {layout_map_ok : map.ok layout_map}.
 Context {lowered_layout_map : map.map node_id (@HardwareProgram.lowered_program var aggregator)}
         {lowered_layout_map_ok : map.ok lowered_layout_map}.
@@ -2183,7 +2183,7 @@ Context {fact_locations_map : map.map rel (list node_id)}
 Context {lowered_fact_locations_map : map.map rel_id (list node_id)}
         {lowered_fact_locations_map_ok : map.ok lowered_fact_locations_map}.
 
-Notation program := (@HardwareProgram.program rel var fn aggregator).
+Notation program := (@DependencyGenerator.program rel var fn aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation global_context :=

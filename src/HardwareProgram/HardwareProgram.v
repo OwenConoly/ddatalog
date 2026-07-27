@@ -23,15 +23,14 @@ Import ListNotations.
 
 Section HardwareProgram.
 
-Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
+Context {exprvar : exprvarT} {aggregator : aggregatorT}.
 
-Definition var_id := nat.
+#[local] Instance rel_id : relT := nat.
+#[local] Instance fn_id : fnT := nat.
+
 Definition trie_id := nat.
-Definition rel_id := nat.
-Definition fn_id := nat.
 Definition clause_id := nat.
 
-Definition program := list rule.
 Definition permutation := list nat.
 
 Record trie := {
@@ -51,9 +50,9 @@ Record trie := {
    emits [normal_rule]s and ERRORS (result monad) on [meta_rule]/[agg_rule], so a lowered program
    is normal by construction.  A lowered atom is a [clause] ([clause_rel]/[clause_args]);
    a ground lowered fact is a [fact] ([normal_fact]). *)
-Definition lowered_expr := expr (fn := fn_id).
-Definition lowered_fact := clause (rel := rel_id) (fn := fn_id).
-Definition lowered_rule := rule (rel := rel_id) (fn := fn_id).
+Definition lowered_expr := expr.
+Definition lowered_fact := clause.
+Definition lowered_rule := rule.
 Definition lowered_program := list lowered_rule.
 
 Record join :=

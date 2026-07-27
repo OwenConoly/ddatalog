@@ -30,7 +30,6 @@ Context {lowered_fact_locations : map.map rel_id (list node_id)}.
    compiler's view of it, with the topology's [node_id] and forwarding-table map fixed. *)
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
-
 Record global_context := {
   rel_map : rel_relid_map;
   last_rel_id : rel_id;
