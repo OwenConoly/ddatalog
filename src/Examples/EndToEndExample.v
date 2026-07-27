@@ -21,7 +21,7 @@
 
 From Stdlib Require Import List String.
 From coqutil Require Import Map.Interface Map.SortedListString Result.
-From Datalog Require Import Datalog NattifyRel RelMap.
+From Datalog Require Import Datalog NattifyRel RelMap Map Default.
 From DatalogRocq Require Import
   DistributedDatalogToHardwareCompilerCorrect
   DistributedDatalogToHardwareCompiler
@@ -61,6 +61,7 @@ Definition grid_equiv :=
     (GridTopology.node_id_map (list (lowered_rule))) (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map (SortedListNat.map (list destination)))
     (SortedListNat.map (list node_id)) (SortedListNat.ok _)
+    (GridTopology.node_id_map (list rel_id))
     (SortedListNat.ok _)
     (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map_ok _)
@@ -114,8 +115,8 @@ Theorem end_to_end_equiv
   edb_routable NFPS (relabel_Q (encode_rel (program_rels P) P) Qsrc) ->
   run_ninfos ninfos
     (fun n f0 => relabel_Q (encode_rel (program_rels P) P) Qsrc f0 /\
-                 In n (rel_locs NFPS (Datalog.rel_of f0)))
-    (fun n R  => In n (rel_locs NFPS R))
+                 In n (get_or_default NFPS (Datalog.rel_of f0)))
+    (fun n R  => In n (get_or_default NFPS R))
     (nattify_rel_fact (program_rels P) P fsrc)
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
@@ -166,8 +167,8 @@ Theorem end_to_end_equiv_reach
   edb_routable NFPS_r (relabel_Q (encode_rel (program_rels Preach) Preach) Qsrc) ->
   run_ninfos ninfos
     (fun n f0 => relabel_Q (encode_rel (program_rels Preach) Preach) Qsrc f0 /\
-                 In n (rel_locs NFPS_r (Datalog.rel_of f0)))
-    (fun n R  => In n (rel_locs NFPS_r R))
+                 In n (get_or_default NFPS_r (Datalog.rel_of f0)))
+    (fun n R  => In n (get_or_default NFPS_r R))
     (nattify_rel_fact (program_rels Preach) Preach fsrc)
   <-> Datalog.prog_impl Preach Qsrc fsrc.
 Proof.

@@ -2173,6 +2173,7 @@ Context {layout_map : map.map node_id (@HardwareProgram.lowered_program var fn a
 Context {node_ftable_map : map.map node_id forwarding_table}.
 Context {fact_locations_map : map.map rel_id (list node_id)}
         {fact_locations_map_ok : map.ok fact_locations_map}.
+Context {rels_at_node : map.map node_id (list rel_id)}.
 
 Notation program := (@HardwareProgram.lowered_program var fn aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
@@ -2185,7 +2186,11 @@ Notation attach_forwarding_tables :=
   (@DistributedDatalogToHardwareCompiler.attach_forwarding_tables node_id node_id_eqb forwarding_table node_ftable_map).
 Notation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
 Notation compile :=
-  (@DistributedDatalogToHardwareCompiler.compile var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map).
+  (@DistributedDatalogToHardwareCompiler.compile var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map rels_at_node).
+Notation all_producers :=
+  (@DistributedDatalogToHardwareCompiler.all_producers var fn aggregator node_id node_id_eqb layout_map fact_locations_map rels_at_node).
+Notation all_consumers :=
+  (@DistributedDatalogToHardwareCompiler.all_consumers var fn aggregator node_id node_id_eqb layout_map fact_locations_map rels_at_node).
 Notation DNet := (@DistributedDatalog.DataflowNetwork rel_id var fn aggregator T node_id).
 
 (* Generic: folding [g] over a map (collecting [Success] results) yields, for each collected
@@ -3016,26 +3021,20 @@ Proof.
            lfc lfp HR Hlfp Hlfc Hprod Hcons Hne Hgpath).
 Qed.
 
-(* The declared input/EDB (or, with [lfc], output/sink) locations of relation [R]. *)
-Definition rel_locs (lfp : fact_locations_map) (R : rel_id) : list node_id :=
-  match map.get lfp R with
-  | Some locs => locs
-  | None => []
-  end.
-
-Lemma rel_locs_In (lfp : fact_locations_map) (R : rel_id) (n : node_id) :
-  In n (rel_locs lfp R) -> exists locs, map.get lfp R = Some locs /\ In n locs.
+Lemma In_get_or_default (lfp : fact_locations_map) (R : rel_id) (n : node_id) :
+  In n (get_or_default lfp R) -> exists locs, map.get lfp R = Some locs /\ In n locs.
 Proof.
-  unfold rel_locs.
-  destruct (map.get lfp R) as [locs|] eqn:Hf; [|intros []].
-  intros Hn. exists locs. split; [reflexivity | exact Hn].
+  intros Hn. unfold get_or_default, get_or in Hn.
+  destruct (map.get lfp R) as [locs|] eqn:Hf.
+  - exists locs. split; [reflexivity | exact Hn].
+  - cbn in Hn. contradiction.
 Qed.
 
 (* [edb_routable lfp Q]: the base facts [Q] form a routable EDB for the declared input/producer
    locations [lfp] -- every [Q]-fact's relation has at least one declared input node, so the fact can
    actually enter the network.  (This is the EDB side condition of the top correctness theorem.) *)
 Definition edb_routable (lfp : fact_locations_map) (Q : Datalog.fact (rel := rel_id) -> Prop) : Prop :=
-  forall f, Q f -> exists n, In n (rel_locs lfp (Datalog.rel_of f)).
+  forall f, Q f -> exists n, In n (get_or_default lfp (Datalog.rel_of f)).
 
 
 Notation output_routesb :=
@@ -3050,7 +3049,7 @@ Lemma construction_good_source (all_rels : list rel_id) (ninfos : list node_info
     (net : DNet) :
   net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
   net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table all_rels ninfos g lfc lfp) ->
-  net.(DistributedDatalog.output) = (fun n R => In n (rel_locs lfc R)) ->
+  net.(DistributedDatalog.output) = (fun n R => In n (get_or_default lfc R)) ->
   routes_validb all_rels g llayout lfc lfp = true ->
   output_routesb all_rels g llayout lfc lfp = true ->
   forall n_prod R, DistributedDatalog.node_produces net.(DistributedDatalog.layout) n_prod R ->
@@ -3137,8 +3136,8 @@ Definition compiled_base_edb (g : node_graph) (ftables : node_ftable_map)
     (lfp lfc : fact_locations_map) (Q : Datalog.fact (rel := rel_id) -> Prop) : DNet :=
   {| DistributedDatalog.graph := cg2g g;
      DistributedDatalog.forward := fwd_list ftables;
-     DistributedDatalog.input := fun n f => Q f /\ In n (rel_locs lfp (Datalog.rel_of f));
-     DistributedDatalog.output := fun n R => In n (rel_locs lfc R);
+     DistributedDatalog.input := fun n f => Q f /\ In n (get_or_default lfp (Datalog.rel_of f));
+     DistributedDatalog.output := fun n R => In n (get_or_default lfc R);
      DistributedDatalog.layout := fun _ => [] |}.
 
 (* Every declared input location is a good source, from the compiler's input gate [input_routes_validb]. *)
@@ -3147,7 +3146,7 @@ Lemma edb_input_good_source (all_rels : list rel_id) (ninfos : list node_info)
     (lfp lfc : fact_locations_map) (net : DNet) :
   net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
   net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table all_rels ninfos g lfc lfp) ->
-  net.(DistributedDatalog.output) = (fun n R => In n (rel_locs lfc R)) ->
+  net.(DistributedDatalog.output) = (fun n R => In n (get_or_default lfc R)) ->
   input_routes_validb all_rels g llayout lfc lfp = true ->
   input_output_routesb all_rels g lfc lfp = true ->
   forall R locs ni, map.get lfp R = Some locs -> In ni locs -> DistributedDatalog.good_source net ni R.
@@ -3204,7 +3203,7 @@ Theorem compiled_good_network_streaming_edb
   input_routes_validb all_rels g llayout lfc lfp = true ->
   output_routesb all_rels g llayout lfc lfp = true ->
   input_output_routesb all_rels g lfc lfp = true ->
-  (forall f, Q f -> exists n, In n (rel_locs lfp (Datalog.rel_of f))) ->
+  (forall f, Q f -> exists n, In n (get_or_default lfp (Datalog.rel_of f))) ->
   DistributedDatalog.good_network_streaming
     (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) lfp lfc Q))
     program Q.
@@ -3225,7 +3224,7 @@ Proof.
     + split.
       * intros n f [HQf _]. exact HQf.
       * intros f HQf. destruct (HQ f HQf) as [n Hn].
-        destruct (rel_locs_In lfp (Datalog.rel_of f) n Hn) as [locs [Hlfp Hnlocs]].
+        destruct (In_get_or_default lfp (Datalog.rel_of f) n Hn) as [locs [Hlfp Hnlocs]].
         exists n. split.
         -- split; [exact HQf | exact Hn].
         -- apply (edb_input_good_source all_rels ninfos g llayout lfp lfc
@@ -3242,10 +3241,10 @@ Lemma compile_success_extract (layout : layout_map) (fps fcs : fact_locations_ma
   exists all_rels ninfos0 ftables,
     ninfos = attach_forwarding_tables ninfos0 ftables /\
     compile_all_nodes layout = Success ninfos0 /\
-    generate_forwarding_table_checked all_rels ninfos0 g layout fcs fps = Success ftables /\
-    input_routes_validb all_rels g layout fcs fps = true /\
-    output_routesb all_rels g layout fcs fps = true /\
-    input_output_routesb all_rels g fcs fps = true /\
+    generate_forwarding_table_checked all_rels ninfos0 g layout (all_consumers layout fcs) (all_producers layout fps) = Success ftables /\
+    input_routes_validb all_rels g layout (all_consumers layout fcs) (all_producers layout fps) = true /\
+    output_routesb all_rels g layout (all_consumers layout fcs) (all_producers layout fps) = true /\
+    input_output_routesb all_rels g (all_consumers layout fcs) (all_producers layout fps) = true /\
     check_graph_valid g = true /\
     layout_in_graphb g layout = true.
 Proof.
@@ -3254,15 +3253,15 @@ Proof.
   destruct (DistributedDatalogToHardwareCompiler.layout_in_graphb g layout) eqn:Hlig;
     cbn beta iota in H; [|discriminate].
   destruct (compile_all_nodes layout) as [ninfos0|] eqn:Hcan; cbn beta iota in H; [|discriminate].
-  match type of H with context[generate_forwarding_table_checked ?ar] =>
-    destruct (generate_forwarding_table_checked ar ninfos0 g layout fcs fps) as [ftables|] eqn:Hft;
+  match type of H with context[generate_forwarding_table_checked ?ar ?ni ?gg ?ll ?lc ?lp] =>
+    destruct (generate_forwarding_table_checked ar ni gg ll lc lp) as [ftables|] eqn:Hft;
     cbn beta iota in H; [|discriminate] end.
-  match type of H with context[input_routes_validb ?ar] =>
-    destruct (input_routes_validb ar g layout fcs fps) eqn:Hinp; cbn beta iota in H; [|discriminate] end.
-  match type of H with context[output_routesb ?ar] =>
-    destruct (output_routesb ar g layout fcs fps) eqn:Houtp; cbn beta iota in H; [|discriminate] end.
-  match type of H with context[input_output_routesb ?ar] =>
-    destruct (input_output_routesb ar g fcs fps) eqn:Hinoutp; cbn beta iota in H; [|discriminate] end.
+  match type of H with context[input_routes_validb ?ar ?gg ?ll ?lc ?lp] =>
+    destruct (input_routes_validb ar gg ll lc lp) eqn:Hinp; cbn beta iota in H; [|discriminate] end.
+  match type of H with context[output_routesb ?ar ?gg ?ll ?lc ?lp] =>
+    destruct (output_routesb ar gg ll lc lp) eqn:Houtp; cbn beta iota in H; [|discriminate] end.
+  match type of H with context[input_output_routesb ?ar ?gg ?lc ?lp] =>
+    destruct (input_output_routesb ar gg lc lp) eqn:Hinoutp; cbn beta iota in H; [|discriminate] end.
   injection H as Hret.
   do 3 eexists.
   split; [exact (eq_sym Hret) | repeat split; first [reflexivity | eassumption]].
@@ -3474,10 +3473,6 @@ Proof.
   apply (compile_node_matches n (get_or_default llayout n) all_rels ninfo (fun _ _ _ => False) (Hbare n) Hcn).
 Qed.
 
-(* Pin [run_ninfos]'s node-equality implicit to this section's [node_id_eqb] (a plain implicit Coq
-   can't otherwise infer). *)
-Local Notation run_ninfos := (@DistributedHardwareSemantics.run_ninfos _ _ node_id_eqb _) (only parsing).
-
 (* DISTRIBUTED CORRECTNESS, [ninfos]-direct: the OPERATIONAL run of the compiler's returned
    [ninfos = attach_forwarding_tables ninfos0 ft] (each node's program/tries/forwarding read straight
    out of its [node_info]) derives EXACTLY the facts [program] derives from [Q].  Per-node matching
@@ -3543,18 +3538,20 @@ Theorem compile_distributed_correct
     (ninfos : list node_info) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   compile layout fps fcs g = Success ninfos ->
   bare_layoutb layout = true ->
-  edb_routable fps Q ->
+  edb_routable (all_producers layout fps) Q ->
   forall f, run_ninfos ninfos
-              (fun n f0 => Q f0 /\ In n (rel_locs fps (Datalog.rel_of f0)))
-              (fun n R => In n (rel_locs fcs R))
+              (fun n f0 => Q f0 /\ In n (get_or_default (all_producers layout fps) (Datalog.rel_of f0)))
+              (fun n R => In n (get_or_default (all_consumers layout fcs) R))
               f
             <-> Datalog.prog_impl (canonical_program layout) Q f.
 Proof.
   intros Hcomp Hbare HQ f.
   destruct (compile_success_extract layout fps fcs g ninfos Hcomp)
     as [all_rels [ninfos0 [ftables [Hret [Hcan [Hft [Hinp [Houtp [Hinoutp [Hgraph Hkeys]]]]]]]]]].
+  set (lfp := all_producers layout fps) in *.
+  set (lfc := all_consumers layout fcs) in *.
   destruct (generate_forwarding_table_checked_success all_rels
-              ninfos0 g layout ftables fcs fps Hft) as [Hfteq Hroutes].
+              ninfos0 g layout ftables lfc lfp Hft) as [Hfteq Hroutes].
   (* the returned [ninfos] IS [attach_forwarding_tables ninfos0 ftables]; [ftables] IS the generated
      table.  The operational run of [ninfos] over the compiled EDB equals [prog_impl_fact] of the
      canonical program ([compile_all_distributes_ninfos]), which is the reference [Datalog.prog_impl]
@@ -3563,14 +3560,14 @@ Proof.
   apply (iff_trans
            (compile_all_distributes_ninfos layout
               all_rels ninfos0
-              (generate_forwarding_table all_rels ninfos0 g fcs fps)
+              (generate_forwarding_table all_rels ninfos0 g lfc lfp)
               (dnet_of_llayout layout
-                 (compiled_base_edb g (generate_forwarding_table all_rels ninfos0 g fcs fps)
-                    fps fcs Q))
+                 (compiled_base_edb g (generate_forwarding_table all_rels ninfos0 g lfc lfp)
+                    lfp lfc Q))
               (canonical_program layout) Q Hcan Hbare
               eq_refl eq_refl
               (compiled_good_network_streaming_edb g all_rels ninfos0
-                 layout fps fcs
+                 layout lfp lfc
                  (canonical_program layout) Q
                  (proj1 (check_graph_correct g) Hgraph)
                  (canonical_good_layout g layout Hkeys)
@@ -3606,11 +3603,11 @@ Theorem nattify_and_compile_correct
   DistributedDatalogToHardwareCompiler.layout_distributes_program
     (NattifyRel.nattify_rel_prog (program_rels p) p) layout ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels p)) ->
-  edb_routable fps (relabel_Q (encode_rel (program_rels p) p) Qsrc) ->
+  edb_routable (all_producers layout fps) (relabel_Q (encode_rel (program_rels p) p) Qsrc) ->
   ( run_ninfos ninfos
       (fun n f0 => relabel_Q (encode_rel (program_rels p) p) Qsrc f0
-                   /\ In n (rel_locs fps (Datalog.rel_of f0)))
-      (fun n R => In n (rel_locs fcs R))
+                   /\ In n (get_or_default (all_producers layout fps) (Datalog.rel_of f0)))
+      (fun n R => In n (get_or_default (all_consumers layout fcs) R))
       (nattify_rel_fact (program_rels p) p fsrc)
     <-> Datalog.prog_impl p Qsrc fsrc ).
 Proof.
