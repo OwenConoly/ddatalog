@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
-From Datalog Require Import Datalog List Map.
+From Datalog Require Import Datalog List Map Default.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
@@ -166,10 +166,7 @@ Definition hyp_var_order (hyps : list lowered_fact) : list var :=
 (*----Variable ordering----*)
 
 Definition vg_neighbors (g : var_graph) (v : var) : var_node_set :=
-  match map.get g.(edges) v with
-  | Some ns => ns
-  | None => map.empty
-  end.
+  get_or_default g.(edges) v.
 
 Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_node_set) : var_graph :=
   match arg with
@@ -377,8 +374,8 @@ Fixpoint compute_perm_aux (original_order : list var) (base_map occ_map : var_id
   match original_order with
   | [] => []
   | v :: vs =>
-    let base := get_default 0 base_map v in
-    let occ  := get_default 0 occ_map v in
+    let base := get_or_default base_map v in
+    let occ  := get_or_default occ_map v in
     (base + occ) :: compute_perm_aux vs base_map (map.put occ_map v (occ + 1))
   end.
 
@@ -497,13 +494,13 @@ Context {node_ftable_map : map.map node_id forwarding_table}.
 
 Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
-  let ft := get_default map.empty ftables node in
+  let ft := get_or_default ftables node in
   let matching_tries :=
     match find (fun n => eqb n.(nid) node) ninfos with
     | None => []
     | Some ninfo => filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
     end in
-  let existing := get_default [] ft rel in
+  let existing := get_or_default ft rel in
   let updated_ft :=
     map.put ft rel
       (list_union eqb (List.map (fun t => DestTrie t.(tid)) matching_tries) existing) in
@@ -516,8 +513,8 @@ Fixpoint add_path_to_forwarding_table (ninfos : list node_info) (rel : rel_id)
   | [] => ftables
   | [node] => add_trie_dest_to_forwarding_table node rel ftables ninfos
   | node :: ((next :: _) as rest) =>
-    let ft := get_default map.empty ftables node in
-    let existing := get_default [] ft rel in
+    let ft := get_or_default ftables node in
+    let existing := get_or_default ft rel in
     let ft' := map.put ft rel (list_union eqb [DestEdge next] existing) in
     add_path_to_forwarding_table ninfos rel (map.put ftables node ft') rest
   end.
@@ -529,8 +526,8 @@ Definition add_paths_to_forwarding_table (rel : rel_id) (paths : list (list node
 Definition update_forwarding_table_for_rel
   (g : node_graph) lfc lfp (ninfos : list node_info)
   (ftables : node_ftable_map) (rel : rel_id) : node_ftable_map :=
-  let producers := get_default [] lfp rel in
-  let consumers := get_default [] lfc rel in
+  let producers := get_or_default lfp rel in
+  let consumers := get_or_default lfc rel in
   let paths :=
     flat_map (fun '(producer, consumer) =>
                 match get_path g producer consumer with
@@ -555,16 +552,16 @@ Definition routes_validb (gcontext : global_context) (g : node_graph)
     forallb (fun rule_np =>
       forallb (fun R =>
         existsb (Nat.eqb R) (get_rel_ids gcontext)
-        && existsb (eqb np) (get_default [] lfp R)
+        && existsb (eqb np) (get_or_default lfp R)
         && forallb (fun nc =>
              if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                        (get_default [] llayout nc)
-             then existsb (eqb nc) (get_default [] lfc R)
+                        (get_or_default llayout nc)
+             then existsb (eqb nc) (get_or_default lfc R)
                   && is_Some (get_path g np nc)
              else true)
            (map.keys llayout))
       (Datalog.concl_rels rule_np))
-    (get_default [] llayout np))
+    (get_or_default llayout np))
   (map.keys llayout).
 
 (* The forwarding table, THREADED THROUGH THE RESULT MONAD: emitted only when the routing is
@@ -586,11 +583,11 @@ Definition input_routes_validb (gcontext : global_context) (g : node_graph)
   map.forallb (fun R locs =>
     forallb (fun ni =>
       existsb (eqb R) (get_rel_ids gcontext)
-      && existsb (eqb ni) (get_default [] lfp R)
+      && existsb (eqb ni) (get_or_default lfp R)
       && forallb (fun nc =>
            if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                      (get_default [] llayout nc)
-           then existsb (eqb nc) (get_default [] lfc R)
+                      (get_or_default llayout nc)
+           then existsb (eqb nc) (get_or_default lfc R)
                 && is_Some (get_path g ni nc)
            else true)
          (map.keys llayout))
@@ -606,10 +603,10 @@ Definition output_routesb (gcontext : global_context) (g : node_graph)
     forallb (fun rule_np =>
       forallb (fun R =>
                  existsb (Nat.eqb R) (get_rel_ids gcontext)
-                 && existsb (eqb np) (get_default [] lfp R)
-                 && existsb (fun no => is_Some (get_path g np no)) (get_default [] lfc R))
+                 && existsb (eqb np) (get_or_default lfp R)
+                 && existsb (fun no => is_Some (get_path g np no)) (get_or_default lfc R))
       (Datalog.concl_rels rule_np))
-    (get_default [] llayout np))
+    (get_or_default llayout np))
   (map.keys llayout).
 
 (* OUTPUT-COMPLETENESS gate (input nodes): every declared input/EDB location of [R] forwards to some
@@ -619,8 +616,8 @@ Definition input_output_routesb (gcontext : global_context) (g : node_graph)
   map.forallb (fun R locs =>
     forallb (fun ni =>
       existsb (Nat.eqb R) (get_rel_ids gcontext)
-      && existsb (eqb ni) (get_default [] lfp R)
-      && existsb (fun no => is_Some (get_path g ni no)) (get_default [] lfc R))
+      && existsb (eqb ni) (get_or_default lfp R)
+      && existsb (fun no => is_Some (get_path g ni no)) (get_or_default lfc R))
       locs)
   lfp.
 
@@ -660,13 +657,13 @@ Definition attach_forwarding_tables (ninfos : list node_info)
   List.map (fun ninfo =>
     {| nid := ninfo.(nid);
        nprogram := ninfo.(nprogram);
-       nforwarding := get_default map.empty ftables ninfo.(nid);
+       nforwarding := get_or_default ftables ninfo.(nid);
        ntries := ninfo.(ntries) |}
   ) ninfos
   ++ List.map (fun n =>
        {| nid := n;
           nprogram := [];
-          nforwarding := get_default map.empty ftables n ;
+          nforwarding := get_or_default ftables n ;
           ntries := [] |})
      (filter
         (fun n => negb (existsb (fun ninfo => eqb ninfo.(nid) n) ninfos))

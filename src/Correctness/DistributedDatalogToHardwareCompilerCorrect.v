@@ -18,7 +18,7 @@
 
 From Stdlib Require Import List Bool ZArith Lia.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Datatypes.Result Eqb.
-From Datalog Require Import Datalog List Map.
+From Datalog Require Import Datalog List Map Default.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
 From DatalogRocq Require Import ForwardingCorrect RelabelCorrect.
@@ -2366,9 +2366,9 @@ Proof. reflexivity. Qed.
 Lemma compile_node_lprog_of (llayout : lowered_layout_map)
     (ninfos : list node_info) (n : node_id) :
   compile_all_nodes llayout = Success ninfos ->
-  exists ninfo, compile_node n (get_default nil llayout n) = Success ninfo.
+  exists ninfo, compile_node n (get_or_default llayout n) = Success ninfo.
 Proof.
-  intros H. unfold get_default. Tactics.destruct_one_match.
+  intros H. unfold get_or_default, get_or. Tactics.destruct_one_match.
   - eapply compile_all_nodes_success; eassumption.
   - eexists. apply compile_node_nil.
 Qed.
@@ -2461,9 +2461,9 @@ Lemma find_ninfo_node (llayout : lowered_layout_map) (gc : global_context)
     (ninfos0 : list node_info) (ft : node_ftable_map) (n : node_id) :
   compile_all_nodes llayout = Success ninfos0 ->
   (find_ninfo (attach_forwarding_tables ninfos0 ft) n).(ntries)
-    = match compile_node n (get_default nil llayout n) with Success ni => ni.(ntries) | Failure _ => [] end
+    = match compile_node n (get_or_default llayout n) with Success ni => ni.(ntries) | Failure _ => [] end
   /\ (find_ninfo (attach_forwarding_tables ninfos0 ft) n).(nprogram)
-    = match compile_node n (get_default nil llayout n) with Success ni => ni.(nprogram) | Failure _ => [] end.
+    = match compile_node n (get_or_default llayout n) with Success ni => ni.(nprogram) | Failure _ => [] end.
 Proof.
   intros Hcan. unfold find_ninfo.
   destruct (List.find (fun ni => eqb ni.(nid) n) (attach_forwarding_tables ninfos0 ft))
@@ -2471,35 +2471,35 @@ Proof.
   - apply List.find_some in Hfind. destruct Hfind as [Hxin Hxnid].
     destruct (eqb_boolspec _ x.(nid) n) as [Hxn|]; [|discriminate].
     destruct (attach_in_data ninfos0 ft x Hxin) as [[ni0' [Hin0' [Hnid' [Htr' Hpr']]]] | [Hpr [Htr Hno]]].
-    + (* layout node: x's data = ni0' = compile_node n (get_default nil llayout n) *)
+    + (* layout node: x's data = ni0' = compile_node n (get_or_default llayout n) *)
       destruct (compile_all_nodes_in llayout gc ninfos0 ni0' Hcan Hin0')
         as [node'' [lprog'' [Hgnode'' Hcn'']]].
       assert (Hnidni0 : ni0'.(nid) = node'') by exact (compile_node_nid node'' lprog'' gc ni0' Hcn'').
       assert (Hn2 : node'' = n) by (rewrite <- Hnidni0, <- Hnid'; exact Hxn).
       rewrite Hn2 in Hgnode'', Hcn''.
-      rewrite (get_default_Some _ _ _ _ Hgnode''), Hcn''.
+      rewrite (get_or_default_Some _ _ _ Hgnode''), Hcn''.
       rewrite Htr', Hpr'. split; reflexivity.
-    + (* forwarding-only: no layout node with id n, so get_default nil llayout n = [] *)
+    + (* forwarding-only: no layout node with id n, so get_or_default llayout n = [] *)
       assert (Hgn : map.get llayout n = None).
       { destruct (map.get llayout n) as [lprog|] eqn:Hg; [|reflexivity].
         destruct (compile_all_nodes_in_fwd llayout gc ninfos0 n lprog Hcan Hg) as [ni0 [Hcn Hin0]].
         exfalso. apply (Hno ni0 Hin0).
         rewrite (compile_node_nid n lprog gc ni0 Hcn), Hxn. reflexivity. }
-      rewrite (get_default_None _ _ _ Hgn). rewrite compile_node_nil. cbn.
+      rewrite (get_or_default_None _ _ Hgn). rewrite compile_node_nil. cbn.
       rewrite Hpr, Htr. split; reflexivity.
   - (* find = None: no entry with id n, so n is not a layout node either *)
     assert (Hgn : map.get llayout n = None).
     { destruct (map.get llayout n) as [lprog|] eqn:Hg; [|reflexivity].
       destruct (compile_all_nodes_in_fwd llayout gc ninfos0 n lprog Hcan Hg) as [ni0 [Hcn Hin0]].
       assert (Hin : In {| nid := ni0.(nid); nprogram := ni0.(nprogram);
-                          nforwarding := get_default map.empty ft ni0.(nid); ntries := ni0.(ntries) |}
+                          nforwarding := get_or_default ft ni0.(nid); ntries := ni0.(ntries) |}
                        (attach_forwarding_tables ninfos0 ft)).
       { unfold DistributedDatalogToHardwareCompiler.attach_forwarding_tables. rewrite in_app_iff.
         left. apply in_map_iff. exists ni0. split; [reflexivity | exact Hin0]. }
       pose proof (List.find_none _ _ Hfind _ Hin) as Hfn. cbn in Hfn.
       rewrite (compile_node_nid n lprog gc ni0 Hcn) in Hfn.
       destruct (eqb_boolspec _ n n); congruence. }
-    cbn. rewrite (get_default_None _ _ _ Hgn). rewrite compile_node_nil. cbn. split; reflexivity.
+    cbn. rewrite (get_or_default_None _ _ Hgn). rewrite compile_node_nil. cbn. split; reflexivity.
 Qed.
 
 (*===========================================================================*)
@@ -2577,14 +2577,14 @@ Qed.
 (* [bare_layoutb] soundly discharges conjunct (1) of [distributes]. *)
 Lemma bare_layoutb_spec (llayout : lowered_layout_map) :
   bare_layoutb llayout = true ->
-  forall n, Forall bare_rule (get_default nil llayout n).
+  forall n, Forall bare_rule (get_or_default llayout n).
 Proof.
   intros H n. destruct (map.get llayout n) as [p|] eqn:Hget.
-  - rewrite (get_default_Some _ _ _ _ Hget).
+  - rewrite (get_or_default_Some _ _ _ Hget).
     apply Forall_forall. intros lr Hlr.
     pose proof (bare_layoutb_entry llayout H n p Hget) as Hp.
     rewrite forallb_forall in Hp. apply bare_ruleb_spec. apply Hp. exact Hlr.
-  - rewrite (get_default_None _ _ _ Hget). constructor.
+  - rewrite (get_or_default_None _ _ Hget). constructor.
 Qed.
 
 (* Build the dataflow network for a lowered layout: take the topology / forwarding / input /
@@ -2595,7 +2595,7 @@ Definition dnet_of_llayout (llayout : lowered_layout_map) (base : DNet) : DNet :
      DistributedDatalog.forward := base.(DistributedDatalog.forward);
      DistributedDatalog.input   := base.(DistributedDatalog.input);
      DistributedDatalog.output  := base.(DistributedDatalog.output);
-     DistributedDatalog.layout  := fun n => (get_default nil llayout n) |}.
+     DistributedDatalog.layout  := fun n => (get_or_default llayout n) |}.
 
 (*============================================================================*)
 (*  Phase C (soundness): the compiler's OWN generated forwarding table only     *)
@@ -2687,7 +2687,7 @@ Lemma update_rel_adds (g : node_graph) (rel0 : rel_id)
 Proof.
   intros Hprods Hcons Hprod Hcon Hne Hpath Hi Hib.
   unfold DistributedDatalogToHardwareCompiler.update_forwarding_table_for_rel.
-  rewrite (get_default_Some _ _ _ _ Hprods), (get_default_Some _ _ _ _ Hcons).
+  rewrite (get_or_default_Some _ _ _ Hprods), (get_or_default_Some _ _ _ Hcons).
   apply (ForwardingCorrect.add_paths_adds rel0 ninfos _ ft path i a b).
   - apply in_flat_map. exists (prod, cons). split.
     + apply in_prod; assumption.
@@ -2731,7 +2731,7 @@ Definition fwd_list (ftables : node_ftable_map) (n : node_id) (r : rel_id) : lis
 (* Every attached node carries the generated forwarding table's entry for its id. *)
 Lemma attach_nforwarding (ninfos0 : list node_info) (ft : node_ftable_map) (x : node_info) :
   In x (attach_forwarding_tables ninfos0 ft) ->
-  x.(nforwarding) = get_default map.empty ft x.(nid).
+  x.(nforwarding) = get_or_default ft x.(nid).
 Proof.
   unfold DistributedDatalogToHardwareCompiler.attach_forwarding_tables. rewrite in_app_iff.
   intros [Hin | Hin]; apply in_map_iff in Hin; destruct Hin as [a [Heq _]]; subst x; reflexivity.
@@ -2759,7 +2759,7 @@ Qed.
 
 (* The forwarding table read off [ninfos] for node [n] is exactly the generated table's entry. *)
 Lemma find_ninfo_nforwarding (ninfos0 : list node_info) (ft : node_ftable_map) (n : node_id) :
-  (find_ninfo (attach_forwarding_tables ninfos0 ft) n).(nforwarding) = get_default map.empty ft n.
+  (find_ninfo (attach_forwarding_tables ninfos0 ft) n).(nforwarding) = get_or_default ft n.
 Proof.
   unfold find_ninfo.
   destruct (List.find (fun ni => eqb ni.(nid) n) (attach_forwarding_tables ninfos0 ft))
@@ -2772,7 +2772,7 @@ Proof.
       destruct (ft_key_in_attach ninfos0 ft n v Hg) as [x [Hxin Hxn]].
       pose proof (List.find_none _ _ Hfind x Hxin) as Hfn. cbn in Hfn.
       rewrite Hxn in Hfn. destruct (eqb_boolspec _ n n); congruence. }
-    cbn. unfold get_default. rewrite Hgn. reflexivity.
+    cbn. unfold get_or_default, get_or. rewrite Hgn. reflexivity.
 Qed.
 
 (* The forwarding FUNCTION read off [ninfos]: for node [n], relation [r], the edge destinations its
@@ -3012,7 +3012,7 @@ Proof. intros H. exact H. Qed.
 (* The canonical program is placed exactly by [llayout] over real graph nodes. *)
 Lemma canonical_good_layout (g : node_graph) (llayout : lowered_layout_map) :
   layout_in_graphb g llayout = true ->
-  DistributedDatalog.good_layout (fun n => get_default nil llayout n)
+  DistributedDatalog.good_layout (fun n => get_or_default llayout n)
     (Graph.nodes (cg2g g)) (canonical_program llayout).
 Proof.
   intros Hkeys. unfold DistributedDatalog.good_layout. split.
@@ -3020,14 +3020,14 @@ Proof.
     apply canonical_program_in in Hr. destruct Hr as [n [p [Hget Hin]]].
     exists n. split.
     + apply cg2g_node. apply (layout_in_graphb_entry g llayout Hkeys n p Hget).
-    + rewrite (get_default_Some _ _ _ _ Hget). exact Hin.
+    + rewrite (get_or_default_Some _ _ _ Hget). exact Hin.
   - intros n r Hin.
     destruct (map.get llayout n) as [p|] eqn:Hget.
-    + rewrite (get_default_Some _ _ _ _ Hget) in Hin.
+    + rewrite (get_or_default_Some _ _ _ Hget) in Hin.
       split.
       * apply cg2g_node. apply (layout_in_graphb_entry g llayout Hkeys n p Hget).
       * apply canonical_program_in. exists n, p. auto.
-    + rewrite (get_default_None _ _ _ Hget) in Hin. destruct Hin.
+    + rewrite (get_or_default_None _ _ Hget) in Hin. destruct Hin.
 Qed.
 
 (* Every rule of the canonical program is bare when the whole layout is bare. *)
@@ -3083,8 +3083,8 @@ Qed.
 Lemma construction_reach (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) (R : rel_id) (np nc : node_id) (lfc lfp : lowered_fact_locations_map) :
   In R (get_rel_ids gcontext) ->
-  existsb (eqb np) (get_default [] lfp R) = true ->
-  existsb (eqb nc) (get_default [] lfc R) = true ->
+  existsb (eqb np) (get_or_default lfp R) = true ->
+  existsb (eqb nc) (get_or_default lfc R) = true ->
   Datalog.List.is_Some (get_path g np nc) = true ->
   np = nc \/
   @DistributedDatalog.forwarding_reachable rel_id node_id
@@ -3094,7 +3094,7 @@ Proof.
   destruct (eqb_boolspec _ np nc) as [E|Hne]; [left; exact E | right].
   destruct (get_path g np nc) as [path|] eqn:Hgpath; [| cbn in Hpath; discriminate].
   apply existsb_eqb_in in Hprod. apply existsb_eqb_in in Hcons.
-  unfold get_default in Hprod, Hcons.
+  unfold get_or_default, get_or in Hprod, Hcons.
   destruct (map.get lfp R) as [producers|] eqn:Hlfp; [| destruct Hprod].
   destruct (map.get lfc R) as [consumers|] eqn:Hlfc; [| destruct Hcons].
   exact (generate_forwarding_reachable g gcontext ninfos R np nc path producers consumers
@@ -3143,7 +3143,7 @@ Notation routes_validb :=
 Lemma construction_good_source (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) (llayout : lowered_layout_map) (lfc lfp : lowered_fact_locations_map)
     (net : DNet) :
-  net.(DistributedDatalog.layout) = (fun n => get_default nil llayout n) ->
+  net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
   net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table gcontext ninfos g lfc lfp) ->
   net.(DistributedDatalog.output) = (fun n R => In n (rel_locs lfc R)) ->
   routes_validb gcontext g llayout lfc lfp = true ->
@@ -3154,7 +3154,7 @@ Proof.
   intros Hlay Hfwd Houtput Hchk Houtchk n_prod R Hprod.
   rewrite Hlay in Hprod. destruct Hprod as [rule_np [Hin_np HR_concl]].
   destruct (map.get llayout n_prod) as [p_np|] eqn:Hgnp;
-    [|exfalso; revert Hin_np; rewrite (get_default_None _ _ _ Hgnp); intros []].
+    [|exfalso; revert Hin_np; rewrite (get_or_default_None _ _ Hgnp); intros []].
   assert (Hkey_np : In n_prod (map.keys llayout)) by exact (map.in_keys llayout n_prod p_np Hgnp).
   unfold DistributedDatalogToHardwareCompiler.routes_validb in Hchk. rewrite forallb_forall in Hchk. specialize (Hchk n_prod Hkey_np).
   rewrite forallb_forall in Hchk. specialize (Hchk rule_np Hin_np).
@@ -3168,10 +3168,10 @@ Proof.
   split.
   - intros n_cons Hcons. rewrite Hlay in Hcons. destruct Hcons as [rule_nc [Hin_nc HR_hyp]].
     destruct (map.get llayout n_cons) as [p_nc|] eqn:Hgnc;
-      [|exfalso; revert Hin_nc; rewrite (get_default_None _ _ _ Hgnc); intros []].
+      [|exfalso; revert Hin_nc; rewrite (get_or_default_None _ _ Hgnc); intros []].
     assert (Hkey_nc : In n_cons (map.keys llayout)) by exact (map.in_keys llayout n_cons p_nc Hgnc).
     specialize (Hnc n_cons Hkey_nc).
-    assert (Hex : existsb (fun rnc => existsb (Nat.eqb R) (Datalog.hyp_rels rnc)) (get_default nil llayout n_cons) = true).
+    assert (Hex : existsb (fun rnc => existsb (Nat.eqb R) (Datalog.hyp_rels rnc)) (get_or_default llayout n_cons) = true).
     { apply existsb_exists. exists rule_nc. split.
       - exact Hin_nc.
       - apply existsb_exists. exists R. split; [exact HR_hyp | apply Nat.eqb_refl]. }
@@ -3240,7 +3240,7 @@ Definition compiled_base_edb (g : node_graph) (ftables : node_ftable_map)
 Lemma edb_input_good_source (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) (llayout : lowered_layout_map)
     (lfp lfc : lowered_fact_locations_map) (net : DNet) :
-  net.(DistributedDatalog.layout) = (fun n => get_default nil llayout n) ->
+  net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
   net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table gcontext ninfos g lfc lfp) ->
   net.(DistributedDatalog.output) = (fun n R => In n (rel_locs lfc R)) ->
   input_routes_validb gcontext g llayout lfc lfp = true ->
@@ -3250,7 +3250,7 @@ Proof.
   intros Hlay Hfwd Houtput Hchk Houtchk R locs ni Hlfp Hni. split.
   - intros n_cons Hcons. rewrite Hlay in Hcons. destruct Hcons as [rule_nc [Hin_nc HR_hyp]].
     destruct (map.get llayout n_cons) as [p_nc|] eqn:Hgnc;
-      [|exfalso; revert Hin_nc; rewrite (get_default_None _ _ _ Hgnc); intros []].
+      [|exfalso; revert Hin_nc; rewrite (get_or_default_None _ _ Hgnc); intros []].
     assert (Hkey_nc : In n_cons (map.keys llayout)) by exact (map.in_keys llayout n_cons p_nc Hgnc).
     unfold input_routes_validb in Hchk. apply (fun H => map.get_forallb _ _ H _ _ Hlfp) in Hchk.
     cbn beta in Hchk. rewrite forallb_forall in Hchk. specialize (Hchk ni Hni).
@@ -3294,7 +3294,7 @@ Theorem compiled_good_network_streaming_edb
     (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations_map)
     (program : list (Datalog.rule (rel := rel_id) (fn := nat))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   Graph.good_graph (cg2g g) ->
-  DistributedDatalog.good_layout (fun n => get_default nil llayout n) (Graph.nodes (cg2g g)) program ->
+  DistributedDatalog.good_layout (fun n => get_or_default llayout n) (Graph.nodes (cg2g g)) program ->
   routes_validb gcontext g llayout lfc lfp = true ->
   input_routes_validb gcontext g llayout lfc lfp = true ->
   output_routesb gcontext g llayout lfc lfp = true ->
@@ -3593,8 +3593,8 @@ End OperationalNetworkAdequacy.
 Lemma ninfos_node_rules_match (llayout : lowered_layout_map) (gc : global_context)
     (ninfos0 : list node_info) (ft : node_ftable_map) (dnet : DNet) :
   compile_all_nodes llayout = Success ninfos0 ->
-  (forall n, Forall bare_rule (get_default nil llayout n)) ->
-  dnet.(DistributedDatalog.layout) = (fun n => get_default nil llayout n) ->
+  (forall n, Forall bare_rule (get_or_default llayout n)) ->
+  dnet.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
   forall n, Forall2 (hw_rule_matches ((find_ninfo (attach_forwarding_tables ninfos0 ft) n).(ntries))
                        (fun _ _ _ => False))
               (dnet.(DistributedDatalog.layout) n)
@@ -3604,7 +3604,7 @@ Proof.
   destruct (compile_node_lprog_of llayout ninfos0 n Hcan) as [ninfo Hcn].
   destruct (find_ninfo_node llayout gc ninfos0 ft n Hcan) as [Htr Hpr].
   rewrite Hcn in Htr, Hpr. cbn in Htr, Hpr. rewrite Htr, Hpr.
-  apply (compile_node_matches n (get_default nil llayout n) gc ninfo (fun _ _ _ => False) (Hbare n) Hcn).
+  apply (compile_node_matches n (get_or_default llayout n) gc ninfo (fun _ _ _ => False) (Hbare n) Hcn).
 Qed.
 
 (* Pin [run_ninfos]'s node-equality implicit to this section's [node_id_eqb] (a plain implicit Coq
@@ -3623,7 +3623,7 @@ Theorem compile_all_distributes_ninfos (llayout : lowered_layout_map) (gc : glob
     (Q : Datalog.fact (rel := rel_id) -> Prop) :
   compile_all_nodes llayout = Success ninfos0 ->
   bare_layoutb llayout = true ->
-  base.(DistributedDatalog.layout) = (fun n => get_default nil llayout n) ->
+  base.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
   base.(DistributedDatalog.forward) = fwd_list ft ->
   good_network_streaming base program Q ->
   forall f, run_ninfos (attach_forwarding_tables ninfos0 ft)
