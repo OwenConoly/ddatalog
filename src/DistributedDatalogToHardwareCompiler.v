@@ -411,6 +411,30 @@ Definition add_paths_to_forwarding_table (rel : rel_id) (paths : list (list node
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
   fold_left (add_path_to_forwarding_table ninfos rel) paths ftables.
 
+Context {rels_at_node : map.map node_id (list rel_id)}.
+
+Definition internal_producers (layout : layout_map) :=
+  let internally_produced_at_node :=
+    (*maps node n to set of rels which may be (internally) produced at n*)
+    map.map_values (fun p => dedup (flat_map concl_rels p)) layout in
+  (*maps rel R to set of nodes which may (internally) produce R*)
+  invert internally_produced_at_node.
+
+Definition all_producers (layout : layout_map) (external_producers : fact_locations) :
+  fact_locations :=
+  union_with (list_union eqb) (internal_producers layout) external_producers.
+
+Definition internal_consumers (layout : layout_map) :=
+  let internally_consumed_at_node :=
+    (*maps node n to set of rels which may be (internally) consumed at n*)
+    map.map_values (fun p => dedup (flat_map hyp_rels p)) layout in
+  (*maps rel R to set of nodes which may (internally) consume R*)
+  invert internally_consumed_at_node.
+
+Definition all_consumers (layout : layout_map) (external_consumers : fact_locations) :
+  fact_locations :=
+  union_with (list_union eqb) (internal_consumers layout) external_consumers.
+
 Definition update_forwarding_table_for_rel
   (g : node_graph) lfc lfp (ninfos : list node_info)
   (ftables : node_ftable_map) (rel : rel_id) : node_ftable_map :=
@@ -558,9 +582,11 @@ Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
 Definition compile (layout : layout_map)
-    (fact_producers fact_consumers : fact_locations)
+    (external_producers external_consumers : fact_locations)
     (g : node_graph) : result (list node_info) :=
   let all_rels := (dedup (flat_map all_rels (source_program layout))) in
+  let all_producers := all_producers layout external_producers in
+  let all_consumers := all_consumers layout external_consumers in
   _ <- (if check_graph_valid g
         then Success tt
         else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
@@ -568,14 +594,14 @@ Definition compile (layout : layout_map)
         then Success tt
         else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
   ninfos <- compile_all_nodes layout ;;
-  ftables <- generate_forwarding_table_checked all_rels ninfos g layout fact_consumers fact_producers ;;
-  _ <- (if input_routes_validb all_rels g layout fact_consumers fact_producers
+  ftables <- generate_forwarding_table_checked all_rels ninfos g layout all_consumers all_producers ;;
+  _ <- (if input_routes_validb all_rels g layout all_consumers all_producers
         then Success tt
         else error:("compile: a declared input/EDB location cannot reach some consumer (incomplete input forwarding)")) ;;
-  _ <- (if output_routesb all_rels g layout fact_consumers fact_producers
+  _ <- (if output_routesb all_rels g layout all_consumers all_producers
         then Success tt
         else error:("compile: a producer cannot reach an output/sink node (incomplete output forwarding)")) ;;
-  _ <- (if input_output_routesb all_rels g fact_consumers fact_producers
+  _ <- (if input_output_routesb all_rels g all_consumers all_producers
         then Success tt
         else error:("compile: an input/EDB location cannot reach an output/sink node")) ;;
   Success (attach_forwarding_tables ninfos ftables).
