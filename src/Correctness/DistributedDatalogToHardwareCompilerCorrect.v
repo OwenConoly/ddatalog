@@ -18,7 +18,7 @@
 
 From Stdlib Require Import List Bool ZArith Lia.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Datatypes.Result Eqb.
-From Datalog Require Import Datalog Interpreter List Map Default.
+From Datalog Require Import Datalog Interpreter List Map Default NattifyRel RelMap.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
 From DatalogRocq Require Import ForwardingCorrect.
@@ -3579,5 +3579,33 @@ Proof.
               f)).
   apply prog_impl_fact_iff_datalog. apply canonical_bare. exact Hbare.
 Qed.
+
+Context {rel : relT} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
+
+Definition program_rels (p : list (@Datalog.rule rel var fn aggregator)) : list rel :=
+  flat_map Datalog.all_rels p.
+
+Definition relabel_Q (rho : rel -> rel_id) (Q : @Datalog.fact rel T -> Prop)
+    : @Datalog.fact rel_id T -> Prop :=
+  fun f' => exists f, f' = RelMap.map_fact rho f /\ Q f.
+
+Theorem compile_nattify_distributes
+    (p : list (@Datalog.rule rel var fn aggregator))
+    (layout : layout_map) (fps fcs : fact_locations_map) (g : node_graph)
+    (ninfos : list node_info)
+    (Qsrc : @Datalog.fact rel T -> Prop) (fsrc : @Datalog.fact rel T) :
+  compile layout fps fcs g = Success ninfos ->
+  bare_layoutb layout = true ->
+  DistributedDatalogToHardwareCompiler.layout_distributes_program
+    (NattifyRel.nattify_rel_prog (program_rels p) p) layout ->
+  (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels p)) ->
+  edb_routable fps (relabel_Q (encode_rel (program_rels p) p) Qsrc) ->
+  ( run_ninfos ninfos
+      (fun n f0 => relabel_Q (encode_rel (program_rels p) p) Qsrc f0
+                   /\ In n (rel_locs fps (Datalog.rel_of f0)))
+      (fun n R => In n (rel_locs fcs R))
+      (nattify_rel_fact (program_rels p) p fsrc)
+    <-> Datalog.prog_impl p Qsrc fsrc ).
+Admitted.
 
 End CompileTop.
