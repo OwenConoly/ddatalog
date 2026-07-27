@@ -23,9 +23,9 @@ Import ListNotations.
 
 Section DistributedHardwareSemantics.
 
-(* Relations/functions are numeric ids at this layer; only variables and values are abstract. *)
-Context {var : exprvarT} {aggregator : aggregatorT} {T : valueT}.
-Context `{sig : signature nat aggregator T}.
+(* Relations are numeric ids at this layer; functions, variables, and values are abstract. *)
+Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+Context `{sig : signature fn aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
 (* The node-identifier type is a parameter (was the hardcoded [nat*nat]). *)
 Context {node_id : Type}

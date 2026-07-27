@@ -12,21 +12,20 @@ Import ListNotations.
    single-node semantics (NodeHardwareSemantics), and the printers.  It is split into
    three layers:
 
-   - [lowered_*]    : a datalog program with relations/functions renamed to
-                      numeric ids, but variables and term structure intact.
+   - [lowered_*]    : a datalog program with relations renamed to numeric ids,
+                      but functions, variables, and term structure intact.
    - [trie]/[join]  : the trie-join representation a single node executes.
    - [hardware_*]   : a full compiled program (a list of trie-join rules).
 
    Only [fact]/[rule]/[expr] (re-exported from [Datalog]) and the [lowered_*]
-   family mention the source types [rel]/[var]/[fn]/[aggregator]; everything
+   family mention the source types [var]/[fn]/[aggregator]; everything
    from [trie] onward is purely numeric. *)
 
 Section HardwareProgram.
 
-Context {exprvar : exprvarT} {aggregator : aggregatorT}.
+Context {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 
 #[local] Instance rel_id : relT := nat.
-#[local] Instance fn_id : fnT := nat.
 
 Definition trie_id := nat.
 Definition clause_id := nat.
@@ -39,8 +38,8 @@ Record trie := {
   tperm : permutation;
 }.
 
-(* The "lowered" program is a [Datalog] program whose relations/functions are numeric ids
-   ([rel_id]/[fn_id]) but whose variables/aggregator are the source's -- it is NOT a separate
+(* The "lowered" program is a [Datalog] program whose relations are numeric ids
+   ([rel_id]) but whose functions/variables/aggregator are the source's -- it is NOT a separate
    AST.  So [interp_clause]/[prog_impl] apply to it directly and NO [lowered -> Datalog]
    conversion is ever needed (the compiler produces these rules in their final type).
 

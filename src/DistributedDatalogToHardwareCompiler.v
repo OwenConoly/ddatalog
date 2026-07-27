@@ -14,6 +14,7 @@ Section DistributedDatalogToHardwareCompiler.
 
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context {var_eqb : Eqb var}.
+Context {fn_eqb : Eqb fn}.
 Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 
 Notation destination := (@DistributedHardwareProgram.destination node_id).
@@ -85,14 +86,6 @@ Definition collect_global_names_layout (layout : layout_map) (gcontext : global_
   map.fold (fun acc _ program => collect_global_names_program program acc) gcontext layout.
 
 (*----Rename — now returns result to catch missing names----*)
-Context (fn_to_id : fn -> fn_id).
-
-Fixpoint global_rename_expr (e : expr) : lowered_expr :=
-  match e with
-  | var_expr v => var_expr v
-  | fun_expr f args => fun_expr (fn_to_id f) (List.map global_rename_expr args)
-  end.
-
 Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_id :=
   match map.get gcontext.(rel_map) r with
   | Some id => Success id
@@ -101,8 +94,7 @@ Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_
 
 Definition global_rename_fact (f : clause) (gcontext : global_context) : result lowered_fact :=
   r_id <- global_rename_rel f.(clause_rel) gcontext ;;
-  let rargs := List.map global_rename_expr f.(clause_args) in
-  Success {| clause_rel := r_id; clause_args := rargs |}.
+  Success {| clause_rel := r_id; clause_args := f.(clause_args) |}.
 
 (* the compiler only handles the bare fragment: rename the concls/hyps of a
    [normal_rule] (meta/agg rules are rejected). *)

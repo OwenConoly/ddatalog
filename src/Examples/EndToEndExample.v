@@ -33,10 +33,7 @@ From DatalogRocq Require Import
 Import ListNotations.
 Open Scope string_scope.
 
-(* Trivial value-signatures for the bare fragment (no functions / no aggregation). *)
-#[local] Instance sig_hw  : signature nat    unit string :=
-  {| interp_fun := fun _ _ => None;
-     get_nat := fun _ => 0; agg_bop := fun _ x _ => x; agg_id := fun _ => "" |}.
+(* Trivial value-signature for the bare fragment (no functions / no aggregation). *)
 #[local] Instance sig_src : signature string unit string :=
   {| interp_fun := fun _ _ => None;
      get_nat := fun _ => 0; agg_bop := fun _ x _ => x; agg_id := fun _ => "" |}.
@@ -51,8 +48,8 @@ Open Scope string_scope.
 Definition grid_equiv :=
   @compile_implements_source
     string string string unit string
-    _ _
-    sig_hw
+    _ _ _ _
+    sig_src
     (SortedListString.map string) (SortedListString.ok string)
     StringDatalog.var_idx_map  (SortedListString.ok nat)
     StringDatalog.var_node_set (SortedListString.ok unit)
@@ -61,7 +58,7 @@ Definition grid_equiv :=
     _ _
     (GridTopology.node_id_map unit) (GridTopology.node_id_map (GridTopology.node_id_map unit))
     (SortedListNat.map (list (@DistributedHardwareProgram.destination GridGraph.Node)))
-    (fun _ => 0%nat) StringDatalog.rel_relid_map   (* fn_to_id, matching compile_program *)
+    StringDatalog.rel_relid_map
     (GridTopology.node_id_map (list rule)) (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map (list (lowered_rule)))
         (GridTopology.node_id_map_ok _)
@@ -72,7 +69,6 @@ Definition grid_equiv :=
     (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map_ok _)
-    sig_src
     (SortedListString.ok _)
     _ _.
 
@@ -102,8 +98,7 @@ Notation lowerJ := (@DistributedDatalogToHardwareCompiler.lower_inputs
   StringDatalog.rel_relid_map
   (GridTopology.node_id_map (list rule))
   (GridTopology.node_id_map (list (lowered_rule)))
-  (SortedListString.map (list node_id)) (SortedListNat.map (list node_id))
-  (fun _ => 0%nat)).
+  (SortedListString.map (list node_id)) (SortedListNat.map (list node_id))).
 
 (*==========================================================================*)
 (*  Step 1: the compiler runs, the relabel pass runs, and both SUCCEED.       *)

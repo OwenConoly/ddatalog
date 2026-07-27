@@ -7,8 +7,7 @@ From DatalogRocq Require Import DistributedDatalogToHardwareCompiler StringDatal
 From coqutil Require Import Map.Interface Map.SortedListString.
 Import StringDatalogParams.
 
-(* Relation/function names are strings, mapped to numeric ids; variables are strings. *)
-Definition fn_id_map     := SortedListString.map fn_id.
+(* Relation names are strings, mapped to numeric ids; variables and functions are strings. *)
 Definition rel_relid_map := SortedListString.map rel_id.
 Definition var_node_set  := SortedListString.map unit.
 Definition var_edge_set  := SortedListString.map (SortedListString.map unit).

@@ -44,18 +44,19 @@ Qed.
 
 Section DistributedDatalogToHardwareCompilerCorrect.
 
-Context {var : exprvarT} {aggregator : aggregatorT} {T : valueT}.
-Context `{sig : signature nat aggregator T}.
+Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+Context `{sig : signature fn aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
 Context {var_idx_map : map.map var nat}.   (* used by compute_permutation *)
 Context {var_idx_map_ok : map.ok var_idx_map}.
 
-Notation lowered_fact := (@HardwareProgram.lowered_fact var).
-Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
-Notation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var var_eqb).
-Notation generate_join := (@DistributedDatalogToHardwareCompiler.generate_join var var_eqb).
-Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var).
+Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
+Notation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var fn var_eqb fn_eqb).
+Notation generate_join := (@DistributedDatalogToHardwareCompiler.generate_join var fn var_eqb fn_eqb).
+Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
 
 (* the tuple of a (normal) ground fact; meta facts (never produced by the bare fragment)
    read as []. *)
@@ -66,8 +67,8 @@ Definition nfargs (f : Datalog.fact (rel := rel_id)) : list T :=
 
 (*----Reading the compiler's lowered AST as a Datalog program----*)
 
-(* A [lowered_rule] IS a [Datalog] rule over numeric ids ([rel_id]/[fn_id]) at the source's
-   [var]/[aggregator] -- exactly the rule the trie-join semantics verifies.  So there is NO
+(* A [lowered_rule] IS a [Datalog] rule over numeric relation ids ([rel_id]) at the source's
+   [var]/[fn]/[aggregator] -- exactly the rule the trie-join semantics verifies.  So there is NO
    [lowered -> Datalog] conversion: the compiler emits these rules in their final type, and
    ([DistributedDatalogToHardwareCompiler.global_rename_rule]/[compile_rule]) error out on any non-[normal_rule], so a
    lowered program is normal by construction.  A lowered fact/expr likewise IS a [Datalog]
@@ -201,7 +202,7 @@ Qed.
 (*----Conclusion projection: join_output_fact <-> interp_fact (bare concls)----*)
 
 Lemma interp_var_iff (ctx : context) (v : var) (x : T) :
-  interp_expr ctx (var_expr v : Datalog.expr (fn := nat)) x <-> map.get ctx v = Some x.
+  interp_expr ctx (var_expr v : Datalog.expr (fn := fn)) x <-> map.get ctx v = Some x.
 Proof.
   split.
   - intros H; inversion H; subst; assumption.
@@ -681,7 +682,7 @@ Qed.
 
 (* For bare args, the per-position interpretation condition. *)
 Lemma bare_interp_args_iff (ctx : context)
-    (args : list (@HardwareProgram.lowered_expr var)) (tup : list T) :
+    (args : list (@HardwareProgram.lowered_expr var fn)) (tup : list T) :
   Forall (fun e => exists v, e = var_expr v) args ->
   ( Forall2 (interp_expr ctx) (args) tup <->
     (length args = length tup /\
@@ -929,7 +930,7 @@ Qed.
 
 (* Variables appearing in a corresponding conclusion live in the ordering. *)
 Lemma corr_args_vars_in_ord (ord : list var)
-    (args : list (@HardwareProgram.lowered_expr var)) (idxs : list nat) (v : var) :
+    (args : list (@HardwareProgram.lowered_expr var fn)) (idxs : list nat) (v : var) :
   Forall2 (fun e idx => exists w, e = var_expr w /\ nth_error ord idx = Some w) args idxs ->
   In v (flat_map vars_of_expr (args)) -> In v ord.
 Proof.
@@ -1202,30 +1203,30 @@ Open Scope result_monad_scope.
 (* DistributedDatalogToHardwareCompiler's parameter context (the subset the relevant definitions use). *)
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
 Context {rel_dependency_map : map.map rel_id node_id_set}.
-Context {fn_id_map : map.map fn fn_id}.
 Context {rel_relid_map : map.map rel rel_id}.
 Context {var_idx_map : map.map var nat}.
 
-Notation lowered_fact := (@HardwareProgram.lowered_fact var).
-Notation lowered_expr := (@HardwareProgram.lowered_expr var).
+Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Notation lowered_expr := (@HardwareProgram.lowered_expr var fn).
 Notation global_context :=
   (@DistributedDatalogToHardwareCompiler.global_context rel rel_relid_map).
 Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
 Notation generate_trie :=
-  (@DistributedDatalogToHardwareCompiler.generate_trie var var_eqb var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.generate_trie var fn var_eqb var_idx_map).
 Notation compile_hyps :=
-  (@DistributedDatalogToHardwareCompiler.compile_hyps var var_eqb var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_hyps var fn var_eqb fn_eqb var_idx_map).
 Notation compile_concl :=
-  (@DistributedDatalogToHardwareCompiler.compile_concl var var_eqb).
+  (@DistributedDatalogToHardwareCompiler.compile_concl var fn var_eqb).
 Notation compile_concls :=
-  (@DistributedDatalogToHardwareCompiler.compile_concls var var_eqb).
-Notation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var var_eqb).
-Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var).
+  (@DistributedDatalogToHardwareCompiler.compile_concls var fn var_eqb).
+Notation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var fn var_eqb fn_eqb).
+Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
 Notation compute_permutation := (@DistributedDatalogToHardwareCompiler.compute_permutation var var_eqb var_idx_map).
 Notation get_rule_var_index := (@DistributedDatalogToHardwareCompiler.get_rule_var_index var var_eqb).
 
@@ -1487,17 +1488,17 @@ End CompileDischarge.
 
 Section OrderingCorrect.
 
-Context {var : exprvarT}.
+Context {var : exprvarT} {fn : fnT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map var var_node_set}.
 
 Notation ordering_context := (@DistributedDatalogToHardwareCompiler.ordering_context var var_node_set var_edge_set).
 Notation var_graph := (@DistributedDatalogToHardwareCompiler.var_graph var var_node_set var_edge_set).
-Notation lowered_fact := (@HardwareProgram.lowered_fact var).
+Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
 Notation choose := (@DistributedDatalogToHardwareCompiler.choose_next_var_ordered var var_node_set var_edge_set).
 Notation visit_node := (@DistributedDatalogToHardwareCompiler.visit_node var var_node_set var_edge_set).
-Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var).
+Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
 
 (* The generic per-candidate step shared by both max-degree folds: a candidate
    is considered only if it is still a graph node. *)
@@ -1733,7 +1734,7 @@ Proof.
   erewrite addarg_fold_nodes; [reflexivity | intros acc u x; reflexivity].
 Qed.
 
-Lemma add_args_edges_mono (args : list (@HardwareProgram.lowered_expr var)) :
+Lemma add_args_edges_mono (args : list (@HardwareProgram.lowered_expr var fn)) :
   forall (g : var_graph) (seen : var_node_set) (w : var),
   Forall (fun e => exists u, e = var_expr u) args ->
   map.get g.(nodes) w <> None ->
@@ -1748,7 +1749,7 @@ Proof.
   - rewrite (map.get_put_diff g.(nodes) w tt u (not_eq_sym Hne)). exact Hg.
 Qed.
 
-Lemma add_args_edges_covers (args : list (@HardwareProgram.lowered_expr var)) :
+Lemma add_args_edges_covers (args : list (@HardwareProgram.lowered_expr var fn)) :
   forall (g : var_graph) (seen : var_node_set) (w : var),
   Forall (fun e => exists u, e = var_expr u) args ->
   In (var_expr w) args ->
@@ -1764,7 +1765,7 @@ Proof.
 Qed.
 
 (* Bare: a fact's collected variables are exactly its [var_expr] arguments. *)
-Lemma bare_in_collect_args (args : list (@HardwareProgram.lowered_expr var)) (w : var) :
+Lemma bare_in_collect_args (args : list (@HardwareProgram.lowered_expr var fn)) (w : var) :
   Forall (fun e => exists u, e = var_expr u) args ->
   (In w (flat_map Datalog.vars_of_expr args) <-> In (var_expr w) args).
 Proof.
@@ -1820,9 +1821,9 @@ Lemma length_filter_le {A} (f : A -> bool) (l : list A) : length (filter f l) <=
 Proof. induction l as [|x l IH]; simpl; [lia | destruct (f x); simpl; lia]. Qed.
 
 Notation compute_variable_ordering_ordered :=
-  (@DistributedDatalogToHardwareCompiler.compute_variable_ordering_ordered var var_eqb var_node_set var_edge_set).
+  (@DistributedDatalogToHardwareCompiler.compute_variable_ordering_ordered var fn var_eqb var_node_set var_edge_set).
 Notation create_dependency_graph :=
-  (@DistributedDatalogToHardwareCompiler.create_dependency_graph var var_node_set var_edge_set).
+  (@DistributedDatalogToHardwareCompiler.create_dependency_graph var fn var_node_set var_edge_set).
 Notation initial_ordering_context :=
   (@DistributedDatalogToHardwareCompiler.initial_ordering_context var var_node_set var_edge_set).
 
@@ -1883,13 +1884,13 @@ Open Scope result_monad_scope.
 
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
 Context {rel_dependency_map : map.map rel_id node_id_set}.
-Context {fn_id_map : map.map fn fn_id}.
 Context {rel_relid_map : map.map rel rel_id}.
 Context {var_node_set : map.map var unit}.
 Context {var_edge_set : map.map var var_node_set}.
@@ -1898,13 +1899,13 @@ Context {var_idx_map : map.map var nat}.
 Notation global_context :=
   (@DistributedDatalogToHardwareCompiler.global_context rel rel_relid_map).
 Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
-Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
-Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
+Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
+Notation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation compile_rule :=
-  (@DistributedDatalogToHardwareCompiler.compile_rule var aggregator var_eqb var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_rule var fn aggregator var_eqb fn_eqb var_node_set var_edge_set var_idx_map).
 Notation compile_node :=
-  (@DistributedDatalogToHardwareCompiler.compile_node var aggregator var_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_node var fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 
 (* [compile_rule] = [compile_hyps] (which threads the trie context) then [compile_concls]
    (which leaves the context untouched), so it preserves [wf_nc] and grows [nctries]. *)
@@ -1991,7 +1992,8 @@ Open Scope result_monad_scope.
 
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
-Context `{sig : signature nat aggregator T}.
+Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+Context `{sig : signature fn aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
 Context {var_idx_map : map.map var nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
@@ -2002,20 +2004,19 @@ Context {node_id : Type}
 Context {node_id_set : map.map node_id unit}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
 Context {rel_dependency_map : map.map rel_id node_id_set}.
-Context {fn_id_map : map.map fn fn_id}.
 Context {rel_relid_map : map.map rel rel_id}.
 
 Notation global_context :=
   (@DistributedDatalogToHardwareCompiler.global_context rel rel_relid_map).
 Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
-Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
-Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
+Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
+Notation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
-Notation lowered_fact := (@HardwareProgram.lowered_fact var).
+Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
 Notation compile_rule :=
-  (@DistributedDatalogToHardwareCompiler.compile_rule var aggregator var_eqb var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_rule var fn aggregator var_eqb fn_eqb var_node_set var_edge_set var_idx_map).
 Notation compile_node :=
-  (@DistributedDatalogToHardwareCompiler.compile_node var aggregator var_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_node var fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 
 (* PER-RULE: a compiled rule (whose post-context tries are all in the node table [tries], which
    has unique ids) matches its lowered datalog rule -- by discharging every hypothesis of
@@ -2159,7 +2160,8 @@ Open Scope result_monad_scope.
 
 Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
-Context `{sig : signature nat aggregator T}.
+Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+Context `{sig : signature fn aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
 Context {var_idx_map : map.map var nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
@@ -2171,11 +2173,10 @@ Context {node_id_set : map.map node_id unit}.
 Context {node_id_edge_set : map.map node_id node_id_set}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
 Context {rel_dependency_map : map.map rel_id node_id_set}.
-Context (fn_to_id : fn -> fn_id).
 Context {rel_relid_map : map.map rel rel_id}.
 Context {layout_map : map.map node_id (@DependencyGenerator.program rel var fn aggregator)}
         {layout_map_ok : map.ok layout_map}.
-Context {lowered_layout_map : map.map node_id (@HardwareProgram.lowered_program var aggregator)}
+Context {lowered_layout_map : map.map node_id (@HardwareProgram.lowered_program var fn aggregator)}
         {lowered_layout_map_ok : map.ok lowered_layout_map}.
 Context {node_ftable_map : map.map node_id forwarding_table}.
 Context {fact_locations_map : map.map rel (list node_id)}
@@ -2184,32 +2185,32 @@ Context {lowered_fact_locations_map : map.map rel_id (list node_id)}
         {lowered_fact_locations_map_ok : map.ok lowered_fact_locations_map}.
 
 Notation program := (@DependencyGenerator.program rel var fn aggregator).
-Notation lowered_program := (@HardwareProgram.lowered_program var aggregator).
+Notation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Notation global_context :=
   (@DistributedDatalogToHardwareCompiler.global_context rel rel_relid_map).
 Notation compile_node :=
-  (@DistributedDatalogToHardwareCompiler.compile_node var aggregator var_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_node var fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 Notation compile_all_nodes :=
-  (@DistributedDatalogToHardwareCompiler.compile_all_nodes var aggregator var_eqb node_id forwarding_table lowered_layout_map var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_all_nodes var fn aggregator var_eqb fn_eqb node_id forwarding_table lowered_layout_map var_node_set var_edge_set var_idx_map).
 Notation attach_forwarding_tables :=
   (@DistributedDatalogToHardwareCompiler.attach_forwarding_tables node_id node_id_eqb forwarding_table node_ftable_map).
 Notation global_rename_program :=
-  (@DistributedDatalogToHardwareCompiler.global_rename_program rel var fn aggregator rel_relid_map fn_to_id).
+  (@DistributedDatalogToHardwareCompiler.global_rename_program rel var fn aggregator rel_relid_map).
 Notation global_rename_rule_layout :=
-  (@DistributedDatalogToHardwareCompiler.global_rename_rule_layout rel var fn aggregator node_id rel_relid_map layout_map lowered_layout_map fn_to_id).
+  (@DistributedDatalogToHardwareCompiler.global_rename_rule_layout rel var fn aggregator node_id rel_relid_map layout_map lowered_layout_map).
 Notation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
 Notation collect_global_names_layout :=
   (@DistributedDatalogToHardwareCompiler.collect_global_names_layout rel var fn aggregator node_id rel_relid_map layout_map).
 Notation initial_global_context :=
   (@DistributedDatalogToHardwareCompiler.initial_global_context rel rel_relid_map).
 Notation compile :=
-  (@DistributedDatalogToHardwareCompiler.compile rel var fn aggregator var_eqb node_id node_id_eqb node_id_set forwarding_table rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map var_node_set var_edge_set node_id_edge_set fn_to_id var_idx_map node_ftable_map).
+  (@DistributedDatalogToHardwareCompiler.compile rel var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map).
 Notation lower_inputs :=
-  (@DistributedDatalogToHardwareCompiler.lower_inputs rel var fn aggregator node_id rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map fn_to_id).
+  (@DistributedDatalogToHardwareCompiler.lower_inputs rel var fn aggregator node_id rel_relid_map layout_map lowered_layout_map fact_locations_map lowered_fact_locations_map).
 Notation compile_lowered :=
-  (@DistributedDatalogToHardwareCompiler.compile_lowered rel var aggregator var_eqb node_id node_id_eqb node_id_set forwarding_table rel_relid_map lowered_layout_map lowered_fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map).
-Notation DNet := (@DistributedDatalog.DataflowNetwork rel_id var nat aggregator T node_id).
+  (@DistributedDatalogToHardwareCompiler.compile_lowered rel var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table rel_relid_map lowered_layout_map lowered_fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map).
+Notation DNet := (@DistributedDatalog.DataflowNetwork rel_id var fn aggregator T node_id).
 
 (* Generic: folding [g] over a map (collecting [Success] results) yields, for each collected
    element, the source key/value it came from. *)
@@ -2468,13 +2469,13 @@ Qed.
 (*  (e.g. [GridLayout.check_layout]) discharges.                             *)
 (*===========================================================================*)
 
-Notation lowered_fact := (@HardwareProgram.lowered_fact var).
-Notation lowered_rule := (@HardwareProgram.lowered_rule var aggregator).
+Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
 
 (* Boolean version of [bare_fact]: every argument is a plain variable.  PARAMETRIC over the relation
    and function types -- bareness inspects only [var_expr]/[fun_expr], never the relation/function
    identifiers -- so the SAME check applies to the source layout (over [rel]/[fn]) and the renamed
-   lowered layout (over [rel_id]/[fn_id]). *)
+   lowered layout (over [rel_id]/[fn]). *)
 Definition bare_factb {Rel Fn} (f : Datalog.clause (rel := Rel) (fn := Fn)) : bool :=
   forallb (fun e => match e with var_expr _ => true | fun_expr _ _ => false end) f.(Datalog.clause_args).
 
@@ -2775,7 +2776,7 @@ Qed.
    [good_source].  This is the bridge that lets the [forward_of_ninfos] network inherit the
    [fwd_list] network's well-formedness (no funext). *)
 Lemma good_network_streaming_forward_ext (net1 net2 : DNet)
-    (program : list (Datalog.rule (rel := rel_id) (fn := nat))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
+    (program : list (Datalog.rule (rel := rel_id) (fn := fn))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   net1.(DistributedDatalog.graph) = net2.(DistributedDatalog.graph) ->
   net1.(DistributedDatalog.layout) = net2.(DistributedDatalog.layout) ->
   net1.(DistributedDatalog.input) = net2.(DistributedDatalog.input) ->
@@ -2846,7 +2847,7 @@ Notation cg2g := (@ComputableGraph.computable_graph_to_graph node_id node_id_set
 (* For a bare (normal) rule, [rule_impl] can only produce a normal fact (the [meta_rule_impl]
    constructor needs a [meta_rule]). *)
 Lemma bare_rule_impl_normal (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop)
-    (r : Datalog.rule (rel := rel_id) (fn := nat)) (f : Datalog.fact (rel := rel_id))
+    (r : Datalog.rule (rel := rel_id) (fn := fn)) (f : Datalog.fact (rel := rel_id))
     (hyps : list (Datalog.fact (rel := rel_id))) :
   bare_rule r -> Datalog.rule_impl env r f hyps -> exists R args, f = Datalog.normal_fact R args.
 Proof.
@@ -2870,7 +2871,7 @@ Qed.
 
 (* On [normal_fact] conclusions, [rule_impl env] (any [env]) is exactly DistributedDatalog's [fires]. *)
 Lemma rule_impl_iff_fires (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop)
-      (r : Datalog.rule (rel := rel_id) (fn := nat)) (f : Datalog.fact (rel := rel_id))
+      (r : Datalog.rule (rel := rel_id) (fn := fn)) (f : Datalog.fact (rel := rel_id))
       (hyps : list (Datalog.fact (rel := rel_id))) :
   (exists R args, f = Datalog.normal_fact R args) ->
   (Datalog.rule_impl env r f hyps <-> DistributedDatalog.fires r f hyps).
@@ -2884,7 +2885,7 @@ Qed.
 (* [DistributedDatalog]'s env-free network derivability coincides with the reference
    [Datalog.prog_impl] on the bare/normal fragment the compiler targets: [fires] and [rule_impl]
    agree on normal facts (the only facts a bare program ever derives). *)
-Lemma prog_impl_fact_iff_datalog (program : list (Datalog.rule (rel := rel_id) (fn := nat)))
+Lemma prog_impl_fact_iff_datalog (program : list (Datalog.rule (rel := rel_id) (fn := fn)))
     (Q : Datalog.fact (rel := rel_id) -> Prop) (f : Datalog.fact (rel := rel_id)) :
   Forall bare_rule program ->
   DistributedDatalog.prog_impl_fact program Q f <-> Datalog.prog_impl program Q f.
@@ -2914,17 +2915,17 @@ Qed.
 
 (* The single reference program a layout induces: every rule placed on any node. *)
 Definition canonical_program (llayout : lowered_layout_map)
-  : list (Datalog.rule (rel := rel_id) (fn := nat)) :=
+  : list (Datalog.rule (rel := rel_id) (fn := fn)) :=
   map.fold (fun acc _ p => acc ++ p) [] llayout.
 
 Lemma canonical_program_in (llayout : lowered_layout_map)
-    (r : Datalog.rule (rel := rel_id) (fn := nat)) :
+    (r : Datalog.rule (rel := rel_id) (fn := fn)) :
   In r (canonical_program llayout) <->
   exists n p, map.get llayout n = Some p /\ In r p.
 Proof.
   unfold canonical_program.
   apply (map.fold_spec
-    (fun (m : lowered_layout_map) (acc : list (Datalog.rule (rel := rel_id) (fn := nat))) =>
+    (fun (m : lowered_layout_map) (acc : list (Datalog.rule (rel := rel_id) (fn := fn))) =>
        In r acc <-> exists n p, map.get m n = Some p /\ In r p)).
   - split.
     + intros [].
@@ -2945,7 +2946,7 @@ Qed.
 (* Decidable check that every node a layout assigns rules to is a real graph node.  Now a GATE inside
    [compile_lowered]; aliased here so the existing lemmas / top theorems refer to the same function. *)
 Notation layout_in_graphb :=
-  (@DistributedDatalogToHardwareCompiler.layout_in_graphb var aggregator node_id node_id_set
+  (@DistributedDatalogToHardwareCompiler.layout_in_graphb var fn aggregator node_id node_id_set
      lowered_layout_map node_id_edge_set).
 
 Lemma layout_in_graphb_entry (g : node_graph) (llayout : lowered_layout_map) :
@@ -3086,11 +3087,11 @@ Definition edb_routable_src (fps : fact_locations_map) (Qsrc : Datalog.fact -> P
   forall f, Qsrc f -> exists n, In n (src_rel_locs fps (Datalog.rel_of f)).
 
 Notation output_routesb :=
-  (@DistributedDatalogToHardwareCompiler.output_routesb rel var aggregator node_id node_id_eqb node_id_set rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
+  (@DistributedDatalogToHardwareCompiler.output_routesb rel var fn aggregator node_id node_id_eqb node_id_set rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
 Notation input_output_routesb :=
   (@DistributedDatalogToHardwareCompiler.input_output_routesb rel node_id node_id_eqb node_id_set rel_relid_map lowered_fact_locations_map node_id_edge_set).
 Notation routes_validb :=
-  (@DistributedDatalogToHardwareCompiler.routes_validb rel var aggregator node_id node_id_eqb node_id_set rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
+  (@DistributedDatalogToHardwareCompiler.routes_validb rel var fn aggregator node_id node_id_eqb node_id_set rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
 
 Lemma construction_good_source (gcontext : global_context) (ninfos : list node_info)
     (g : node_graph) (llayout : lowered_layout_map) (lfc lfp : lowered_fact_locations_map)
@@ -3152,7 +3153,7 @@ Qed.
 (*============================================================================*)
 
 Notation generate_forwarding_table_checked :=
-  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table_checked rel var aggregator node_id node_id_eqb node_id_set forwarding_table rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set node_ftable_map).
+  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table_checked rel var fn aggregator node_id node_id_eqb node_id_set forwarding_table rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set node_ftable_map).
 
 (* The compiler's forwarding gate IS (convertibly) the producer construction checker. *)
 (* The monadic forwarding step: on [Success] the table is the usual one AND the routing gate passed. *)
@@ -3176,7 +3177,7 @@ Qed.
 (*============================================================================*)
 
 Notation input_routes_validb :=
-  (@DistributedDatalogToHardwareCompiler.input_routes_validb rel var aggregator node_id node_id_eqb node_id_set rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
+  (@DistributedDatalogToHardwareCompiler.input_routes_validb rel var fn aggregator node_id node_id_eqb node_id_set rel_relid_map lowered_layout_map lowered_fact_locations_map node_id_edge_set).
 
 (* The streaming network whose base facts [Q] enter at the declared fact-producer (input) locations
    and whose OUTPUT nodes are the declared fact-consumer (sink) locations [lfc]. *)
@@ -3244,7 +3245,7 @@ Qed.
 Theorem compiled_good_network_streaming_edb
     (g : node_graph) (gcontext : global_context) (ninfos : list node_info)
     (llayout : lowered_layout_map) (lfp lfc : lowered_fact_locations_map)
-    (program : list (Datalog.rule (rel := rel_id) (fn := nat))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
+    (program : list (Datalog.rule (rel := rel_id) (fn := fn))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   Graph.good_graph (cg2g g) ->
   DistributedDatalog.good_layout (fun n => get_or_default llayout n) (Graph.nodes (cg2g g)) program ->
   routes_validb gcontext g llayout lfc lfp = true ->
@@ -3571,7 +3572,7 @@ Local Notation run_ninfos := (@DistributedHardwareSemantics.run_ninfos _ _ node_
    the [fwd_list]-based [base], pointwise-equal forwarding [forward_of_ninfos_eq]). *)
 Theorem compile_all_distributes_ninfos (llayout : lowered_layout_map) (gc : global_context)
     (ninfos0 : list node_info) (ft : node_ftable_map) (base : DNet)
-    (program : list (Datalog.rule (rel := rel_id) (fn := nat)))
+    (program : list (Datalog.rule (rel := rel_id) (fn := fn)))
     (Q : Datalog.fact (rel := rel_id) -> Prop) :
   compile_all_nodes llayout = Success ninfos0 ->
   bare_layoutb llayout = true ->
@@ -3673,13 +3674,10 @@ Qed.
 (*  bridge transports derivability back to the original names.                             *)
 (*========================================================================================*)
 
-(* The source-side function signature (the numeric/lowered side uses [sig]; bare programs never
-   invoke [interp_fun], so this is only needed to TYPE [Datalog.prog_impl] over the source [fn]). *)
-Context {sig_src : signature fn aggregator T}.
-
-(* The relation/function relabelings the compiler's global context [gc] induces (lookups in its
-   [rel_map]/[fn_map]), and [Sdom gc] = the relations [gc] actually collected (the [rel_map] domain).
-   [prog_impl_relabel] is applied with [rho := rho_gc gc], [iota := fn_to_id], [S := Sdom gc]. *)
+(* The relation relabeling the compiler's global context [gc] induces (lookups in its
+   [rel_map]), and [Sdom gc] = the relations [gc] actually collected (the [rel_map] domain).
+   Functions are not relabeled, so [prog_impl_relabel] is applied with [rho := rho_gc gc],
+   [iota := id], [S := Sdom gc]. *)
 (* Out-of-domain relations rename to the FRESH [last_rel_id] -- which, by [RelInv], is strictly above
    every collected id, so it collides with no real relation (and no producer/input node).  This is what
    lets the routing side condition [edb_routable] absorb the "inputs are in scope" condition: an
@@ -3880,34 +3878,46 @@ Proof.
   rewrite Hid. reflexivity.
 Qed.
 
-Lemma global_rename_expr_bare (e : Datalog.expr) :
-  RelabelCorrect.bare_expr e ->
-  global_rename_expr fn_to_id e = RelabelCorrect.relabel_expr fn_to_id e.
-Proof. intros [v ->]. reflexivity. Qed.
+Lemma relabel_args_id_bare (args : list Datalog.expr) :
+  Forall RelabelCorrect.bare_expr args ->
+  List.map (RelabelCorrect.relabel_expr id) args = args.
+Proof.
+  induction 1 as [| e l He Hl IH]; cbn; [reflexivity|].
+  destruct He as [v ->]. rewrite IH. reflexivity.
+Qed.
+
+Lemma grn_fact_args (gc : global_context) (f : clause) (lf : lowered_fact) :
+  global_rename_fact f gc = Success lf -> lf.(Datalog.clause_args) = f.(Datalog.clause_args).
+Proof.
+  unfold DistributedDatalogToHardwareCompiler.global_rename_fact. intros Hren.
+  destruct (global_rename_rel f.(Datalog.clause_rel) gc); [| discriminate].
+  cbn in Hren. injection Hren as <-. reflexivity.
+Qed.
 
 Lemma global_rename_fact_eq (gc : global_context) (f : clause) :
   RelabelCorrect.bare_clause f -> Sdom gc f.(Datalog.clause_rel) ->
-  global_rename_fact fn_to_id f gc = Success (RelabelCorrect.relabel_clause (rho_gc gc) fn_to_id f).
+  global_rename_fact f gc = Success (RelabelCorrect.relabel_clause (rho_gc gc) id f).
 Proof.
   intros Hbare HS. unfold DistributedDatalogToHardwareCompiler.global_rename_fact.
   rewrite (global_rename_rel_eq gc f.(Datalog.clause_rel) HS). cbn.
-  unfold RelabelCorrect.relabel_clause. f_equal.
+  unfold RelabelCorrect.relabel_clause.
+  rewrite (relabel_args_id_bare f.(Datalog.clause_args) Hbare). reflexivity.
 Qed.
 
 Lemma global_rename_rule_eq (gc : global_context) (r : rule) :
   RelabelCorrect.bare_rule r -> RelabelCorrect.Srule (Sdom gc) r ->
-  global_rename_rule fn_to_id r gc = Success (RelabelCorrect.relabel_rule (rho_gc gc) (fn_to_id) r).
+  global_rename_rule r gc = Success (RelabelCorrect.relabel_rule (rho_gc gc) (id) r).
 Proof.
   intros Hbare HS. destruct r as [concls hyps | mcs mhs | cr agg hr];
     cbn [RelabelCorrect.bare_rule] in Hbare; [| contradiction | contradiction].
   destruct Hbare as [Hbc Hbh]. cbn [RelabelCorrect.Srule] in HS. destruct HS as [HSc HSh].
   unfold DistributedDatalogToHardwareCompiler.global_rename_rule.
-  rewrite (all_success_map_pointwise (fun f => global_rename_fact fn_to_id f gc)
-             (fun f => RelabelCorrect.relabel_clause (rho_gc gc) (fn_to_id) f) hyps
+  rewrite (all_success_map_pointwise (fun f => global_rename_fact f gc)
+             (fun f => RelabelCorrect.relabel_clause (rho_gc gc) (id) f) hyps
              (fun f Hin => global_rename_fact_eq gc f
                 (proj1 (Forall_forall _ _) Hbh f Hin) (proj1 (Forall_forall _ _) HSh f Hin))).
-  rewrite (all_success_map_pointwise (fun f => global_rename_fact fn_to_id f gc)
-             (fun f => RelabelCorrect.relabel_clause (rho_gc gc) (fn_to_id) f) concls
+  rewrite (all_success_map_pointwise (fun f => global_rename_fact f gc)
+             (fun f => RelabelCorrect.relabel_clause (rho_gc gc) (id) f) concls
              (fun f Hin => global_rename_fact_eq gc f
                 (proj1 (Forall_forall _ _) Hbc f Hin) (proj1 (Forall_forall _ _) HSc f Hin))).
   reflexivity.
@@ -3915,45 +3925,32 @@ Qed.
 
 Lemma global_rename_program_eq (gc : global_context) (p : program) :
   RelabelCorrect.bare_program p -> RelabelCorrect.Sprogram (Sdom gc) p ->
-  global_rename_program p gc = Success (RelabelCorrect.relabel_program (rho_gc gc) (fn_to_id) p).
+  global_rename_program p gc = Success (RelabelCorrect.relabel_program (rho_gc gc) (id) p).
 Proof.
   intros Hbare HS. unfold DistributedDatalogToHardwareCompiler.global_rename_program.
-  rewrite (all_success_map_pointwise (fun r => global_rename_rule fn_to_id r gc)
-             (fun r => RelabelCorrect.relabel_rule (rho_gc gc) (fn_to_id) r) p
+  rewrite (all_success_map_pointwise (fun r => global_rename_rule r gc)
+             (fun r => RelabelCorrect.relabel_rule (rho_gc gc) (id) r) p
              (fun r Hin => global_rename_rule_eq gc r
                 (proj1 (Forall_forall _ _) Hbare r Hin) (proj1 (Forall_forall _ _) HS r Hin))).
   reflexivity.
 Qed.
 
 (*========================================================================================*)
-(*  B3 (reverse): bareness REFLECTS back through the rename.  Renaming maps [var_expr] to    *)
-(*  [var_expr] and [fun_expr] to [fun_expr], so if the RENAMED rule is bare, the SOURCE rule  *)
-(*  was already bare.  Hence [bare_layoutb] on the renamed layout already proves the source    *)
-(*  program bare -- the explicit [bare_program (source_program ...)] hypothesis is redundant.   *)
+(*  B3 (reverse): bareness REFLECTS back through the rename.  Renaming leaves clause arguments  *)
+(*  untouched, so if the RENAMED rule is bare, the SOURCE rule was already bare.  Hence           *)
+(*  [bare_layoutb] on the renamed layout already proves the source program bare -- the explicit   *)
+(*  [bare_program (source_program ...)] hypothesis is redundant.                                  *)
 (*========================================================================================*)
 
-(* renaming a [fun_expr] yields a [fun_expr], so a renamed [var_expr] came from a [var_expr]. *)
-Lemma grn_expr_reflect (e : Datalog.expr) (le : lowered_expr) :
-  global_rename_expr fn_to_id e = le -> (exists v, le = var_expr v) -> (exists v, e = var_expr v).
-Proof.
-  destruct e as [v | f0 args]; intros Hren Hle; [exists v; reflexivity|].
-  exfalso. cbn in Hren. subst le. destruct Hle as [v Hv]. discriminate.
-Qed.
-
 Lemma grn_fact_reflect (gc : global_context) (f : clause) (lf : lowered_fact) :
-  global_rename_fact fn_to_id f gc = Success lf -> bare_fact lf -> RelabelCorrect.bare_clause f.
+  global_rename_fact f gc = Success lf -> bare_fact lf -> RelabelCorrect.bare_clause f.
 Proof.
-  unfold DistributedDatalogToHardwareCompiler.global_rename_fact. intros Hren Hbare.
-  destruct (global_rename_rel f.(Datalog.clause_rel) gc) as [rid | msg]; [| discriminate].
-  cbn in Hren. injection Hren as <-. unfold bare_fact in Hbare. cbn in Hbare.
-  unfold RelabelCorrect.bare_clause. apply Forall_forall. intros e He.
-  rewrite Forall_forall in Hbare.
-  apply (grn_expr_reflect e (global_rename_expr fn_to_id e) eq_refl).
-  apply Hbare. apply in_map. exact He.
+  intros Hren Hbare. unfold bare_fact in Hbare.
+  rewrite (grn_fact_args gc f lf Hren) in Hbare. exact Hbare.
 Qed.
 
 Lemma grn_rule_reflect (gc : global_context) (r : rule) (lr : lowered_rule) :
-  global_rename_rule fn_to_id r gc = Success lr -> bare_rule lr -> RelabelCorrect.bare_rule r.
+  global_rename_rule r gc = Success lr -> bare_rule lr -> RelabelCorrect.bare_rule r.
 Proof.
   intros Hren Hbare. destruct r as [concls hyps | mcs mhs | cr agg hr];
     cbn [DistributedDatalogToHardwareCompiler.global_rename_rule] in Hren;
@@ -3963,8 +3960,8 @@ Proof.
   match type of Hren with context[List.all_success (List.map ?ff concls)] =>
     destruct (List.all_success (List.map ff concls)) as [lconcls | msg] eqn:Hfc; [| discriminate] end.
   injection Hren as <-. cbn [bare_rule] in Hbare. destruct Hbare as [Hbh Hbc].
-  pose proof (all_success_map_inv_forall (fun f => global_rename_fact fn_to_id f gc) bare_fact hyps lhyps Hfh Hbh) as Hhyps.
-  pose proof (all_success_map_inv_forall (fun f => global_rename_fact fn_to_id f gc) bare_fact concls lconcls Hfc Hbc) as Hconcls.
+  pose proof (all_success_map_inv_forall (fun f => global_rename_fact f gc) bare_fact hyps lhyps Hfh Hbh) as Hhyps.
+  pose proof (all_success_map_inv_forall (fun f => global_rename_fact f gc) bare_fact concls lconcls Hfc Hbc) as Hconcls.
   cbn [RelabelCorrect.bare_rule]. split.
   - apply Forall_forall. intros f Hf. rewrite Forall_forall in Hconcls.
     destruct (Hconcls f Hf) as [lf [Hglf Hblf]]. exact (grn_fact_reflect gc f lf Hglf Hblf).
@@ -3979,14 +3976,14 @@ Proof.
   match type of Hren with context[List.all_success ?x] =>
     destruct (List.all_success x) as [lrs | msg] eqn:Hall; [| discriminate] end.
   injection Hren as <-.
-  pose proof (all_success_map_inv_forall (fun r => global_rename_rule fn_to_id r gc) bare_rule p lrs Hall Hbare) as Hp.
+  pose proof (all_success_map_inv_forall (fun r => global_rename_rule r gc) bare_rule p lrs Hall Hbare) as Hp.
   unfold RelabelCorrect.bare_program. apply Forall_forall. intros r Hr.
   rewrite Forall_forall in Hp. destruct (Hp r Hr) as [lr [Hglr Hblr]]. exact (grn_rule_reflect gc r lr Hglr Hblr).
 Qed.
 
 (* A bare program has no meta conclusions, so [prog_impl] is invariant under reordering/duplication
    of rules -- it depends only on the rule SET. *)
-Lemma bare_meta_concl_rels_nil (p : list (Datalog.rule (rel := rel_id) (fn := nat))) :
+Lemma bare_meta_concl_rels_nil (p : list (Datalog.rule (rel := rel_id) (fn := fn))) :
   RelabelCorrect.bare_program p -> flat_map Datalog.meta_concl_rels p = [].
 Proof.
   intros H. induction p as [| r p IH]; cbn; [reflexivity|].
@@ -3995,7 +3992,7 @@ Proof.
   cbn [Datalog.meta_concl_rels]. apply IH. exact Hp.
 Qed.
 
-Lemma prog_impl_set_iff (p1 p2 : list (Datalog.rule (rel := rel_id) (fn := nat)))
+Lemma prog_impl_set_iff (p1 p2 : list (Datalog.rule (rel := rel_id) (fn := fn)))
     (Q : Datalog.fact (rel := rel_id) -> Prop) (f : Datalog.fact (rel := rel_id)) :
   RelabelCorrect.bare_program p1 -> RelabelCorrect.bare_program p2 ->
   incl p1 p2 -> incl p2 p1 ->
@@ -4071,14 +4068,14 @@ Qed.
 (* B3c: the compiled canonical (numeric) program is exactly the RELABEL of the source program,
    AS A RULE SET (so [prog_impl_set_iff] can swap them). *)
 Lemma canonical_renamed_eq_relabel_source (layout : layout_map)
-    (llayout : lowered_layout_map) (r : Datalog.rule (rel := rel_id) (fn := nat)) :
+    (llayout : lowered_layout_map) (r : Datalog.rule (rel := rel_id) (fn := fn)) :
   global_rename_rule_layout layout (collect_global_names_layout layout initial_global_context) = Success llayout ->
   RelabelCorrect.bare_program (source_program layout) ->
   RelabelCorrect.Sprogram (Sdom (collect_global_names_layout layout initial_global_context)) (source_program layout) ->
   (In r (canonical_program llayout) <->
    In r (RelabelCorrect.relabel_program
            (rho_gc (collect_global_names_layout layout initial_global_context))
-           (fn_to_id) (source_program layout))).
+           (id) (source_program layout))).
 Proof.
   intros Hgr Hbare HS.
   set (gc0 := collect_global_names_layout layout initial_global_context) in *.
@@ -4102,13 +4099,13 @@ Proof.
                (layout_program_scoped layout gc0 n orig HS Hgetlayout)) in Hgrp.
     injection Hgrp as Hlp. subst lp.
     apply canonical_program_in.
-    exists n, (RelabelCorrect.relabel_program (rho_gc gc0) (fn_to_id) orig). split; [exact Hgetll|].
+    exists n, (RelabelCorrect.relabel_program (rho_gc gc0) (id) orig). split; [exact Hgetll|].
     subst r. unfold RelabelCorrect.relabel_program. apply in_map_iff. exists r0. split; [reflexivity | exact Hr0inorig].
 Qed.
 
 (* the file's [bare_rule] (hyps/concls) and [RelabelCorrect.bare_rule] (concls/hyps) agree up to the
    conjunction order. *)
-Lemma corr_bare_iff_relabel (r : Datalog.rule (rel := rel_id) (fn := nat)) :
+Lemma corr_bare_iff_relabel (r : Datalog.rule (rel := rel_id) (fn := fn)) :
   bare_rule r -> RelabelCorrect.bare_rule r.
 Proof.
   destruct r as [cs hs | | ]; cbn [bare_rule RelabelCorrect.bare_rule]; [| contradiction | contradiction].
@@ -4430,37 +4427,22 @@ Qed.
 (*  state bareness over the SOURCE [layout], transporting it to the renamed [llayout].          *)
 (*========================================================================================*)
 
-(* renaming a plain-variable arg yields a plain-variable arg. *)
-Lemma grn_expr_isvarb_fwd (e : Datalog.expr) (le : lowered_expr) :
-  (match e with var_expr _ => true | fun_expr _ _ => false end) = true ->
-  global_rename_expr fn_to_id e = le ->
-  (match le with var_expr _ => true | fun_expr _ _ => false end) = true.
-Proof.
-  destruct e as [v | f0 args]; intros Hb Hren; [| discriminate].
-  cbn in Hren. subst le. reflexivity.
-Qed.
-
 Lemma grn_fact_bareb_fwd (gc : global_context) (f : clause) (lf : lowered_fact) :
-  global_rename_fact fn_to_id f gc = Success lf -> bare_factb f = true -> bare_factb lf = true.
+  global_rename_fact f gc = Success lf -> bare_factb f = true -> bare_factb lf = true.
 Proof.
-  unfold DistributedDatalogToHardwareCompiler.global_rename_fact. intros Hren Hbare.
-  destruct (global_rename_rel f.(Datalog.clause_rel) gc) as [rid | msg]; [| discriminate].
-  cbn in Hren. injection Hren as <-. unfold bare_factb in Hbare |- *. cbn [Datalog.clause_args].
-  apply forallb_forall. intros b Hb.
-  apply in_map_iff in Hb. destruct Hb as [e [He Hein]].
-  apply (grn_expr_isvarb_fwd e b); [| exact He].
-  exact (proj1 (forallb_forall _ _) Hbare e Hein).
+  intros Hren Hbare. unfold bare_factb in Hbare |- *.
+  rewrite (grn_fact_args gc f lf Hren). exact Hbare.
 Qed.
 
 (* the per-fact-list step (hyps / concls), via [grn_fact_bareb_fwd]. *)
 Lemma grn_facts_bareb_fwd (gc : global_context) (fs : list (clause))
     (lfs : list lowered_fact) :
-  List.all_success (List.map (fun f => global_rename_fact fn_to_id f gc) fs) = Success lfs ->
+  List.all_success (List.map (fun f => global_rename_fact f gc) fs) = Success lfs ->
   forallb bare_factb fs = true -> forallb bare_factb lfs = true.
 Proof.
   intros Hall Hbare.
   assert (Hres : Forall (fun lf => bare_factb lf = true) lfs).
-  { apply (all_success_map_forall_pres (fun f => global_rename_fact fn_to_id f gc)
+  { apply (all_success_map_forall_pres (fun f => global_rename_fact f gc)
              (fun f => bare_factb f = true) (fun lf => bare_factb lf = true)
              (fun x y Hb Hg => grn_fact_bareb_fwd gc x y Hg Hb) fs lfs); [| exact Hall].
     apply Forall_forall. exact (proj1 (forallb_forall _ _) Hbare). }
@@ -4470,7 +4452,7 @@ Qed.
 
 Lemma grn_rule_bareb_fwd (gc : global_context) (r : rule)
     (lr : lowered_rule) :
-  global_rename_rule fn_to_id r gc = Success lr -> bare_ruleb r = true -> bare_ruleb lr = true.
+  global_rename_rule r gc = Success lr -> bare_ruleb r = true -> bare_ruleb lr = true.
 Proof.
   intros Hren Hbare. destruct r as [rconcls rhyps | mcs mhs | cr agg hr];
     cbn [DistributedDatalogToHardwareCompiler.global_rename_rule] in Hren; [| discriminate | discriminate].
@@ -4493,7 +4475,7 @@ Proof.
     destruct (List.all_success x) as [rs | msg] eqn:Hall; [| discriminate] end.
   injection Hren as <-.
   assert (Hres : Forall (fun lr => bare_ruleb lr = true) rs).
-  { apply (all_success_map_forall_pres (fun r => global_rename_rule fn_to_id r gc)
+  { apply (all_success_map_forall_pres (fun r => global_rename_rule r gc)
              (fun r => bare_ruleb r = true) (fun lr => bare_ruleb lr = true)
              (fun x y Hb Hg => grn_rule_bareb_fwd gc x y Hg Hb) p rs); [| exact Hall].
     apply Forall_forall. exact (proj1 (forallb_forall _ _) Hbare). }
@@ -4615,19 +4597,19 @@ Proof.
              (RelabelCorrect.relabel_fact (rho_gc gc0) fsrc)).
   assert (Hrelsrc_bare :
             RelabelCorrect.bare_program
-              (RelabelCorrect.relabel_program (rho_gc gc0) (fn_to_id) (source_program layout))).
+              (RelabelCorrect.relabel_program (rho_gc gc0) (id) (source_program layout))).
   { unfold RelabelCorrect.bare_program. apply Forall_forall. intros r Hr.
     apply (proj1 (Forall_forall _ _) (canonical_renamed_bare llayout Hbl)).
     apply (proj2 (canonical_renamed_eq_relabel_source layout llayout r Hgrl Hbsrc HSsrc)).
     exact Hr. }
   rewrite (prog_impl_set_iff (canonical_program llayout)
-             (RelabelCorrect.relabel_program (rho_gc gc0) (fn_to_id) (source_program layout))
+             (RelabelCorrect.relabel_program (rho_gc gc0) (id) (source_program layout))
              (RelabelCorrect.relabel_Q (rho_gc gc0) Qsrc)
              (RelabelCorrect.relabel_fact (rho_gc gc0) fsrc)
              (canonical_renamed_bare llayout Hbl) Hrelsrc_bare
              (fun r Hr => proj1 (canonical_renamed_eq_relabel_source layout llayout r Hgrl Hbsrc HSsrc) Hr)
              (fun r Hr => proj2 (canonical_renamed_eq_relabel_source layout llayout r Hgrl Hbsrc HSsrc) Hr)).
-  exact (RelabelCorrect.prog_impl_relabel (rho_gc gc0) (fn_to_id) (Sdom gc0)
+  exact (RelabelCorrect.prog_impl_relabel (rho_gc gc0) (id) (Sdom gc0)
            (rho_gc_injective_collect layout) (source_program layout) Qsrc fsrc Hbsrc HSsrc HSQ HSf).
 Qed.
 

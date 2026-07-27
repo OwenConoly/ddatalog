@@ -1,8 +1,8 @@
 (* Here we define the higher level operational semantics of how a trie join works. This is abstracted only
    for a single node, which can be distributed later for the distributed semantics.
 
-   The compiler ([DistributedDatalogToHardwareCompiler]) turns a lowered datalog program (relations and
-   functions renamed to numeric ids, variables intact) into a [hardware_program]:
+   The compiler ([DistributedDatalogToHardwareCompiler]) turns a lowered datalog program (relations
+   renamed to numeric ids, functions and variables intact) into a [hardware_program]:
    a list of [hardware_rule]s, each a *trie-join* query.  A query is a sequence of
    [join]s, one per variable in the rule's variable ordering; each join intersects
    a set of tries (stored, column-permuted relations) at a given level.
@@ -30,10 +30,10 @@ Import ListNotations.
 
 Section NodeHardwareSemantics.
 
-(* Relation and function names are already numeric ([rel_id]/[fn_id] = [nat]) at this
-   stage; only variables and the value type stay abstract. *)
-Context {var : exprvarT} {aggregator : aggregatorT} {T : valueT}.
-Context `{sig : signature nat aggregator T}.
+(* Relation names are already numeric ([rel_id] = [nat]) at this stage; functions,
+   variables, and the value type stay abstract. *)
+Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
+Context `{sig : signature fn aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 
@@ -42,7 +42,7 @@ Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
    AST: the hardware program is compared directly to a [Datalog] program.  (Turning a compiled
    [lowered_rule] into such a [dl_rule], and proving the compiled hardware matches it, is the
    compiler's job in [DistributedDatalogToHardwareCompilerCorrect].) *)
-Notation dl_rule := (@Datalog.rule rel_id var nat aggregator).
+Notation dl_rule := (@Datalog.rule rel_id var fn aggregator).
 Notation dl_program := (list dl_rule).
 (* Ground/runtime facts are [Datalog.fact]s ([normal_fact R args]); the bare fragment
    never produces [meta_fact]s. *)
