@@ -448,7 +448,7 @@ Definition update_forwarding_table_for_rel
  *)
 Definition generate_forwarding_table (g : node_graph) (ninfos : list node_info)
   (layout : layout_map)
-  (external_consumers_of external_producers_of : fact_locations)
+  (external_producers_of external_consumers_of : fact_locations)
   : node_ftable_map :=
   let internal_consumers_of := get_internal_consumers_of layout in
   let internal_producers_of := get_internal_producers_of layout in
@@ -456,12 +456,13 @@ Definition generate_forwarding_table (g : node_graph) (ninfos : list node_info)
   let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
   fold_left (update_forwarding_table_for_rel g all_consumers_of all_producers_of ninfos) (map.keys all_consumers_of) map.empty.
 
+Definition path_exists (g : node_graph) (source dest : node_id) :=
+  is_Some (get_path g source dest).
+
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 Definition all_rules_fed_for_relation (g : node_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
-  forallb
-    (fun '(producer, internal_consumer) => is_Some (get_path g producer internal_consumer))
-    (list_prod all_producers internal_consumers).
+  forallb (fun '(p, ic) => path_exists g p ic) (list_prod all_producers internal_consumers).
 
 Definition all_rules_fed (g : node_graph)
   (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
@@ -474,10 +475,7 @@ Definition all_rules_fed (g : node_graph)
 Definition producers_go_out_for_relation (g : node_graph)
   (all_producers : list node_id) (external_consumers : list node_id) :=
   forallb
-    (fun producer =>
-       existsb
-         (fun external_consumer => is_Some (get_path g producer external_consumer))
-         external_consumers)
+    (fun producer => existsb (path_exists g producer) external_consumers)
     all_producers.
 
 (*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
@@ -558,7 +556,7 @@ Definition compile (layout : layout_map)
                 (*TODO: more detailed error message*)
    else error:("compile: bad layout---either some producer cannot reach any output, or some producer cannot reach some internal consumer")) ;;
   ninfos <- compile_all_nodes layout ;;
-  let ftables := generate_forwarding_table g ninfos layout external_consumers_of external_producers_of in
+  let ftables := generate_forwarding_table g ninfos layout external_producers_of external_consumers_of in
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
 
