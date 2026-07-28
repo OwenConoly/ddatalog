@@ -459,9 +459,9 @@ Definition generate_forwarding_table (g : node_graph) (ninfos : list node_info)
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 Definition all_rules_fed_for_relation (g : node_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
-  forallb2
-    (fun producer internal_consumer => is_Some (get_path g producer internal_consumer))
-    all_producers internal_consumers.
+  forallb
+    (fun '(producer, internal_consumer) => is_Some (get_path g producer internal_consumer))
+    (list_prod all_producers internal_consumers).
 
 Definition all_rules_fed (g : node_graph)
   (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
