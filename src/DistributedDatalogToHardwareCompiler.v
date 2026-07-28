@@ -1,5 +1,5 @@
-From Stdlib Require Import List String Bool ZArith.
-From coqutil Require Import Datatypes.List Map.Interface Map.Properties Result Eqb.
+From Stdlib Require Import String List Bool ZArith.
+From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
 From Datalog Require Import Datalog List Map.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
@@ -17,46 +17,26 @@ Context {var_eqb : Eqb var}.
 Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 
 Notation destination := (@DistributedHardwareProgram.destination node_id).
-Notation destination_eqb := (@DistributedHardwareProgram.destination_eqb node_id node_id_eqb).
 
 Context {node_id_set : map.map node_id unit}.
-Context {destination_set : map.map destination unit}.
 Context {forwarding_table : map.map rel_id (list destination)}.
-Context {rel_dependency_map : map.map rel_id (node_id_set)}.
 Context {rel_relid_map : map.map rel rel_id}.
-Context {relid_rel_map : map.map rel_id rel}.
-Context {var_id_map : map.map var var_id}.
 Context {layout_map : map.map node_id program}.
 Context {lowered_layout_map : map.map node_id lowered_program}.
-Context {fact_locations_map : map.map rel (list node_id)}.
-Context {lowered_fact_locations_map : map.map rel_id (list node_id)}.
-
-(* fact-location tables: a relation -> the nodes that source/sink its facts.  These are MAPS
-   (unique keys, order-irrelevant) so a relation has exactly one node list -- no duplicate entries
-   and no dependence on insertion order. *)
-Definition fact_locations : Type := fact_locations_map.
-Definition lowered_fact_locations : Type := lowered_fact_locations_map.
+Context {fact_locations : map.map rel (list node_id)}.
+Context {lowered_fact_locations : map.map rel_id (list node_id)}.
 
 (* [node_info] now lives in [DistributedHardwareProgram] (the distributed AST); this is the
    compiler's view of it, with the topology's [node_id] and forwarding-table map fixed. *)
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
-Context {node_info_map : map.map node_id node_info}.
 
 Record global_context := {
   rel_map : rel_relid_map;
-  rel_node_consumers : rel_dependency_map;
-  rel_node_producers : rel_dependency_map;
   last_rel_id : rel_id;
 }.
 
-Record rule_context := {
-  var_map : var_id_map;
-  last_var_id : var_id;
-}.
-
 Record node_context := {
-  ncid : node_id;
   nctries : list trie;
   last_trie_id : trie_id;
 }.
@@ -84,8 +64,6 @@ Definition update_global_context_with_rel (r : rel) (gcontext : global_context) 
   | None =>
     {|
       rel_map := map.put gcontext.(rel_map) r gcontext.(last_rel_id);
-      rel_node_consumers := gcontext.(rel_node_consumers);
-      rel_node_producers := gcontext.(rel_node_producers);
       last_rel_id := S gcontext.(last_rel_id)
     |}
   end.
@@ -110,12 +88,10 @@ Definition collect_global_names_layout (layout : layout_map) (gcontext : global_
 (*----Rename — now returns result to catch missing names----*)
 Context (fn_to_id : fn -> fn_id).
 
-Fixpoint global_rename_expr (e : expr) (gcontext : global_context) : result lowered_expr :=
+Fixpoint global_rename_expr (e : expr) : lowered_expr :=
   match e with
-  | var_expr v => Success (var_expr v)
-  | fun_expr f args =>
-    rargs <- List.all_success (List.map (fun arg => global_rename_expr arg gcontext) args) ;;
-    Success (fun_expr (fn_to_id f) rargs)
+  | var_expr v => var_expr v
+  | fun_expr f args => fun_expr (fn_to_id f) (List.map global_rename_expr args)
   end.
 
 Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_id :=
@@ -126,7 +102,7 @@ Definition global_rename_rel (r : rel) (gcontext : global_context) : result rel_
 
 Definition global_rename_fact (f : clause) (gcontext : global_context) : result lowered_fact :=
   r_id <- global_rename_rel f.(clause_rel) gcontext ;;
-  rargs <- List.all_success (List.map (fun arg => global_rename_expr arg gcontext) f.(clause_args)) ;;
+  let rargs := List.map global_rename_expr f.(clause_args) in
   Success {| clause_rel := r_id; clause_args := rargs |}.
 
 (* the compiler only handles the bare fragment: rename the concls/hyps of a
@@ -158,7 +134,7 @@ Definition global_rename_fact_locations (fact_locations : fact_locations) (gcont
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
 Definition source_program (layout : layout_map) : program :=
-  map.fold (fun acc _ p => (acc ++ p)%list) (@nil rule) layout.
+  concat (values layout).
 
 (* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([prog_impl] of a
    bare program depends only on its rule set, so the compiled network then implements [P].) *)
@@ -179,129 +155,13 @@ Qed.
 
 (*----Collecting Info About Layout----*)
 
-Definition lowered_fact_contains_rel (f : lowered_fact) (r_id : rel_id) : bool :=
-  Nat.eqb r_id f.(clause_rel).
-
-Definition lowered_facts_contains_rel (facts : list lowered_fact) (r_id : rel_id) : bool :=
-  List.existsb (fun f => lowered_fact_contains_rel f r_id) facts.
-
-Definition lowered_program_produces_rel (program : lowered_program) (r_id : rel_id) : bool :=
-  List.existsb (fun rule =>
-    match rule with
-    | normal_rule concls _ => lowered_facts_contains_rel concls r_id
-    | _ => false
-    end) program.
-
-Definition lowered_program_consumes_rel (program : lowered_program) (r_id : rel_id) : bool :=
-  List.existsb (fun rule =>
-    match rule with
-    | normal_rule _ hyps => lowered_facts_contains_rel hyps r_id
-    | _ => false
-    end) program.
-
-Definition node_produces_rel (r_id : rel_id) (llayout : lowered_layout_map) (node_id : node_id) : bool :=
-  match map.get llayout node_id with
-  | Some program => lowered_program_produces_rel program r_id
-  | None => false
-  end.
-
-Definition node_consumes_rel (r_id : rel_id) (llayout : lowered_layout_map) (node_id : node_id) : bool :=
-  match map.get llayout node_id with
-  | Some program => lowered_program_consumes_rel program r_id
-  | None => false
-  end.
-
-Definition get_node_producers (r_id : rel_id) (llayout : lowered_layout_map) (lfact_locations : lowered_fact_locations) (gcontext : global_context) : list node_id :=
-  let layout_producers :=
-    List.filter (node_produces_rel r_id llayout) (map.keys llayout) in
-  let fact_locations :=
-    match map.get lfact_locations r_id with
-    | Some locations => locations
-    | None => []
-    end in
-  layout_producers ++ fact_locations.
-
-Definition get_node_consumers (r_id : rel_id) (llayout : lowered_layout_map)
-    (lfact_locations : lowered_fact_locations) (gcontext : global_context) : list node_id :=
-  let layout_consumers :=
-    List.filter (node_consumes_rel r_id llayout) (map.keys llayout) in
-  let fact_locations :=
-    match map.get lfact_locations r_id with
-    | Some locations => locations
-    | None => []
-    end in
-  layout_consumers ++ fact_locations.
-
-Definition collect_global_dependencies_for_rel_id (r_id : rel_id) (llayout : lowered_layout_map) (lfact_producers : lowered_fact_locations) (lfact_consumers : lowered_fact_locations)
-    (gcontext : global_context) : (list node_id * list node_id) :=
-  (get_node_producers r_id llayout lfact_producers gcontext,
-   get_node_consumers r_id llayout lfact_consumers gcontext).
-
-Definition add_producer_to_context (r_id : rel_id) (producer : node_id)
-    (gcontext : global_context) : global_context :=
-  let rel_node_producers :=
-    match map.get gcontext.(rel_node_producers) r_id with
-    | Some producers => map.put gcontext.(rel_node_producers) r_id (map.put producers producer tt)
-    | None => map.put gcontext.(rel_node_producers) r_id (map.put map.empty producer tt)
-    end in
-  {|
-    rel_map := gcontext.(rel_map);
-    rel_node_consumers := gcontext.(rel_node_consumers);
-    rel_node_producers := rel_node_producers;
-    last_rel_id := gcontext.(last_rel_id)
-  |}.
-
-Definition add_producers_to_context (r_id : rel_id) (producers : list node_id)
-    (gcontext : global_context) : global_context :=
-  fold_left (fun acc p => add_producer_to_context r_id p acc) producers gcontext.
-
-Definition add_consumer_to_context (r_id : rel_id) (consumer : node_id)
-    (gcontext : global_context) : global_context :=
-  let rel_node_consumers :=
-    match map.get gcontext.(rel_node_consumers) r_id with
-    | Some consumers => map.put gcontext.(rel_node_consumers) r_id (map.put consumers consumer tt)
-    | None => map.put gcontext.(rel_node_consumers) r_id (map.put map.empty consumer tt)
-    end in
-  {|
-    rel_map := gcontext.(rel_map);
-    rel_node_consumers := rel_node_consumers;
-    rel_node_producers := gcontext.(rel_node_producers);
-    last_rel_id := gcontext.(last_rel_id)
-  |}.
-
-Definition add_consumers_to_context (r_id : rel_id) (consumers : list node_id)
-    (gcontext : global_context) : global_context :=
-  fold_left (fun acc c => add_consumer_to_context r_id c acc) consumers gcontext.
-
 Definition get_rel_ids (gcontext : global_context) : list rel_id :=
-  map.fold (fun acc _ rel_id => rel_id :: acc) [] gcontext.(rel_map).
-
-Definition collect_global_dependencies (llayout : lowered_layout_map) (lfact_producers : lowered_fact_locations) (lfact_consumers : lowered_fact_locations)
-    (gcontext : global_context) : global_context :=
-  fold_left (fun acc rel_id =>
-    let (producers, consumers) :=
-      collect_global_dependencies_for_rel_id rel_id llayout lfact_producers lfact_consumers gcontext in
-    add_consumers_to_context rel_id consumers
-      (add_producers_to_context rel_id producers acc)
-  ) (get_rel_ids gcontext) gcontext.
+  values gcontext.(rel_map).
 
 (*----Stuff to keep default ordering (if desired) ----*)
 
-(* Collect vars in order of first appearance in hypotheses *)
-Fixpoint collect_vars_expr (e : lowered_expr) : list var :=
-  match e with
-  | var_expr v => [v]
-  | fun_expr _ args => List.flat_map collect_vars_expr args
-  end.
-
-Definition collect_vars_fact (f : lowered_fact) : list var :=
-  List.flat_map collect_vars_expr f.(clause_args).
-
-Definition collect_vars_hyps (hyps : list lowered_fact) : list var :=
-  List.flat_map collect_vars_fact hyps.
-
 Definition hyp_var_order (hyps : list lowered_fact) : list var :=
-  dedup (collect_vars_hyps hyps).
+  dedup (flat_map vars_of_clause hyps).
 
 (*----Variable ordering----*)
 
@@ -471,9 +331,9 @@ Fixpoint compute_variable_ordering_ordered_h (ctx : ordering_context)
 
 Definition compute_variable_ordering_ordered (g : var_graph) (hyps : list lowered_fact) : list var :=
   let candidates := hyp_var_order hyps in
-  List.rev
+  rev
     (compute_variable_ordering_ordered_h (initial_ordering_context g)
-       candidates (List.length candidates)).(order).
+       candidates (length candidates)).(order).
 
 (*----Trie Allocation----*)
 
@@ -484,7 +344,7 @@ Definition vars_of_arg (arg : lowered_expr) : list var :=
   end.
 
 Definition compute_var_order (lf : lowered_fact) : list var :=
-  List.flat_map vars_of_arg lf.(clause_args).
+  flat_map vars_of_arg lf.(clause_args).
 
 Context {var_idx_map : map.map var nat}.
 
@@ -517,8 +377,8 @@ Fixpoint compute_perm_aux (original_order : list var) (base_map occ_map : var_id
   match original_order with
   | [] => []
   | v :: vs =>
-    let base := match map.get base_map v with Some n => n | None => 0 end in
-    let occ  := match map.get occ_map  v with Some n => n | None => 0 end in
+    let base := get_default 0 base_map v in
+    let occ  := get_default 0 occ_map v in
     (base + occ) :: compute_perm_aux vs base_map (map.put occ_map v (occ + 1))
   end.
 
@@ -528,23 +388,17 @@ Definition compute_permutation (original_order desired_order : list var) : permu
 
 (*----Trie Generation----*)
 
-Definition permutation_eqb (p1 p2 : permutation) : bool :=
-  if Nat.eqb (List.length p1) (List.length p2) then
-    List.forallb (fun '(x, y) => Nat.eqb x y) (List.combine p1 p2)
-  else false.
-
 Definition update_node_context_with_trie (t : trie) (ncontext : node_context) : node_context :=
-  {| ncid := ncontext.(ncid);
-     nctries := t :: ncontext.(nctries);
+  {| nctries := t :: ncontext.(nctries);
      last_trie_id := S ncontext.(last_trie_id) |}.
 
 Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
-    (existing_tries : list trie) (gcontext : global_context)
+    (existing_tries : list trie)
     (ncontext : node_context) : trie * node_context :=
   let perm := compute_permutation (compute_var_order hyp) rule_var_order in
   let rel_id := hyp.(clause_rel) in
-  match List.find (fun t =>
-    Nat.eqb t.(trel) rel_id && permutation_eqb t.(tperm) perm) existing_tries with
+  match find (fun t =>
+    eqb t.(trel) rel_id && eqb t.(tperm) perm) existing_tries with
   | Some t => (t, ncontext)
   | None =>
     let new_trie := {| tid := ncontext.(last_trie_id); trel := rel_id; tperm := perm |} in
@@ -576,22 +430,22 @@ Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lower
       let '(ts', levels', cs') :=
         fold_left (fun inner_acc arg_idx =>
           let '(ts', levels', cs') := inner_acc in
-          (t.(tid) :: ts', List.nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
+          (t.(tid) :: ts', nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
           (get_hyp_arg_indices hyp.(clause_args) v 0) (ts, levels, cs)
       in
       (ts', levels', cs', S clause))
-      (List.combine tries_by_hyp hyps) ([], [], [], 0)
+      (combine tries_by_hyp hyps) ([], [], [], 0)
   in
-  {| tries := List.rev ts;
-     trie_levels := List.rev levels;
-     clauses := List.rev cs |}.
+  {| tries := rev ts;
+     trie_levels := rev levels;
+     clauses := rev cs |}.
 
 Definition generate_query (tries : list trie) (rule_var_order : list var)
     (hyps : list lowered_fact) : query :=
   List.map (fun v => generate_join tries v hyps) rule_var_order.
 
 Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
-    (existing_tries : list trie) (gcontext : global_context) (ncontext : node_context)
+    (existing_tries : list trie) (ncontext : node_context)
     : query * node_context :=
   (* [pool] is the dedup pool threaded into [generate_trie] (existing tries followed by
      the ones we generate, newest first).  [per_hyp_rev] is the trie chosen for each
@@ -600,14 +454,14 @@ Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
      must be the *per-hypothesis* tries in forward order — not the reversed pool. *)
   let '(pool, per_hyp_rev, ncontext) :=
     fold_left (fun '(pool, per_hyp_rev, ncontext) hyp =>
-      let (t, ncontext) := generate_trie hyp rule_var_order pool gcontext ncontext in
+      let (t, ncontext) := generate_trie hyp rule_var_order pool ncontext in
       (t :: pool, t :: per_hyp_rev, ncontext)) hyps (existing_tries, [], ncontext) in
-  (generate_query (List.rev per_hyp_rev) rule_var_order hyps, ncontext).
+  (generate_query (rev per_hyp_rev) rule_var_order hyps, ncontext).
 
-Definition initial_node_context (nid : node_id) : node_context :=
-  {| ncid := nid; nctries := []; last_trie_id := 0 |}.
+Definition initial_node_context : node_context :=
+  {| nctries := []; last_trie_id := 0 |}.
 
-Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
+Definition compile_concl (concl : lowered_fact)
     (rule_var_order : list var) : result join_output :=
   var_indices <- List.all_success (List.map (fun arg =>
     match arg with
@@ -617,23 +471,23 @@ Definition compile_concl (concl : lowered_fact) (gcontext : global_context)
   Success {| output_rel := concl.(clause_rel);
              output_var_indices := var_indices |}.
 
-Definition compile_concls (concls : list lowered_fact) (gcontext : global_context)
+Definition compile_concls (concls : list lowered_fact)
     (rule_var_order : list var) : result (list join_output) :=
-  List.all_success (List.map (fun concl => compile_concl concl gcontext rule_var_order) concls).
+  List.all_success (List.map (fun concl => compile_concl concl rule_var_order) concls).
 
 (* Version that tries to keep original ordering.  Bare fragment: only
    [normal_rule]s are compiled. *)
-Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
+Definition compile_rule (rule : lowered_rule)
     (ncontext : node_context) : result (hardware_rule * node_context) :=
   match rule with
   | normal_rule rconcls rhyps =>
     let dep_g := create_dependency_graph rhyps in
     let rule_var_order := compute_variable_ordering_ordered dep_g rhyps in  (* pass hyps for ordering *)
     let '(query, ncontext) :=
-      compile_hyps rhyps rule_var_order ncontext.(nctries) gcontext ncontext in
-    concls <- compile_concls rconcls gcontext rule_var_order ;;
+      compile_hyps rhyps rule_var_order ncontext.(nctries) ncontext in
+    concls <- compile_concls rconcls rule_var_order ;;
     Success ({| hhyps := query; hconcls := concls;
-                hsig := List.map (fun h => (h.(clause_rel), List.length h.(clause_args))) rhyps |}, ncontext)
+                hsig := List.map (fun h => (h.(clause_rel), length h.(clause_args))) rhyps |}, ncontext)
   | _ => error:("compile_rule: aggregation/meta rules are not supported")
   end.
 
@@ -641,85 +495,54 @@ Definition compile_rule (rule : lowered_rule) (gcontext : global_context)
 
 Context {node_ftable_map : map.map node_id forwarding_table}.
 
-Definition get_node_ftable (node : node_id) (ftables : node_ftable_map) : forwarding_table :=
-  match map.get ftables node with
-  | Some ft => ft
-  | None => map.empty
-  end.
-
-Definition add_dest_if_absent (d : destination) (ds : list destination) : list destination :=
-  if List.existsb (destination_eqb d) ds then ds else d :: ds.
-
 Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
     (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
-  let ft := get_node_ftable node ftables in
+  let ft := get_default map.empty ftables node in
   let matching_tries :=
-    match List.find (fun n => eqb n.(nid) node) ninfos with
+    match find (fun n => eqb n.(nid) node) ninfos with
     | None => []
-    | Some ninfo => List.filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
+    | Some ninfo => filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
     end in
-  let existing := match map.get ft rel with Some ds => ds | None => [] end in
+  let existing := get_default [] ft rel in
   let updated_ft :=
     map.put ft rel
-      (fold_left (fun acc t => add_dest_if_absent (DestTrie t.(tid)) acc)
-        matching_tries existing) in
+      (list_union eqb (List.map (fun t => DestTrie t.(tid)) matching_tries) existing) in
   map.put ftables node updated_ft.
 
 (* TODO later maybe do edges by which node it connects to instead of direction? *)
-Fixpoint add_path_to_forwarding_table (rel : rel_id) (path : list node_id)
-    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
+Fixpoint add_path_to_forwarding_table (ninfos : list node_info) (rel : rel_id)
+    (ftables : node_ftable_map) (path : list node_id) : node_ftable_map :=
   match path with
   | [] => ftables
   | [node] => add_trie_dest_to_forwarding_table node rel ftables ninfos
   | node :: ((next :: _) as rest) =>
-    let ft := get_node_ftable node ftables in
-    let existing := match map.get ft rel with
-                    | Some ds => ds | None => [] end in
-    let ft' := map.put ft rel (add_dest_if_absent (DestEdge next) existing) in
-    add_path_to_forwarding_table rel rest (map.put ftables node ft') ninfos
+    let ft := get_default map.empty ftables node in
+    let existing := get_default [] ft rel in
+    let ft' := map.put ft rel (list_union eqb [DestEdge next] existing) in
+    add_path_to_forwarding_table ninfos rel (map.put ftables node ft') rest
   end.
 
-Definition update_forwarding_table_for_rel (rel : rel_id) (gcontext : global_context)
-    (ninfos : list node_info) (ftables : node_ftable_map)
-    (g : node_graph) : node_ftable_map :=
-  let producers :=
-    match map.get gcontext.(rel_node_producers) rel with
-    | Some ps => ps
-    | None => map.empty
-    end in
-  let consumers :=
-    match map.get gcontext.(rel_node_consumers) rel with
-    | Some cs => cs
-    | None => map.empty
-    end in
-  map.fold (fun ftables producer _ =>
-    map.fold (fun ftables consumer _ =>
-      if eqb producer consumer then
-        add_trie_dest_to_forwarding_table consumer rel ftables ninfos
-      else
-        match get_path g producer consumer with
-        | None => ftables
-        | Some path => add_path_to_forwarding_table rel path ftables ninfos
-        end
-    ) ftables consumers
-  ) ftables producers.
+Definition add_paths_to_forwarding_table (rel : rel_id) (paths : list (list node_id))
+    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
+  fold_left (add_path_to_forwarding_table ninfos rel) paths ftables.
+
+Definition update_forwarding_table_for_rel
+  (g : node_graph) lfc lfp (ninfos : list node_info)
+  (ftables : node_ftable_map) (rel : rel_id) : node_ftable_map :=
+  let producers := get_default [] lfp rel in
+  let consumers := get_default [] lfc rel in
+  let paths :=
+    flat_map (fun '(producer, consumer) =>
+                match get_path g producer consumer with
+                | None => []
+                | Some path => [path]
+                end)
+      (list_prod producers consumers) in
+  add_paths_to_forwarding_table rel paths ftables ninfos.
 
 Definition generate_forwarding_table (gcontext : global_context) (ninfos : list node_info)
-    (g : node_graph) : node_ftable_map :=
-  fold_left (fun ftables rel =>
-    update_forwarding_table_for_rel rel gcontext ninfos ftables g
-  ) (get_rel_ids gcontext) map.empty.
-
-(* membership of a node in a node_id_set / dependency map, as bools (for the gate below). *)
-Definition nid_mem (s : node_id_set) (n : node_id) : bool :=
-  match map.get s n with Some _ => true | None => false end.
-
-Definition rel_dep_has (m : rel_dependency_map) (R : rel_id) (n : node_id) : bool :=
-  match map.get m R with Some s => nid_mem s n | None => false end.
-
-(* The lowered program a layout assigns to a node (empty if the node is unassigned). *)
-Definition lprog_of (llayout : lowered_layout_map) (n : node_id) : lowered_program :=
-  match map.get llayout n with Some p => p | None => [] end.
+    (g : node_graph) lfc lfp : node_ftable_map :=
+  fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) (get_rel_ids gcontext) map.empty.
 
 (* FORWARDING-COMPLETENESS gate: for every node [np] that concludes relation [R], [R] is a
    registered relation and [np] is a recorded producer; and for every node [nc] that hypothesizes
@@ -727,21 +550,21 @@ Definition lprog_of (llayout : lowered_layout_map) (n : node_id) : lowered_progr
    (or [np = nc]).  When this is [false] the compiler cannot certify that every produced fact
    reaches every consumer. *)
 Definition routes_validb (gcontext : global_context) (g : node_graph)
-    (llayout : lowered_layout_map) : bool :=
+    (llayout : lowered_layout_map) (lfc lfp : lowered_fact_locations) : bool :=
   forallb (fun np =>
     forallb (fun rule_np =>
       forallb (fun R =>
         existsb (Nat.eqb R) (get_rel_ids gcontext)
-        && rel_dep_has gcontext.(rel_node_producers) R np
+        && existsb (eqb np) (get_default [] lfp R)
         && forallb (fun nc =>
              if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                        (lprog_of llayout nc)
-             then rel_dep_has gcontext.(rel_node_consumers) R nc
+                        (get_default [] llayout nc)
+             then existsb (eqb nc) (get_default [] lfc R)
                   && is_Some (get_path g np nc)
              else true)
            (map.keys llayout))
       (Datalog.concl_rels rule_np))
-    (lprog_of llayout np))
+    (get_default [] llayout np))
   (map.keys llayout).
 
 (* The forwarding table, THREADED THROUGH THE RESULT MONAD: emitted only when the routing is
@@ -749,9 +572,9 @@ Definition routes_validb (gcontext : global_context) (g : node_graph)
    route compilation FAILS.  This is the "correct by construction" gate -- [Success] witnesses that
    the forwarding is right, so no separate route checker is needed downstream. *)
 Definition generate_forwarding_table_checked (gcontext : global_context) (ninfos : list node_info)
-    (g : node_graph) (llayout : lowered_layout_map) : result node_ftable_map :=
-  if routes_validb gcontext g llayout
-  then Success (generate_forwarding_table gcontext ninfos g)
+    (g : node_graph) (llayout : lowered_layout_map) lfc lfp : result node_ftable_map :=
+  if routes_validb gcontext g llayout lfc lfp
+  then Success (generate_forwarding_table gcontext ninfos g lfc lfp)
   else error:("generate_forwarding_table: some producer cannot reach some consumer (incomplete forwarding)").
 
 (* INPUT-COMPLETENESS gate: every declared input/EDB location [ni] of relation [R] (from
@@ -759,87 +582,70 @@ Definition generate_forwarding_table_checked (gcontext : global_context) (ninfos
    compilation succeeds, the nodes where base facts are injected provably reach every consumer --
    the input side is correct by construction, no input route checker needed downstream. *)
 Definition input_routes_validb (gcontext : global_context) (g : node_graph)
-    (llayout : lowered_layout_map) (lfp : lowered_fact_locations) : bool :=
+    (llayout : lowered_layout_map) (lfc lfp : lowered_fact_locations) : bool :=
   map.forallb (fun R locs =>
     forallb (fun ni =>
-      existsb (Nat.eqb R) (get_rel_ids gcontext)
-      && rel_dep_has gcontext.(rel_node_producers) R ni
+      existsb (eqb R) (get_rel_ids gcontext)
+      && existsb (eqb ni) (get_default [] lfp R)
       && forallb (fun nc =>
            if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                      (lprog_of llayout nc)
-           then rel_dep_has gcontext.(rel_node_consumers) R nc
+                      (get_default [] llayout nc)
+           then existsb (eqb nc) (get_default [] lfc R)
                 && is_Some (get_path g ni nc)
            else true)
          (map.keys llayout))
     locs)
   lfp.
 
-(* The declared locations of relation [R] in a (lowered) fact-location list. *)
-Definition fact_locs (lf : lowered_fact_locations) (R : rel_id) : list node_id :=
-  match map.get lf R with
-  | Some locs => locs
-  | None => []
-  end.
-
 (* OUTPUT-COMPLETENESS gate (producers): every node [np] that concludes [R] forwards to some
    declared output/sink node of [R] (a fact-consumer location).  This is what makes a producer a
    "good source" on the output side, and forces every produced relation to have a sink. *)
 Definition output_routesb (gcontext : global_context) (g : node_graph)
-    (llayout : lowered_layout_map) (lfc : lowered_fact_locations) : bool :=
+    (llayout : lowered_layout_map) (lfc lfp : lowered_fact_locations) : bool :=
   forallb (fun np =>
     forallb (fun rule_np =>
       forallb (fun R =>
-        existsb (Nat.eqb R) (get_rel_ids gcontext)
-        && rel_dep_has gcontext.(rel_node_producers) R np
-        && existsb (fun no =>
-             rel_dep_has gcontext.(rel_node_consumers) R no
-             && is_Some (get_path g np no))
-           (fact_locs lfc R))
+                 existsb (Nat.eqb R) (get_rel_ids gcontext)
+                 && existsb (eqb np) (get_default [] lfp R)
+                 && existsb (fun no => is_Some (get_path g np no)) (get_default [] lfc R))
       (Datalog.concl_rels rule_np))
-    (lprog_of llayout np))
+    (get_default [] llayout np))
   (map.keys llayout).
 
 (* OUTPUT-COMPLETENESS gate (input nodes): every declared input/EDB location of [R] forwards to some
    declared output/sink node of [R]. *)
 Definition input_output_routesb (gcontext : global_context) (g : node_graph)
-    (lfp : lowered_fact_locations) (lfc : lowered_fact_locations) : bool :=
+    (lfc lfp : lowered_fact_locations) : bool :=
   map.forallb (fun R locs =>
     forallb (fun ni =>
       existsb (Nat.eqb R) (get_rel_ids gcontext)
-      && rel_dep_has gcontext.(rel_node_producers) R ni
-      && existsb (fun no =>
-           rel_dep_has gcontext.(rel_node_consumers) R no
-           && is_Some (get_path g ni no))
-           (fact_locs lfc R))
-    locs)
+      && existsb (eqb ni) (get_default [] lfp R)
+      && existsb (fun no => is_Some (get_path g ni no)) (get_default [] lfc R))
+      locs)
   lfp.
 
 (*----Final Compilation----*)
 
 Definition initial_global_context : global_context :=
   {| rel_map := map.empty;
-     rel_node_consumers := map.empty;
-     rel_node_producers := map.empty;
      last_rel_id := 0 |}.
 
-Definition compile_node (node : node_id) (program : lowered_program)
-    (gcontext : global_context) : result node_info :=
+Definition compile_node (node : node_id) (program : lowered_program) : result node_info :=
   '(compiled_rules, ncontext) <-
     fold_left (fun acc rule =>
       '(rules, ncontext) <- acc ;;
-      '(hr, ncontext) <- compile_rule rule gcontext ncontext ;;
+      '(hr, ncontext) <- compile_rule rule ncontext ;;
       Success (hr :: rules, ncontext)%list
-    ) program (Success ([], initial_node_context node)) ;;
+    ) program (Success ([], initial_node_context)) ;;
   Success {| nid := node;
-             nprogram := List.rev compiled_rules;
+             nprogram := rev compiled_rules;
              nforwarding := map.empty;
-             ntries := List.rev ncontext.(nctries) |}.
+             ntries := rev ncontext.(nctries) |}.
 
-Definition compile_all_nodes (llayout : lowered_layout_map)
-    (gcontext : global_context) : result (list node_info) :=
+Definition compile_all_nodes (llayout : lowered_layout_map) : result (list node_info) :=
   ninfos <- map.fold (fun acc node program =>
     ninfos <- acc ;;
-    ninfo <- compile_node node program gcontext ;;
+    ninfo <- compile_node node program ;;
     Success (ninfo :: ninfos)
   ) (Success []) llayout ;;
   Success (ninfos).
@@ -854,16 +660,16 @@ Definition attach_forwarding_tables (ninfos : list node_info)
   List.map (fun ninfo =>
     {| nid := ninfo.(nid);
        nprogram := ninfo.(nprogram);
-       nforwarding := get_node_ftable ninfo.(nid) ftables;
+       nforwarding := get_default map.empty ftables ninfo.(nid);
        ntries := ninfo.(ntries) |}
   ) ninfos
   ++ List.map (fun n =>
        {| nid := n;
           nprogram := [];
-          nforwarding := get_node_ftable n ftables;
+          nforwarding := get_default map.empty ftables n ;
           ntries := [] |})
-     (List.filter
-        (fun n => negb (List.existsb (fun ninfo => eqb ninfo.(nid) n) ninfos))
+     (filter
+        (fun n => negb (existsb (fun ninfo => eqb ninfo.(nid) n) ninfos))
         (map.keys ftables)).
 
 (* every node the layout assigns to is a real graph node. *)
@@ -894,7 +700,7 @@ Definition compile_rel_ids (layout : layout_map) (fact_producers fact_consumers 
 (* THE NUMERIC CORE: compile an ALREADY-LOWERED layout/fact-locations -- NO relabeling.  Computes
    the dependency context, the per-node programs, the forwarding tables, and the routing gates. *)
 Definition compile_lowered (llayout : lowered_layout_map)
-    (lfact_producers lfact_consumers : lowered_fact_locations) (gcontext0 : global_context)
+    (lfact_producers lfact_consumers : lowered_fact_locations) (gcontext : global_context)
     (g : node_graph) : result (list node_info) :=
   _ <- (if check_graph_valid g
         then Success tt
@@ -902,16 +708,15 @@ Definition compile_lowered (llayout : lowered_layout_map)
   _ <- (if layout_in_graphb g llayout
         then Success tt
         else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
-  let gcontext := collect_global_dependencies llayout lfact_producers lfact_consumers gcontext0 in
-  ninfos <- compile_all_nodes llayout gcontext ;;
-  ftables <- generate_forwarding_table_checked gcontext ninfos g llayout ;;
-  _ <- (if input_routes_validb gcontext g llayout lfact_producers
+  ninfos <- compile_all_nodes llayout ;;
+  ftables <- generate_forwarding_table_checked gcontext ninfos g llayout lfact_consumers lfact_producers ;;
+  _ <- (if input_routes_validb gcontext g llayout lfact_consumers lfact_producers
         then Success tt
         else error:("compile: a declared input/EDB location cannot reach some consumer (incomplete input forwarding)")) ;;
-  _ <- (if output_routesb gcontext g llayout lfact_consumers
+  _ <- (if output_routesb gcontext g llayout lfact_consumers lfact_producers
         then Success tt
         else error:("compile: a producer cannot reach an output/sink node (incomplete output forwarding)")) ;;
-  _ <- (if input_output_routesb gcontext g lfact_producers lfact_consumers
+  _ <- (if input_output_routesb gcontext g lfact_consumers lfact_producers
         then Success tt
         else error:("compile: an input/EDB location cannot reach an output/sink node")) ;;
   Success (attach_forwarding_tables ninfos ftables).
@@ -926,9 +731,8 @@ Existing Instance SortedListNat.map.
 From coqutil Require Import SortedListString.
 Existing Instance SortedListString.map.
 
-Compute compute_permutation (var := nat) (var_eqb := Nat.eqb) [2;3;1;1] [1;2;3].
+Compute compute_permutation [2;3;1;1] [1;2;3].
 Compute generate_join
-  (var := nat) (var_eqb := Nat.eqb)
   [ {| tid := 0; trel := 0; tperm := [0; 1] |} ;
     {| tid := 1; trel := 0; tperm := [1; 0] |} ]
   1

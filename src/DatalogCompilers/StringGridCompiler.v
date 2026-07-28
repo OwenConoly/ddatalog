@@ -38,8 +38,8 @@ Definition make_layout_map
 Definition compile_program
     (program        : list rule)
     (layout         : list (node_id * list nat))
-    (fact_producers : fact_locations (node_id := node_id))
-    (fact_consumers : fact_locations (node_id := node_id))
+    (fact_producers : rel_locs_map)
+    (fact_consumers : rel_locs_map)
     (topo_dims      : GridGraph.Dimensions)
     : _ :=
   compile
@@ -49,7 +49,6 @@ Definition compile_program
     (var_node_set       := StringDatalog.var_node_set)
     (var_edge_set       := StringDatalog.var_edge_set)
     (forwarding_table   := SortedListNat.map (list destination))
-    (rel_dependency_map := SortedListNat.map (node_id_map unit))
     (rel_relid_map      := StringDatalog.rel_relid_map)
     (layout_map         := node_id_map (list rule))
     (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))
@@ -67,13 +66,11 @@ Definition compile_program
 Definition compile_program_rel_ids
     (program        : list rule)
     (layout         : list (node_id * list nat))
-    (fact_producers : fact_locations (node_id := node_id))
-    (fact_consumers : fact_locations (node_id := node_id))
+    (fact_producers : rel_locs_map)
+    (fact_consumers : rel_locs_map)
     : _ :=
   compile_rel_ids
     (node_id            := node_id)
-    (node_id_set        := node_id_map unit)
-    (rel_dependency_map := SortedListNat.map (node_id_map unit))
     (rel_relid_map      := StringDatalog.rel_relid_map)
     (layout_map         := node_id_map (list rule))
     (lowered_layout_map := node_id_map (list HardwareProgram.lowered_rule))

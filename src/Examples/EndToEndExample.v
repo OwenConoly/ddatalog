@@ -61,7 +61,6 @@ Definition grid_equiv :=
     _ _
     (GridTopology.node_id_map unit) (GridTopology.node_id_map (GridTopology.node_id_map unit))
     (SortedListNat.map (list (@DistributedHardwareProgram.destination GridGraph.Node)))
-    (SortedListNat.map (GridTopology.node_id_map unit))
     (fun _ => 0%nat) StringDatalog.rel_relid_map   (* fn_to_id, matching compile_program *)
     (GridTopology.node_id_map (list rule)) (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map (list (lowered_rule)))
@@ -100,7 +99,6 @@ Definition G      := GridTopology.make_topo_graph topo.
 (* The relabel pass with the grid instances pinned -- exactly the [lower_inputs] the theorem uses. *)
 Notation lowerJ := (@DistributedDatalogToHardwareCompiler.lower_inputs
   string string string unit node_id
-  (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
   StringDatalog.rel_relid_map
   (GridTopology.node_id_map (list rule))
   (GridTopology.node_id_map (list (lowered_rule)))
@@ -133,15 +131,13 @@ Example check_distributes : layout_distributes_programb P LAYOUT = true. Proof. 
 (*  queried fact [fsrc] of [P], the distributed run of the COMPILED network     *)
 (*  parks the renamed [fsrc] at an output node  iff  [P] derives [fsrc].        *)
 (*==========================================================================*)
-
+Opaque compile.
 Theorem end_to_end_equiv
     (ninfos : list (@node_info node_id (SortedListNat.map (list destination))))
     (ll  : GridTopology.node_id_map
              (list (lowered_rule)))
-    (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
-                 (SortedListNat.map (list node_id)))
-    (gc : @DistributedDatalogToHardwareCompiler.global_context string node_id
-            (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
+    (lfp lfc : SortedListNat.map (list node_id))
+    (gc : @DistributedDatalogToHardwareCompiler.global_context string
             StringDatalog.rel_relid_map)
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
@@ -156,13 +152,7 @@ Theorem end_to_end_equiv
     (RelabelCorrect.relabel_fact (rho_gc gc) fsrc)
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
-  intros Hcompile Hlower Hin Hedb.
-  apply (grid_equiv LAYOUT FPS FPS G ninfos ll lfp lfc gc P Qsrc fsrc
-           Hcompile Hlower);
-    [ vm_compute; reflexivity   (* bare_layoutb LAYOUT = true *)
-    | vm_compute; reflexivity
-    | exact Hin
-    | exact Hedb ].
+  intros. eapply grid_equiv; eassumption || reflexivity.
 Qed.
 
 (*==========================================================================*)
@@ -205,10 +195,8 @@ Theorem end_to_end_equiv_reach
     (ninfos : list (@node_info node_id (SortedListNat.map (list destination))))
     (ll  : GridTopology.node_id_map
              (list (lowered_rule)))
-    (lfp lfc : @DistributedDatalogToHardwareCompiler.lowered_fact_locations node_id
-                 (SortedListNat.map (list node_id)))
-    (gc : @DistributedDatalogToHardwareCompiler.global_context string node_id
-            (GridTopology.node_id_map unit) (SortedListNat.map (GridTopology.node_id_map unit))
+    (lfp lfc : SortedListNat.map (list node_id))
+    (gc : @DistributedDatalogToHardwareCompiler.global_context string
             StringDatalog.rel_relid_map)
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
