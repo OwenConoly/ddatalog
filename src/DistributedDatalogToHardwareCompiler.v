@@ -441,9 +441,20 @@ Definition update_forwarding_table_for_rel
       (list_prod producers consumers) in
   add_paths_to_forwarding_table rel paths ftables ninfos.
 
-Definition generate_forwarding_table (all_rels : list rel_id) (ninfos : list node_info)
-    (g : node_graph) lfc lfp : node_ftable_map :=
-  fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty.
+(*note: this is suboptimal.
+  first: we add a path from each producer to every external consumer, where it would suffice to add a path from each producer to one external consumer.
+  this would not be too hard to fix.
+  second: we are making no effort to do any load-balancing etc.
+ *)
+Definition generate_forwarding_table (g : node_graph) (ninfos : list node_info)
+  (layout : layout_map)
+  (external_consumers_of external_producers_of : fact_locations)
+  : node_ftable_map :=
+  let internal_consumers_of := get_internal_consumers_of layout in
+  let internal_producers_of := get_internal_producers_of layout in
+  let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
+  let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
+  fold_left (update_forwarding_table_for_rel g all_consumers_of all_producers_of ninfos) (map.keys all_consumers_of) map.empty.
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 Definition all_rules_fed_for_relation (g : node_graph)
@@ -534,7 +545,7 @@ Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
 Definition compile (layout : layout_map)
-    (external_producers external_consumers : fact_locations)
+    (external_producers_of external_consumers_of : fact_locations)
     (g : node_graph) : result (list node_info) :=
   (if check_graph_valid g
    then Success tt
@@ -542,18 +553,12 @@ Definition compile (layout : layout_map)
   (if layout_in_graphb g layout
        then Success tt
        else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
-
+  (if layout_good g layout external_producers_of external_consumers_of
+   then Success tt
+                (*TODO: more detailed error message*)
+   else error:("compile: bad layout---either some producer cannot reach any output, or some producer cannot reach some internal consumer")) ;;
   ninfos <- compile_all_nodes layout ;;
-  ftables <- generate_forwarding_table all_rels ninfos g layout all_consumers all_producers ;;
-  _ <- (if input_routes_validb all_rels g layout all_consumers all_producers
-        then Success tt
-        else error:("compile: a declared input/EDB location cannot reach some consumer (incomplete input forwarding)")) ;;
-  _ <- (if output_routesb all_rels g layout all_consumers all_producers
-        then Success tt
-        else error:("compile: a producer cannot reach an output/sink node (incomplete output forwarding)")) ;;
-  _ <- (if input_output_routesb all_rels g all_consumers all_producers
-        then Success tt
-        else error:("compile: an input/EDB location cannot reach an output/sink node")) ;;
+  let ftables := generate_forwarding_table g ninfos layout external_consumers_of external_producers_of in
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
 
