@@ -413,27 +413,19 @@ Definition add_paths_to_forwarding_table (rel : rel_id) (paths : list (list node
 
 Context {rels_at_node : map.map node_id (list rel_id)}.
 
-Definition internal_producers (layout : layout_map) :=
+Definition get_internal_producers_of (layout : layout_map) :=
   let internally_produced_at_node :=
     (*maps node n to set of rels which may be (internally) produced at n*)
     map.map_values (fun p => dedup (flat_map concl_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) produce R*)
   invert internally_produced_at_node.
 
-Definition all_producers (layout : layout_map) (external_producers : fact_locations) :
-  fact_locations :=
-  union_with (list_union eqb) (internal_producers layout) external_producers.
-
-Definition internal_consumers (layout : layout_map) :=
+Definition get_internal_consumers_of (layout : layout_map) :=
   let internally_consumed_at_node :=
     (*maps node n to set of rels which may be (internally) consumed at n*)
     map.map_values (fun p => dedup (flat_map hyp_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
-
-Definition all_consumers (layout : layout_map) (external_consumers : fact_locations) :
-  fact_locations :=
-  union_with (list_union eqb) (internal_consumers layout) external_consumers.
 
 Definition update_forwarding_table_for_rel
   (g : node_graph) lfc lfp (ninfos : list node_info)
@@ -454,36 +446,44 @@ Definition generate_forwarding_table (all_rels : list rel_id) (ninfos : list nod
   fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty.
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
-Definition producers_go_to_consumers
-  (layout : layout_map)
-  (external_producers : list node_id)
-  (internal_consumers : list node_id)
-  (internal_producers : list node_id)
-  (g : node_graph) :=
+Definition all_rules_fed_for_relation (g : node_graph)
+  (all_producers : list node_id) (internal_consumers : list node_id) :=
   forallb2
     (fun producer internal_consumer => is_Some (get_path g producer internal_consumer))
-    (list_union eqb external_producers internal_producers) internal_consumers.
+    all_producers internal_consumers.
+
+Definition all_rules_fed (g : node_graph)
+  (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
+  map.forallb (fun R internal_consumers =>
+                 let all_producers := get_or_default all_producers_of R in
+                 all_rules_fed_for_relation g all_producers internal_consumers)
+    internal_consumers_of.
 
 (*all rule_producers(R) -> some external rule_consumer(R)*)
-Definition producers_go_out
-  (layout : layout_map)
-  (external_producers : list node_id)
-  (external_consumers : list node_id)
-  (internal_producers : list node_id)
-  (g : node_graph) :=
+Definition producers_go_out_for_relation (g : node_graph)
+  (all_producers : list node_id) (external_consumers : list node_id) :=
   forallb
     (fun producer =>
        existsb
          (fun external_consumer => is_Some (get_path g producer external_consumer))
          external_consumers)
-    (list_union eqb external_producers internal_producers).
+    all_producers.
 
-(*it's not clear to me why this check belongs in the forwarding-table generation*)
-Fail Definition generate_forwarding_table_checked (all_rels : list rel_id) (ninfos : list node_info)
-    (g : node_graph) (llayout : layout_map) lfc lfp : result node_ftable_map :=
-  if routes_validb all_rels g llayout lfc lfp
-  then Success (generate_forwarding_table all_rels ninfos g lfc lfp)
-  else error:("generate_forwarding_table: some producer cannot reach some consumer (incomplete forwarding)").
+(*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
+Definition producers_go_out (g : node_graph)
+  (all_producers_of : fact_locations) (external_consumers_of : fact_locations) :=
+  map.forallb (fun R external_consumers =>
+                 let all_producers := get_or_default all_producers_of R in
+                 producers_go_out_for_relation g all_producers external_consumers)
+    external_consumers_of.
+
+Definition layout_good (g : node_graph) (layout : layout_map)
+  (external_producers_of external_consumers_of : fact_locations) :=
+  let internal_consumers_of := get_internal_consumers_of layout in
+  let internal_producers_of := get_internal_producers_of layout in
+  let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
+  all_rules_fed g all_producers_of internal_consumers_of &&
+    producers_go_out g all_producers_of external_consumers_of.
 
 (*----Final Compilation----*)
 
@@ -533,19 +533,9 @@ Definition attach_forwarding_tables (ninfos : list node_info)
 Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
-Definition layout_good_for_rel
-  (layout : layout_map)
-  (external_producers external_consumers : fact_locations)
-  (R : rel_id)
-  :=
-
-
-
 Definition compile (layout : layout_map)
     (external_producers external_consumers : fact_locations)
     (g : node_graph) : result (list node_info) :=
-  let all_producers := all_producers layout external_producers in
-  let all_consumers := all_consumers layout external_consumers in
   (if check_graph_valid g
    then Success tt
    else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
