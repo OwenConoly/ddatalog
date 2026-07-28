@@ -3623,6 +3623,13 @@ Theorem nattify_and_compile_correct
       (fun n f0 => relabel_Q (encode_rel (program_rels p) p) Qsrc f0
                    /\ In n (get_or_default fps (Datalog.rel_of f0)))
       (fun n R => In n (get_or_default (all_consumers layout fcs) R))
+      (*Spec is buggy; the line above should be
+        (fun n R => In n (get_or_default fcs R)).
+
+        I believe the same bug was present in the original compile_implements_source statement.
+        I cannot understand the compiler well enough to be sure, but Claude claims that the current compiler only satisfies the buggy spec---fixing the bug in the spec would make the theorem unprovable.
+        I also don't know whether the original compiler satisfied the unbuggy spec---maybe it only stopped satisfying the unbuggy spec after I performed some refactoring.
+       *)
       (nattify_rel_fact (program_rels p) p fsrc)
     <-> Datalog.prog_impl p Qsrc fsrc ).
 Proof.
