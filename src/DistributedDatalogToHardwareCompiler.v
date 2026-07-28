@@ -308,22 +308,14 @@ Definition get_rule_var_index (rule_var_order : list var) (v : var) : result nat
   end.
 
 Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lowered_fact) : join :=
-  let '(ts, levels, cs, _) :=
-    fold_left (fun acc pair =>
-      let '(ts, levels, cs, clause) := acc in
-      let '(t, hyp) := pair in
-      let '(ts', levels', cs') :=
-        fold_left (fun inner_acc arg_idx =>
-          let '(ts', levels', cs') := inner_acc in
-          (t.(tid) :: ts', nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
-          (indexes_of (var_expr v) hyp.(clause_args)) (ts, levels, cs)
-      in
-      (ts', levels', cs', S clause))
-      (combine tries_by_hyp hyps) ([], [], [], 0)
-  in
-  {| tries := rev ts;
-     trie_levels := rev levels;
-     clauses := rev cs |}.
+  let entries :=
+    flat_map (fun '(clause, t, hyp) =>
+                List.map (fun arg_idx => (t.(tid), nth arg_idx t.(tperm) 0, clause))
+                         (indexes_of (var_expr v) hyp.(clause_args)))
+             (combine3 (seq 0 (length hyps)) tries_by_hyp hyps) in
+  {| tries := List.map fst3 entries;
+     trie_levels := List.map snd3 entries;
+     clauses := List.map thd3 entries |}.
 
 Definition generate_query (tries : list trie) (rule_var_order : list var)
     (hyps : list lowered_fact) : query :=
@@ -509,12 +501,7 @@ Definition compile_node (node : node_id) (program : lowered_program) : result no
              ntries := rev ncontext.(nctries) |}.
 
 Definition compile_all_nodes (llayout : layout_map) : result (list node_info) :=
-  ninfos <- map.fold (fun acc node program =>
-    ninfos <- acc ;;
-    ninfo <- compile_node node program ;;
-    Success (ninfo :: ninfos)
-  ) (Success []) llayout ;;
-  Success (ninfos).
+  List.all_success (List.map (fun '(node, program) => compile_node node program) (map.tuples llayout)).
 
 (* Attach the compiled forwarding tables to node_infos -- now for EVERY node that forwards, not
    just the layout nodes: layout nodes keep their compiled program/tries, and any extra node that
