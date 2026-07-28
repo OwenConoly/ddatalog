@@ -17,7 +17,7 @@
    [generate_query] admits exactly the variable bindings under which the lowered rule fires. *)
 
 From Stdlib Require Import List Bool ZArith Lia.
-From coqutil Require Import Datatypes.List Map.Interface Map.Properties Datatypes.Result Eqb.
+From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Datatypes.Result Eqb.
 From Datalog Require Import Datalog Interpreter List Map Default NattifyRel RelMap.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
@@ -3195,7 +3195,7 @@ Qed.
    fact-producer location). *)
 Theorem compiled_good_network_streaming_edb
     (g : node_graph) (all_rels : list rel_id) (ninfos : list node_info)
-    (llayout : layout_map) (lfp lfc : fact_locations_map)
+    (llayout : layout_map) (lfp lfc input_lfp : fact_locations_map)
     (program : list (Datalog.rule (rel := rel_id) (fn := fn))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   Graph.good_graph (cg2g g) ->
   DistributedDatalog.good_layout (fun n => get_or_default llayout n) (Graph.nodes (cg2g g)) program ->
@@ -3203,12 +3203,14 @@ Theorem compiled_good_network_streaming_edb
   input_routes_validb all_rels g llayout lfc lfp = true ->
   output_routesb all_rels g llayout lfc lfp = true ->
   input_output_routesb all_rels g lfc lfp = true ->
-  (forall f, Q f -> exists n, In n (get_or_default lfp (Datalog.rel_of f))) ->
+  (* the external input locations are a subset of the (routed) producers *)
+  (forall R n, In n (get_or_default input_lfp R) -> In n (get_or_default lfp R)) ->
+  (forall f, Q f -> exists n, In n (get_or_default input_lfp (Datalog.rel_of f))) ->
   DistributedDatalog.good_network_streaming
-    (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) lfp lfc Q))
+    (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) input_lfp lfc Q))
     program Q.
 Proof.
-  intros Hgg Hlay Hroutes Hinput Houtroutes Hinoutroutes HQ.
+  intros Hgg Hlay Hroutes Hinput Houtroutes Hinoutroutes Hsub HQ.
   unfold DistributedDatalog.good_network_streaming, dnet_of_llayout, compiled_base_edb; cbn.
   split; [exact Hgg|].
   split; [exact Hlay|].
@@ -3219,16 +3221,16 @@ Proof.
     destruct (Hgg n1 n2 Hedge) as [Hn1 Hn2]. split; [exact Hn1 | split; [exact Hn2 | exact Hedge]].
   - split.
     + apply (construction_good_source all_rels ninfos g llayout lfc lfp
-               (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) lfp lfc Q)));
+               (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) input_lfp lfc Q)));
         [reflexivity | reflexivity | reflexivity | exact Hroutes | exact Houtroutes].
     + split.
       * intros n f [HQf _]. exact HQf.
       * intros f HQf. destruct (HQ f HQf) as [n Hn].
-        destruct (In_get_or_default lfp (Datalog.rel_of f) n Hn) as [locs [Hlfp Hnlocs]].
         exists n. split.
         -- split; [exact HQf | exact Hn].
-        -- apply (edb_input_good_source all_rels ninfos g llayout lfp lfc
-                    (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) lfp lfc Q)))
+        -- destruct (In_get_or_default lfp (Datalog.rel_of f) n (Hsub _ _ Hn)) as [locs [Hlfp Hnlocs]].
+           apply (edb_input_good_source all_rels ninfos g llayout lfp lfc
+                    (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) input_lfp lfc Q)))
              with (locs := locs);
              [reflexivity | reflexivity | reflexivity | exact Hinput | exact Hinoutroutes | exact Hlfp | exact Hnlocs].
 Qed.
@@ -3533,14 +3535,26 @@ Qed.
    read back out of [ninfos] -- no re-derivation) derive EXACTLY the reference [Datalog.prog_impl]
    facts.  Producer AND input routing are correct by construction (gated inside [compile]); there is
    NO route checker side condition. *)
+(* every external input location of [R] is one of the (merged) producers of [R]. *)
+Lemma all_producers_incl (layout : layout_map) (fps : fact_locations_map) (R : rel_id) (n : node_id) :
+  In n (get_or_default fps R) -> In n (get_or_default (all_producers layout fps) R).
+Proof.
+  intros Hn. destruct (In_get_or_default fps R n Hn) as [v2 [Hfps Hnv2]].
+  unfold get_or_default, get_or, DistributedDatalogToHardwareCompiler.all_producers.
+  rewrite union_with_get, Hfps.
+  destruct (map.get (DistributedDatalogToHardwareCompiler.internal_producers layout) R) as [v1|].
+  - apply In_list_union_spec. right. exact Hnv2.
+  - exact Hnv2.
+Qed.
+
 Theorem compile_distributed_correct
     (layout : layout_map) (fps fcs : fact_locations_map) (g : node_graph)
     (ninfos : list node_info) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   compile layout fps fcs g = Success ninfos ->
   bare_layoutb layout = true ->
-  edb_routable (all_producers layout fps) Q ->
+  edb_routable fps Q ->
   forall f, run_ninfos ninfos
-              (fun n f0 => Q f0 /\ In n (get_or_default (all_producers layout fps) (Datalog.rel_of f0)))
+              (fun n f0 => Q f0 /\ In n (get_or_default fps (Datalog.rel_of f0)))
               (fun n R => In n (get_or_default (all_consumers layout fcs) R))
               f
             <-> Datalog.prog_impl (canonical_program layout) Q f.
@@ -3553,9 +3567,8 @@ Proof.
   destruct (generate_forwarding_table_checked_success all_rels
               ninfos0 g layout ftables lfc lfp Hft) as [Hfteq Hroutes].
   (* the returned [ninfos] IS [attach_forwarding_tables ninfos0 ftables]; [ftables] IS the generated
-     table.  The operational run of [ninfos] over the compiled EDB equals [prog_impl_fact] of the
-     canonical program ([compile_all_distributes_ninfos]), which is the reference [Datalog.prog_impl]
-     on the bare fragment ([prog_impl_fact_iff_datalog]). *)
+     table.  The operational run of [ninfos] over the compiled EDB (external facts injected at [fps],
+     routing over the merged producers/consumers) equals [prog_impl_fact] of the canonical program. *)
   rewrite Hret. rewrite Hfteq.
   apply (iff_trans
            (compile_all_distributes_ninfos layout
@@ -3563,16 +3576,18 @@ Proof.
               (generate_forwarding_table all_rels ninfos0 g lfc lfp)
               (dnet_of_llayout layout
                  (compiled_base_edb g (generate_forwarding_table all_rels ninfos0 g lfc lfp)
-                    lfp lfc Q))
+                    fps lfc Q))
               (canonical_program layout) Q Hcan Hbare
               eq_refl eq_refl
               (compiled_good_network_streaming_edb g all_rels ninfos0
-                 layout lfp lfc
+                 layout lfp lfc fps
                  (canonical_program layout) Q
                  (proj1 (check_graph_correct g) Hgraph)
                  (canonical_good_layout g layout Hkeys)
                  Hroutes
-                 Hinp Houtp Hinoutp HQ)
+                 Hinp Houtp Hinoutp
+                 (all_producers_incl layout fps)
+                 HQ)
               f)).
   apply prog_impl_fact_iff_datalog. apply canonical_bare. exact Hbare.
 Qed.
@@ -3603,10 +3618,10 @@ Theorem nattify_and_compile_correct
   DistributedDatalogToHardwareCompiler.layout_distributes_program
     (NattifyRel.nattify_rel_prog (program_rels p) p) layout ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels p)) ->
-  edb_routable (all_producers layout fps) (relabel_Q (encode_rel (program_rels p) p) Qsrc) ->
+  edb_routable fps (relabel_Q (encode_rel (program_rels p) p) Qsrc) ->
   ( run_ninfos ninfos
       (fun n f0 => relabel_Q (encode_rel (program_rels p) p) Qsrc f0
-                   /\ In n (get_or_default (all_producers layout fps) (Datalog.rel_of f0)))
+                   /\ In n (get_or_default fps (Datalog.rel_of f0)))
       (fun n R => In n (get_or_default (all_consumers layout fcs) R))
       (nattify_rel_fact (program_rels p) p fsrc)
     <-> Datalog.prog_impl p Qsrc fsrc ).
