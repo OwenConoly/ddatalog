@@ -453,85 +453,37 @@ Definition generate_forwarding_table (all_rels : list rel_id) (ninfos : list nod
     (g : node_graph) lfc lfp : node_ftable_map :=
   fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty.
 
-(* FORWARDING-COMPLETENESS gate: for every node [np] that concludes relation [R], [R] is a
-   registered relation and [np] is a recorded producer; and for every node [nc] that hypothesizes
-   [R], [nc] is a recorded consumer AND the compiler's search [get_path] found a route [np ~> nc]
-   (or [np = nc]).  When this is [false] the compiler cannot certify that every produced fact
-   reaches every consumer. *)
-Definition routes_validb (all_rels : list rel_id) (g : node_graph)
-    (llayout : layout_map) (lfc lfp : fact_locations) : bool :=
-  forallb (fun np =>
-    forallb (fun rule_np =>
-      forallb (fun R =>
-        existsb (Nat.eqb R) all_rels
-        && existsb (eqb np) (get_or_default lfp R)
-        && forallb (fun nc =>
-             if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                        (get_or_default llayout nc)
-             then existsb (eqb nc) (get_or_default lfc R)
-                  && is_Some (get_path g np nc)
-             else true)
-           (map.keys llayout))
-      (Datalog.concl_rels rule_np))
-    (get_or_default llayout np))
-  (map.keys llayout).
+(*all rule_producers(R) -> all internal rule_consumers(R)*)
+Definition producers_go_to_consumers
+  (layout : layout_map)
+  (external_producers : list node_id)
+  (internal_consumers : list node_id)
+  (internal_producers : list node_id)
+  (g : node_graph) :=
+  forallb2
+    (fun producer internal_consumer => is_Some (get_path g producer internal_consumer))
+    (list_union eqb external_producers internal_producers) internal_consumers.
 
-(* The forwarding table, THREADED THROUGH THE RESULT MONAD: emitted only when the routing is
-   complete.  On success it is exactly [generate_forwarding_table]; on a missing producer->consumer
-   route compilation FAILS.  This is the "correct by construction" gate -- [Success] witnesses that
-   the forwarding is right, so no separate route checker is needed downstream. *)
-Definition generate_forwarding_table_checked (all_rels : list rel_id) (ninfos : list node_info)
+(*all rule_producers(R) -> some external rule_consumer(R)*)
+Definition producers_go_out
+  (layout : layout_map)
+  (external_producers : list node_id)
+  (external_consumers : list node_id)
+  (internal_producers : list node_id)
+  (g : node_graph) :=
+  forallb
+    (fun producer =>
+       existsb
+         (fun external_consumer => is_Some (get_path g producer external_consumer))
+         external_consumers)
+    (list_union eqb external_producers internal_producers).
+
+(*it's not clear to me why this check belongs in the forwarding-table generation*)
+Fail Definition generate_forwarding_table_checked (all_rels : list rel_id) (ninfos : list node_info)
     (g : node_graph) (llayout : layout_map) lfc lfp : result node_ftable_map :=
   if routes_validb all_rels g llayout lfc lfp
   then Success (generate_forwarding_table all_rels ninfos g lfc lfp)
   else error:("generate_forwarding_table: some producer cannot reach some consumer (incomplete forwarding)").
-
-(* INPUT-COMPLETENESS gate: every declared input/EDB location [ni] of relation [R] (from
-   [lfact_producers]) is a recorded producer of [R] and routes to every consumer of [R].  So once
-   compilation succeeds, the nodes where base facts are injected provably reach every consumer --
-   the input side is correct by construction, no input route checker needed downstream. *)
-Definition input_routes_validb (all_rels : list rel_id) (g : node_graph)
-    (llayout : layout_map) (lfc lfp : fact_locations) : bool :=
-  map.forallb (fun R locs =>
-    forallb (fun ni =>
-      existsb (eqb R) all_rels
-      && existsb (eqb ni) (get_or_default lfp R)
-      && forallb (fun nc =>
-           if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                      (get_or_default llayout nc)
-           then existsb (eqb nc) (get_or_default lfc R)
-                && is_Some (get_path g ni nc)
-           else true)
-         (map.keys llayout))
-    locs)
-  lfp.
-
-(* OUTPUT-COMPLETENESS gate (producers): every node [np] that concludes [R] forwards to some
-   declared output/sink node of [R] (a fact-consumer location).  This is what makes a producer a
-   "good source" on the output side, and forces every produced relation to have a sink. *)
-Definition output_routesb (all_rels : list rel_id) (g : node_graph)
-    (llayout : layout_map) (lfc lfp : fact_locations) : bool :=
-  forallb (fun np =>
-    forallb (fun rule_np =>
-      forallb (fun R =>
-                 existsb (Nat.eqb R) all_rels
-                 && existsb (eqb np) (get_or_default lfp R)
-                 && existsb (fun no => is_Some (get_path g np no)) (get_or_default lfc R))
-      (Datalog.concl_rels rule_np))
-    (get_or_default llayout np))
-  (map.keys llayout).
-
-(* OUTPUT-COMPLETENESS gate (input nodes): every declared input/EDB location of [R] forwards to some
-   declared output/sink node of [R]. *)
-Definition input_output_routesb (all_rels : list rel_id) (g : node_graph)
-    (lfc lfp : fact_locations) : bool :=
-  map.forallb (fun R locs =>
-    forallb (fun ni =>
-      existsb (Nat.eqb R) all_rels
-      && existsb (eqb ni) (get_or_default lfp R)
-      && existsb (fun no => is_Some (get_path g ni no)) (get_or_default lfc R))
-      locs)
-  lfp.
 
 (*----Final Compilation----*)
 
@@ -581,20 +533,28 @@ Definition attach_forwarding_tables (ninfos : list node_info)
 Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
+Definition layout_good_for_rel
+  (layout : layout_map)
+  (external_producers external_consumers : fact_locations)
+  (R : rel_id)
+  :=
+
+
+
 Definition compile (layout : layout_map)
     (external_producers external_consumers : fact_locations)
     (g : node_graph) : result (list node_info) :=
-  let all_rels := (dedup (flat_map all_rels (source_program layout))) in
   let all_producers := all_producers layout external_producers in
   let all_consumers := all_consumers layout external_consumers in
-  _ <- (if check_graph_valid g
-        then Success tt
-        else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
-  _ <- (if layout_in_graphb g layout
-        then Success tt
-        else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
+  (if check_graph_valid g
+   then Success tt
+   else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
+  (if layout_in_graphb g layout
+       then Success tt
+       else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
+
   ninfos <- compile_all_nodes layout ;;
-  ftables <- generate_forwarding_table_checked all_rels ninfos g layout all_consumers all_producers ;;
+  ftables <- generate_forwarding_table all_rels ninfos g layout all_consumers all_producers ;;
   _ <- (if input_routes_validb all_rels g layout all_consumers all_producers
         then Success tt
         else error:("compile: a declared input/EDB location cannot reach some consumer (incomplete input forwarding)")) ;;
