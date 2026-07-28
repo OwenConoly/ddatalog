@@ -123,6 +123,10 @@ Proof.
   intros Hc Hscope Hedb.
   apply (grid_equiv P NLAYOUT NFPS NFPS G ninfos Qsrc fsrc Hc);
     [ vm_compute; reflexivity
+    | vm_compute; reflexivity
+    | vm_compute; reflexivity
+    | vm_compute; reflexivity
+    | vm_compute; reflexivity
     | apply layout_distributes_programb_spec; vm_compute; reflexivity
     | exact Hscope
     | exact Hedb ].
@@ -175,6 +179,10 @@ Proof.
   intros Hc Hscope Hedb.
   apply (grid_equiv Preach NLAYOUT_r NFPS_r NFPS_r G_r ninfos Qsrc fsrc Hc);
     [ vm_compute; reflexivity
+    | vm_compute; reflexivity
+    | vm_compute; reflexivity
+    | vm_compute; reflexivity
+    | vm_compute; reflexivity
     | apply layout_distributes_programb_spec; vm_compute; reflexivity
     | exact Hscope
     | exact Hedb ].
