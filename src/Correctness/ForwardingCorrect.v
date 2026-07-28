@@ -6,7 +6,7 @@
 
 From Stdlib Require Import List Bool Lia PeanoNat.
 From coqutil Require Import Map.Interface Map.Properties Datatypes.ListSet Eqb.
-From Datalog Require Import Map.
+From Datalog Require Import Map Default.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
 Import ListNotations.
 
@@ -28,7 +28,7 @@ Context {node_ftable_map : map.map node_id forwarding_table}
         {node_ftable_map_ok : map.ok node_ftable_map}.
 
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
-Notation get_node_ftable node ftables := (get_default map.empty ftables node).
+Notation get_node_ftable node ftables := (get_or_default ftables node).
 Notation add_trie_dest := (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 Notation add_path := (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 
@@ -96,7 +96,7 @@ Lemma node_rel_dests_put_diff (ftables : node_ftable_map) (n node : node_id)
   n <> node ->
   node_rel_dests (map.put ftables n nf) node rel = node_rel_dests ftables node rel.
 Proof.
-  intros Hne. unfold node_rel_dests, get_default.
+  intros Hne. unfold node_rel_dests, get_or_default, get_or.
   rewrite map.get_put_diff by (intro; subst; apply Hne; reflexivity). reflexivity.
 Qed.
 
@@ -105,7 +105,7 @@ Lemma node_rel_dests_put_same (ftables : node_ftable_map) (node : node_id)
   node_rel_dests (map.put ftables node nf) node rel =
   match map.get nf rel with Some ds => ds | None => [] end.
 Proof.
-  unfold node_rel_dests, get_default. rewrite map.get_put_same. reflexivity.
+  unfold node_rel_dests, get_or_default, get_or. rewrite map.get_put_same. reflexivity.
 Qed.
 
 (* the rel-dests at [node0] right after [putting] a fresh value [V] for [rel] there is exactly [V] *)
@@ -270,8 +270,9 @@ Definition ftable_edges_sound (g : node_graph) (ftables : node_ftable_map) : Pro
 (* the empty table is edge-sound (it records nothing) *)
 Lemma ftable_edges_sound_empty (g : node_graph) : ftable_edges_sound g map.empty.
 Proof.
-  intros node rel m H. unfold has_fwd_edge, node_rel_dests, get_default in H.
-  rewrite map.get_empty in H. rewrite map.get_empty in H. cbn in H. destruct H.
+  intros node rel m H. unfold has_fwd_edge, node_rel_dests, get_or_default, get_or in H.
+  rewrite map.get_empty in H. simpl in H. cbv [default map_default] in H.
+  rewrite map.get_empty in H. simpl in H. destruct H.
 Qed.
 
 (* laying down a real edge-path keeps the table edge-sound *)

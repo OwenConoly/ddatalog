@@ -12,26 +12,24 @@ Import ListNotations.
    single-node semantics (NodeHardwareSemantics), and the printers.  It is split into
    three layers:
 
-   - [lowered_*]    : a datalog program with relations/functions renamed to
-                      numeric ids, but variables and term structure intact.
+   - [lowered_*]    : a datalog program with relations renamed to numeric ids,
+                      but functions, variables, and term structure intact.
    - [trie]/[join]  : the trie-join representation a single node executes.
    - [hardware_*]   : a full compiled program (a list of trie-join rules).
 
    Only [fact]/[rule]/[expr] (re-exported from [Datalog]) and the [lowered_*]
-   family mention the source types [rel]/[var]/[fn]/[aggregator]; everything
+   family mention the source types [var]/[fn]/[aggregator]; everything
    from [trie] onward is purely numeric. *)
 
 Section HardwareProgram.
 
-Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
+Context {exprvar : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 
-Definition var_id := nat.
+#[local] Instance rel_id : relT := nat.
+
 Definition trie_id := nat.
-Definition rel_id := nat.
-Definition fn_id := nat.
 Definition clause_id := nat.
 
-Definition program := list rule.
 Definition permutation := list nat.
 
 Record trie := {
@@ -40,8 +38,8 @@ Record trie := {
   tperm : permutation;
 }.
 
-(* The "lowered" program is a [Datalog] program whose relations/functions are numeric ids
-   ([rel_id]/[fn_id]) but whose variables/aggregator are the source's -- it is NOT a separate
+(* The "lowered" program is a [Datalog] program whose relations are numeric ids
+   ([rel_id]) but whose functions/variables/aggregator are the source's -- it is NOT a separate
    AST.  So [interp_clause]/[prog_impl] apply to it directly and NO [lowered -> Datalog]
    conversion is ever needed (the compiler produces these rules in their final type).
 
@@ -51,9 +49,9 @@ Record trie := {
    emits [normal_rule]s and ERRORS (result monad) on [meta_rule]/[agg_rule], so a lowered program
    is normal by construction.  A lowered atom is a [clause] ([clause_rel]/[clause_args]);
    a ground lowered fact is a [fact] ([normal_fact]). *)
-Definition lowered_expr := expr (fn := fn_id).
-Definition lowered_fact := clause (rel := rel_id) (fn := fn_id).
-Definition lowered_rule := rule (rel := rel_id) (fn := fn_id).
+Definition lowered_expr := expr.
+Definition lowered_fact := clause.
+Definition lowered_rule := rule.
 Definition lowered_program := list lowered_rule.
 
 Record join :=
