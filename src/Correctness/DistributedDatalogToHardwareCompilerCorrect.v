@@ -518,29 +518,37 @@ Qed.
 (*  Characterizing generate_join's entry list                                  *)
 (*============================================================================*)
 
-Lemma zip3_app {A B C : Type} (a1 a2 : list A) (b1 b2 : list B) (c1 c2 : list C) :
-  length a1 = length b1 -> length a1 = length c1 ->
-  zip3 (a1 ++ a2) (b1 ++ b2) (c1 ++ c2) = zip3 a1 b1 c1 ++ zip3 a2 b2 c2.
+Lemma map_recombine_triple {X Y Z : Type} (l : list (X * Y * Z)) :
+  map (fun e => (fst3 e, snd3 e, thd3 e)) l = l.
+Proof. induction l as [|[[x y] z] l IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+Lemma In_combine3_seq {A B : Type} (la : list A) (lb : list B) (s c : nat) (x : A) (y : B) :
+  In (c, x, y) (combine3 (seq s (length lb)) la lb) <->
+  (exists k, c = s + k /\ nth_error la k = Some x /\ nth_error lb k = Some y).
 Proof.
-  revert b1 c1. induction a1 as [|x a1 IH]; intros b1 c1 Hb Hc.
-  - destruct b1; [|discriminate]. destruct c1; [|discriminate]. reflexivity.
-  - destruct b1 as [|y b1]; [discriminate|]. destruct c1 as [|z c1]; [discriminate|].
-    simpl. rewrite IH by (simpl in *; lia). reflexivity.
+  revert la s. induction lb as [|b lb IH]; intros la s; simpl.
+  - split; [contradiction|]. intros [k [_ [_ Hk]]]. destruct k; discriminate.
+  - destruct la as [|a la]; simpl.
+    + split; [contradiction|]. intros [k [_ [Hk _]]]. destruct k; discriminate.
+    + split.
+      * intros [Heq | Hin].
+        -- inversion Heq; subst. exists 0. split; [lia | split; reflexivity].
+        -- apply IH in Hin. destruct Hin as [k [-> [Hk1 Hk2]]]. exists (S k). split; [lia | split; assumption].
+      * intros [k [-> [Hk1 Hk2]]]. destruct k as [|k]; simpl in Hk1, Hk2.
+        ++ injection Hk1 as Hx. injection Hk2 as Hy. subst x. subst y. left.
+           replace (s + 0) with s by lia. reflexivity.
+        ++ right. apply IH. exists k. split; [lia | split; assumption].
 Qed.
 
-(* The inner fold over a hypothesis's argument positions: pushes one (tid, level, clause)
-   per position, newest first. *)
-Lemma inner_fold_spec (t : trie) (clause : nat) (idxs : list nat) (ts levels cs : list nat) :
-  fold_left (fun (inner_acc : list nat * list nat * list nat) (arg_idx : nat) =>
-               let '(ts', levels', cs') := inner_acc in
-               (t.(tid) :: ts', nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
-            idxs (ts, levels, cs)
-  = (rev (map (fun _ : nat => t.(tid)) idxs) ++ ts,
-     rev (map (fun a : nat => nth a t.(tperm) 0) idxs) ++ levels,
-     rev (map (fun _ : nat => clause) idxs) ++ cs).
+Lemma combine_nth_error {A B} (l1 : list A) (l2 : list B) c x y :
+  nth_error (combine l1 l2) c = Some (x, y) <->
+  nth_error l1 c = Some x /\ nth_error l2 c = Some y.
 Proof.
-  revert ts levels cs. induction idxs as [|a idxs IH]; intros ts levels cs; [reflexivity|].
-  simpl. rewrite IH. rewrite <- !app_assoc. reflexivity.
+  revert l2 c. induction l1 as [|a l1 IH]; intros [|b l2] [|c]; simpl;
+    try (split; [discriminate | intros [H _]; discriminate]);
+    try (split; [discriminate | intros [_ H]; discriminate]).
+  - split; [intros H; injection H as -> ->; auto | intros [H1 H2]; injection H1 as ->; injection H2 as ->; reflexivity].
+  - apply IH.
 Qed.
 
 Lemma zip3_map3 {A X Y Z : Type} (f : A -> X) (g : A -> Y) (h : A -> Z) (l : list A) :
@@ -550,53 +558,10 @@ Proof. induction l as [|x l IH]; simpl; [reflexivity | rewrite IH; reflexivity].
 (* The flat list of entries generate_join produces (forward order). *)
 Definition gj_entries (tb : list trie) (v : var) (hyps : list lowered_fact)
   : list (trie_id * nat * clause_id) :=
-  flat_map (fun ci => let '(c, t_hyp) := ci in let '(t, hyp) := t_hyp in
+  flat_map (fun '(c, t, hyp) =>
               map (fun a => (t.(tid), nth a t.(tperm) 0, c))
                   (indexes_of (var_expr v) hyp.(Datalog.clause_args)))
-           (combine (seq 0 (length (combine tb hyps))) (combine tb hyps)).
-
-(* The outer fold over (trie, hypothesis) pairs, tracking the clause counter. *)
-Lemma outer_fold_spec (v : var) (pairs : list (trie * lowered_fact)) :
-  forall (clause0 : nat) (ts levels cs : list nat),
-  length ts = length levels -> length levels = length cs ->
-  match fold_left (fun (acc : list nat * list nat * list nat * nat) (pair : trie * lowered_fact) =>
-      let '(ts, levels, cs, clause) := acc in
-      let '(t, hyp) := pair in
-      let '(ts', levels', cs') :=
-        fold_left (fun (inner_acc : list nat * list nat * list nat) (arg_idx : nat) =>
-          let '(ts', levels', cs') := inner_acc in
-          (t.(tid) :: ts', nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
-          (indexes_of (var_expr v) hyp.(Datalog.clause_args)) (ts, levels, cs) in
-      (ts', levels', cs', S clause))
-      pairs (ts, levels, cs, clause0)
-  with (ts', levels', cs', _) =>
-    length ts' = length levels' /\ length levels' = length cs' /\
-    zip3 (rev ts') (rev levels') (rev cs')
-      = zip3 (rev ts) (rev levels) (rev cs)
-        ++ flat_map (fun ci => let '(c, t_hyp) := ci in let '(t, hyp) := t_hyp in
-                map (fun a => (t.(tid), nth a t.(tperm) 0, c))
-                    (indexes_of (var_expr v) hyp.(Datalog.clause_args)))
-             (combine (seq clause0 (length pairs)) pairs)
-  end.
-Proof.
-  induction pairs as [|[t hyp] pairs IH]; intros clause0 ts levels cs Hl1 Hl2.
-  - simpl. rewrite app_nil_r. auto.
-  - cbn [fold_left]. rewrite inner_fold_spec.
-    set (idxs := indexes_of (var_expr v) hyp.(Datalog.clause_args)).
-    assert (HpA : length (rev (map (fun _ : nat => t.(tid)) idxs) ++ ts)
-                = length (rev (map (fun a : nat => nth a t.(tperm) 0) idxs) ++ levels))
-      by (rewrite !length_app, !length_rev, !length_map; f_equal; exact Hl1).
-    assert (HpB : length (rev (map (fun a : nat => nth a t.(tperm) 0) idxs) ++ levels)
-                = length (rev (map (fun _ : nat => clause0) idxs) ++ cs))
-      by (rewrite !length_app, !length_rev, !length_map; f_equal; exact Hl2).
-    specialize (IH (S clause0) _ _ _ HpA HpB).
-    destruct (fold_left _ pairs _) as [[[ts' levels'] cs'] clause'].
-    destruct IH as [HL1 [HL2 Hz]].
-    split; [exact HL1|]. split; [exact HL2|].
-    rewrite Hz, !rev_app_distr, !rev_involutive.
-    rewrite (zip3_app (rev ts) _ (rev levels) _ (rev cs)) by (rewrite !length_rev; lia).
-    rewrite zip3_map3. rewrite <- app_assoc. f_equal.
-Qed.
+           (combine3 (seq 0 (length hyps)) tb hyps).
 
 Lemma generate_join_entries (tb : list trie) (v : var) (hyps : list lowered_fact) :
   zip3 (generate_join tb v hyps).(HardwareProgram.tries)
@@ -605,9 +570,8 @@ Lemma generate_join_entries (tb : list trie) (v : var) (hyps : list lowered_fact
   = gj_entries tb v hyps.
 Proof.
   unfold DistributedDatalogToHardwareCompiler.generate_join, gj_entries.
-  pose proof (outer_fold_spec v (combine tb hyps) 0 [] [] [] eq_refl eq_refl) as H.
-  destruct (fold_left _ (combine tb hyps) _) as [[[ts' levels'] cs'] clause'].
-  destruct H as [_ [_ Hz]]. simpl. exact Hz.
+  cbn [tries trie_levels clauses].
+  rewrite zip3_map3. apply map_recombine_triple.
 Qed.
 
 (*----helpers for the generic-join correctness----*)
@@ -658,14 +622,16 @@ Lemma gj_entries_In (tb : list trie) (v : var) (hyps : list lowered_fact)
      e = (t.(tid), nth a t.(tperm) 0, c)).
 Proof.
   unfold gj_entries. rewrite in_flat_map. split.
-  - intros [[c [t hyp]] [Hin Hin2]].
-    apply In_combine_seq in Hin. destruct Hin as [k [Hck Hk]]. simpl in Hck; subst c.
+  - intros [[[c t] hyp] [Hin Hin2]].
+    apply In_combine3_seq in Hin. destruct Hin as [k [Hck [Htk Hhk]]]. simpl in Hck; subst c.
     apply in_map_iff in Hin2. destruct Hin2 as [a [He Ha]].
     apply indexes_of_spec in Ha.
-    exists k, t, hyp, a. split; [exact Hk | split; [exact Ha | symmetry; exact He]].
-  - intros [c [t [hyp [a [Hk [Ha ->]]]]]].
-    exists (c, (t, hyp)). split.
-    + apply In_combine_seq. exists c. split; [lia | exact Hk].
+    exists k, t, hyp, a. split;
+      [apply combine_nth_error; split; assumption | split; [exact Ha | symmetry; exact He]].
+  - intros [c [t [hyp [a [Hcomb [Ha ->]]]]]].
+    apply combine_nth_error in Hcomb. destruct Hcomb as [Htc Hhc].
+    exists (c, t, hyp). split.
+    + apply In_combine3_seq. exists c. split; [lia | split; assumption].
     + apply in_map_iff. exists a. split; [reflexivity|].
       apply indexes_of_spec. exact Ha.
 Qed.
@@ -1208,7 +1174,6 @@ Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
-Context {rel_dependency_map : map.map rel_id node_id_set}.
 #[local] Existing Instance rel_id.
 Context {var_idx_map : map.map var nat}.
 
@@ -1888,7 +1853,6 @@ Context {node_id : Type}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
-Context {rel_dependency_map : map.map rel_id node_id_set}.
 #[local] Existing Instance rel_id.
 Context {var_node_set : map.map var unit}.
 Context {var_edge_set : map.map var var_node_set}.
@@ -1999,7 +1963,6 @@ Context {node_id : Type}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
-Context {rel_dependency_map : map.map rel_id node_id_set}.
 #[local] Existing Instance rel_id.
 
 Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
@@ -2167,13 +2130,13 @@ Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Context {node_id_set : map.map node_id unit}.
 Context {node_id_edge_set : map.map node_id node_id_set}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
-Context {rel_dependency_map : map.map rel_id node_id_set}.
 Context {layout_map : map.map node_id (@HardwareProgram.lowered_program var fn aggregator)}
         {layout_map_ok : map.ok layout_map}.
 Context {node_ftable_map : map.map node_id forwarding_table}.
 Context {fact_locations_map : map.map rel_id (list node_id)}
         {fact_locations_map_ok : map.ok fact_locations_map}.
-Context {rels_at_node : map.map node_id (list rel_id)}.
+Context {rels_at_node : map.map node_id (list rel_id)}
+        {rels_at_node_ok : map.ok rels_at_node}.
 
 Notation program := (@HardwareProgram.lowered_program var fn aggregator).
 Notation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
@@ -2187,36 +2150,26 @@ Notation attach_forwarding_tables :=
 Notation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
 Notation compile :=
   (@DistributedDatalogToHardwareCompiler.compile var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map rels_at_node).
-Notation all_producers :=
-  (@DistributedDatalogToHardwareCompiler.all_producers var fn aggregator node_id node_id_eqb layout_map fact_locations_map rels_at_node).
-Notation all_consumers :=
-  (@DistributedDatalogToHardwareCompiler.all_consumers var fn aggregator node_id node_id_eqb layout_map fact_locations_map rels_at_node).
-Notation DNet := (@DistributedDatalog.DataflowNetwork rel_id var fn aggregator T node_id).
+Notation get_internal_producers_of :=
+  (@DistributedDatalogToHardwareCompiler.get_internal_producers_of var fn aggregator node_id layout_map fact_locations_map rels_at_node).
+Notation get_internal_consumers_of :=
+  (@DistributedDatalogToHardwareCompiler.get_internal_consumers_of var fn aggregator node_id layout_map fact_locations_map rels_at_node).
+Notation all_rules_fed :=
+  (@DistributedDatalogToHardwareCompiler.all_rules_fed node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
+Notation producers_go_out :=
+  (@DistributedDatalogToHardwareCompiler.producers_go_out node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
+Notation check_layout_routable :=
+  (@DistributedDatalogToHardwareCompiler.check_layout_routable node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
+Notation generate_forwarding_table :=
+  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 
-(* Generic: folding [g] over a map (collecting [Success] results) yields, for each collected
-   element, the source key/value it came from. *)
-Lemma map_fold_result_in {V W : Type} {M : map.map node_id V} {Mok : map.ok M}
-    (g : node_id -> V -> result W) (m0 : M) (ll : list W) :
-  map.fold (fun acc node v => acc' <- acc ;; w <- g node v ;; Success (w :: acc')%list)
-           (Success []) m0 = Success ll ->
-  forall w, In w ll -> exists node v, map.get m0 node = Some v /\ g node v = Success w.
-Proof.
-  revert ll.
-  apply (map.fold_spec
-    (fun (m : M) (acc : result (list W)) =>
-       forall ll, acc = Success ll -> forall w, In w ll ->
-         exists node v, map.get m node = Some v /\ g node v = Success w)).
-  - intros ll Hll w Hw. injection Hll as <-. destruct Hw.
-  - intros k v m r Hgmk Hr ll Hll w Hw. cbn beta iota in Hll.
-    destruct r as [rl|]; cbn beta iota in Hll; [|discriminate].
-    destruct (g k v) as [w0|] eqn:Hg; cbn beta iota in Hll; [|discriminate].
-    injection Hll as <-. destruct Hw as [<- | Hw].
-    + exists k, v. split; [apply map.get_put_same | exact Hg].
-    + destruct (Hr rl eq_refl w Hw) as [node [v' [Hget Hgnv]]].
-      exists node, v'. split; [|exact Hgnv].
-      rewrite (map.get_put_diff m node v k); [exact Hget|].
-      intros Heq; subst node; rewrite Hget in Hgmk; discriminate.
-Qed.
+(* [all_producers]/[all_consumers] are the merged (internal + external) location maps the compiler's
+   [generate_forwarding_table] now computes inline; recompute them here for the correctness reasoning. *)
+Definition all_producers (layout : layout_map) (ext : fact_locations_map) : fact_locations_map :=
+  union_with (list_union eqb) (get_internal_producers_of layout) ext.
+Definition all_consumers (layout : layout_map) (ext : fact_locations_map) : fact_locations_map :=
+  union_with (list_union eqb) (get_internal_consumers_of layout) ext.
+Notation DNet := (@DistributedDatalog.DataflowNetwork rel_id var fn aggregator T node_id).
 
 (* Every node_info produced by [compile_all_nodes] is the [compile_node] result for some node
    in the lowered layout. *)
@@ -2227,34 +2180,9 @@ Lemma compile_all_nodes_in (llayout : layout_map) (all_rels : list rel_id)
   exists node lprog, map.get llayout node = Some lprog /\ compile_node node lprog = Success ninfo.
 Proof.
   intros H Hin. unfold DistributedDatalogToHardwareCompiler.compile_all_nodes in H.
-  match type of H with
-  | context [map.fold ?F ?r0 llayout] => destruct (map.fold F r0 llayout) as [l|] eqn:Hfold
-  end; cbn beta iota in H; [|discriminate].
-  injection H as ->.
-  apply (map_fold_result_in (fun node v => compile_node node v) llayout ninfos Hfold ninfo Hin).
-Qed.
-
-(* Generic: if folding [g] over a map (collecting Success results) succeeds, then [g] succeeded
-   on every key/value of the map. *)
-Lemma map_fold_result_success {V W : Type} {M : map.map node_id V} {Mok : map.ok M}
-    (g : node_id -> V -> result W) (m0 : M) (ll : list W) :
-  map.fold (fun acc nd v => acc' <- acc ;; w <- g nd v ;; Success (w :: acc')%list)
-           (Success []) m0 = Success ll ->
-  forall node v, map.get m0 node = Some v -> exists w, g node v = Success w.
-Proof.
-  revert ll.
-  apply (map.fold_spec
-    (fun (m : M) (acc : result (list W)) =>
-       forall ll, acc = Success ll -> forall node v, map.get m node = Some v ->
-         exists w, g node v = Success w)).
-  - intros ll Hll node v Hget. rewrite map.get_empty in Hget. discriminate.
-  - intros k v m r Hgmk Hr ll Hll node v0 Hget. cbn beta iota in Hll.
-    destruct r as [rl|]; cbn beta iota in Hll; [|discriminate].
-    destruct (g k v) as [w0|] eqn:Hg; cbn beta iota in Hll; [|discriminate].
-    destruct (eqb_boolspec _ k node) as [->|Hne].
-    + rewrite map.get_put_same in Hget. injection Hget as <-. exists w0. exact Hg.
-    + rewrite (map.get_put_diff m node v k (not_eq_sym Hne)) in Hget.
-      exact (Hr rl eq_refl node v0 Hget).
+  apply List.all_success_Success_iff, Forall2_map_l, Forall2_flip_iff in H.
+  destruct (Forall2_In_l _ _ _ _ H Hin) as [[node lprog] [Htup Hcn]].
+  exists node, lprog. split; [apply map.tuples_spec; exact Htup | exact Hcn].
 Qed.
 
 (* Every node that the lowered layout assigns a program to compiles successfully. *)
@@ -2265,10 +2193,9 @@ Lemma compile_all_nodes_success (llayout : layout_map)
   exists ninfo, compile_node node lprog = Success ninfo.
 Proof.
   intros H Hget. unfold DistributedDatalogToHardwareCompiler.compile_all_nodes in H.
-  match type of H with
-  | context [map.fold ?F ?r0 llayout] => destruct (map.fold F r0 llayout) as [l|] eqn:Hfold
-  end; cbn beta iota in H; [|discriminate].
-  exact (map_fold_result_success (fun nd v => compile_node nd v) llayout l Hfold node lprog Hget).
+  apply List.all_success_Success_iff, Forall2_map_l in H.
+  destruct (Forall2_In_l _ _ _ _ H (proj2 (map.tuples_spec _ _ _) Hget)) as [ninfo [_ Hcn]].
+  exists ninfo. exact Hcn.
 Qed.
 
 (* The empty program compiles to an empty node. *)
@@ -2306,32 +2233,6 @@ Proof.
   intros H. injection H as <-. reflexivity.
 Qed.
 
-(* Forward direction of [map_fold_result_in]: each source key's result is in the collected list. *)
-Lemma map_fold_result_in_fwd {V W : Type} {M : map.map node_id V} {Mok : map.ok M}
-    (g : node_id -> V -> result W) (m0 : M) (ll : list W) (node : node_id) (v : V) :
-  map.fold (fun acc nd v0 => acc' <- acc ;; w <- g nd v0 ;; Success (w :: acc')%list)
-           (Success []) m0 = Success ll ->
-  map.get m0 node = Some v ->
-  exists w, g node v = Success w /\ In w ll.
-Proof.
-  revert ll.
-  apply (map.fold_spec
-    (fun (m : M) (acc : result (list W)) =>
-       forall ll, acc = Success ll -> map.get m node = Some v ->
-         exists w, g node v = Success w /\ In w ll)).
-  - intros ll Hll Hget. rewrite map.get_empty in Hget. discriminate.
-  - intros k val m r Hgmk Hr ll Hll Hget. cbn beta iota in Hll.
-    destruct r as [rl|]; cbn beta iota in Hll; [|discriminate].
-    destruct (g k val) as [w0|] eqn:Hgk; cbn beta iota in Hll; [|discriminate].
-    injection Hll as <-.
-    destruct (eqb_boolspec _ node k) as [->|Hne].
-    + rewrite map.get_put_same in Hget. injection Hget as <-.
-      exists w0. split; [exact Hgk | left; reflexivity].
-    + rewrite (map.get_put_diff m node val k) in Hget by congruence.
-      destruct (Hr rl eq_refl Hget) as [w [Hgnv Hin]].
-      exists w. split; [exact Hgnv | right; exact Hin].
-Qed.
-
 (* Every node the lowered layout assigns to has its [compile_node] result in [compile_all_nodes]. *)
 Lemma compile_all_nodes_in_fwd (llayout : layout_map) (all_rels : list rel_id)
     (ninfos : list node_info) (node : node_id) (lprog : lowered_program) :
@@ -2340,11 +2241,9 @@ Lemma compile_all_nodes_in_fwd (llayout : layout_map) (all_rels : list rel_id)
   exists ninfo, compile_node node lprog = Success ninfo /\ In ninfo ninfos.
 Proof.
   intros H Hget. unfold DistributedDatalogToHardwareCompiler.compile_all_nodes in H.
-  match type of H with
-  | context [map.fold ?F ?r0 llayout] => destruct (map.fold F r0 llayout) as [l|] eqn:Hfold
-  end; cbn beta iota in H; [|discriminate].
-  injection H as ->.
-  apply (map_fold_result_in_fwd (fun nd v => compile_node nd v) llayout ninfos node lprog Hfold Hget).
+  apply List.all_success_Success_iff, Forall2_map_l in H.
+  destruct (Forall2_In_l _ _ _ _ H (proj2 (map.tuples_spec _ _ _) Hget)) as [ninfo [Hin Hcn]].
+  exists ninfo. split; [exact Hcn | exact Hin].
 Qed.
 
 (* The per-node info read off the returned [ninfos] (empty default if the node is absent). *)
@@ -2533,8 +2432,6 @@ Context {node_id_edge_set_ok : map.ok node_id_edge_set}.
 
 Notation ftable_edges_sound :=
   (@ForwardingCorrect.ftable_edges_sound node_id node_id_set node_id_edge_set forwarding_table node_ftable_map).
-Notation generate_forwarding_table :=
-  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 Notation update_forwarding_table_for_rel :=
   (@DistributedDatalogToHardwareCompiler.update_forwarding_table_for_rel node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 
@@ -2554,12 +2451,11 @@ Proof.
   destruct Hpc as [<-|[]]. exists p, c. eapply ComputableGraph.get_path_spec. exact Hgp.
 Qed.
 
-(* the whole table, folded over all relation ids from the empty table, is edge-sound. *)
+(* the whole table, folded over the routed relations from the empty table, is edge-sound. *)
 Lemma generate_forwarding_table_sound (g : node_graph) (all_rels : list rel_id)
     (ninfos : list node_info) (lfc lfp : fact_locations_map) :
-  ftable_edges_sound g (generate_forwarding_table all_rels ninfos g lfc lfp).
+  ftable_edges_sound g (fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty).
 Proof.
-  unfold DistributedDatalogToHardwareCompiler.generate_forwarding_table.
   apply ForwardingCorrect.fold_left_pres_sound.
   - apply ForwardingCorrect.ftable_edges_sound_empty.
   - intros acc rel0 Hacc. apply update_rel_pres_sound. exact Hacc.
@@ -2629,7 +2525,7 @@ Lemma generate_forwarding_table_adds (g : node_graph) (all_rels : list rel_id)
   prod <> cons ->
   get_path g prod cons = Some path ->
   nth_error path i = Some a -> nth_error path (S i) = Some b ->
-  has_fwd_edge (generate_forwarding_table all_rels ninfos g lfc lfp) a rel0 b.
+  has_fwd_edge (fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty) a rel0 b.
 Proof.
   intros Hrel Hprods Hcons Hprod Hcon Hne Hpath Hi Hib.
   unfold DistributedDatalogToHardwareCompiler.generate_forwarding_table.
@@ -2732,7 +2628,10 @@ Proof.
   - intros n_cons Hncons. rewrite <- Hlay in Hncons. destruct (Hcons n_cons Hncons) as [Heq | Hreach].
     + left; exact Heq.
     + right. exact (forwarding_reachable_ext _ _ R n n_cons Hfwd Hreach).
-  - destruct Hexout as [n_out [Hout_o Hreach_o]]. exists n_out. split.
+  - intros Houtex2.
+    assert (Houtex1 : exists n_out, net1.(DistributedDatalog.output) n_out R).
+    { destruct Houtex2 as [n_out Ho]. exists n_out. rewrite Hout. exact Ho. }
+    destruct (Hexout Houtex1) as [n_out [Hout_o Hreach_o]]. exists n_out. split.
     + rewrite <- Hout. exact Hout_o.
     + destruct Hreach_o as [Heq | Hreach];
         [left; exact Heq | right; exact (forwarding_reachable_ext _ _ R n n_out Hfwd Hreach)].
@@ -2787,13 +2686,13 @@ Lemma generate_forwarding_reachable (g : node_graph) (all_rels : list rel_id)
   prod <> cons ->
   get_path g prod cons = Some path ->
   @DistributedDatalog.forwarding_reachable rel_id node_id
-    (fwd_list (generate_forwarding_table all_rels ninfos g lfc lfp)) rel0 prod cons.
+    (fwd_list (fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty)) rel0 prod cons.
 Proof.
   intros Hrel Hprods Hcons Hprod Hcon Hne Hpath.
   destruct (@ComputableGraph.get_path_spec node_id node_id_eqb node_id_eqb_spec node_id_set
               node_id_set_ok node_id_edge_set g prod cons path Hpath)
     as [_ [Hhd [Hlast _]]].
-  set (FT := generate_forwarding_table all_rels ninfos g lfc lfp).
+  set (FT := fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty).
   assert (Hchain : forall i x y, nth_error path i = Some x -> nth_error path (S i) = Some y ->
                      In y (fwd_list FT x rel0)).
   { intros i x y Hx Hy. unfold fwd_list.
@@ -2976,25 +2875,48 @@ Qed.
 (*  generated table really realizes every path the compiler laid down.          *)
 (*============================================================================*)
 
-(* Membership in a [node_id_set] (a [map node_id unit]) as a [bool]. *)
-Definition nid_mem (s : node_id_set) (n : node_id) : bool :=
-  match map.get s n with Some _ => true | None => false end.
-
-Lemma nid_mem_get (s : node_id_set) (n : node_id) :
-  nid_mem s n = true -> map.get s n = Some tt.
+(* The compiler's inverted internal maps [get_internal_{consumers,producers}_of] recover exactly the
+   [node_consumes]/[node_produces] relation, i.e. a node is an internal consumer/producer of [R] iff
+   some rule on it has [R] among its hypothesis/conclusion relations. *)
+Lemma get_map_values (fr : program -> list rel_id) (m : layout_map) (n : node_id) :
+  map.get (@map.map_values node_id program (list rel_id) layout_map rels_at_node fr m) n
+  = option_map fr (map.get m n).
 Proof.
-  unfold nid_mem. destruct (map.get s n) as [u|] eqn:H; [destruct u; reflexivity | discriminate].
+  unfold map.map_values. revert n. eapply map.fold_spec.
+  - intros n. rewrite !map.get_empty. reflexivity.
+  - intros k0 v m0 acc Hget IH n. rewrite map.get_put_dec, IH, map.get_put_dec.
+    destruct (eqb k0 n); reflexivity.
 Qed.
 
-(* Membership of [n] in the dependency map [m] at relation [R]. *)
-Definition rel_dep_has (m : rel_dependency_map) (R : rel_id) (n : node_id) : bool :=
-  match map.get m R with Some s => nid_mem s n | None => false end.
-
-Lemma rel_dep_has_get (m : rel_dependency_map) (R : rel_id) (n : node_id) :
-  rel_dep_has m R n = true -> exists s, map.get m R = Some s /\ map.get s n = Some tt.
+Lemma in_internal_iff (fr : rule -> list rel_id) (llayout : layout_map) (n : node_id) (R : rel_id) :
+  In n (get_or_default (invert (map.map_values (fun p => dedup (flat_map fr p)) llayout)) R)
+  <-> exists r, In r (get_or_default llayout n) /\ In R (fr r).
 Proof.
-  unfold rel_dep_has. destruct (map.get m R) as [s|] eqn:Hm; [|discriminate].
-  intros Hn. exists s. split; [reflexivity | apply nid_mem_get; exact Hn].
+  rewrite in_get_or_default_invert, get_map_values.
+  destruct (map.get llayout n) as [p|] eqn:Hn; cbn [option_map].
+  - rewrite (get_or_default_Some _ _ _ Hn). split.
+    + intros [bs [Heq Hin]]. injection Heq as <-. rewrite dedup_In in Hin. apply in_flat_map in Hin. exact Hin.
+    + intros [r [Hr HRr]]. exists (dedup (flat_map fr p)). split; [reflexivity|].
+      rewrite dedup_In. apply in_flat_map. exists r. split; assumption.
+  - rewrite (get_or_default_None _ _ Hn). split.
+    + intros [bs [Heq _]]. discriminate.
+    + intros [r [[] _]].
+Qed.
+
+Lemma node_consumes_internal (llayout : layout_map) (n : node_id) (R : rel_id) :
+  In n (get_or_default (get_internal_consumers_of llayout) R)
+  <-> DistributedDatalog.node_consumes (fun m => get_or_default llayout m) n R.
+Proof.
+  unfold DistributedDatalogToHardwareCompiler.get_internal_consumers_of, DistributedDatalog.node_consumes.
+  apply in_internal_iff.
+Qed.
+
+Lemma node_produces_internal (llayout : layout_map) (n : node_id) (R : rel_id) :
+  In n (get_or_default (get_internal_producers_of llayout) R)
+  <-> DistributedDatalog.node_produces (fun m => get_or_default llayout m) n R.
+Proof.
+  unfold DistributedDatalogToHardwareCompiler.get_internal_producers_of, DistributedDatalog.node_produces.
+  apply in_internal_iff.
 Qed.
 
 (* CORE PATH-B REACH: a registered relation whose producer/consumer nodes the compiler recorded,
@@ -3008,7 +2930,7 @@ Lemma construction_reach (all_rels : list rel_id) (ninfos : list node_info)
   Datalog.List.is_Some (get_path g np nc) = true ->
   np = nc \/
   @DistributedDatalog.forwarding_reachable rel_id node_id
-    (fwd_list (generate_forwarding_table all_rels ninfos g lfc lfp)) R np nc.
+    (fwd_list (fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty)) R np nc.
 Proof.
   intros HR Hprod Hcons Hpath.
   destruct (eqb_boolspec _ np nc) as [E|Hne]; [left; exact E | right].
@@ -3037,87 +2959,133 @@ Definition edb_routable (lfp : fact_locations_map) (Q : Datalog.fact (rel := rel
   forall f, Q f -> exists n, In n (get_or_default lfp (Datalog.rel_of f)).
 
 
-Notation output_routesb :=
-  (@DistributedDatalogToHardwareCompiler.output_routesb var fn aggregator node_id node_id_eqb node_id_set layout_map fact_locations_map node_id_edge_set).
-Notation input_output_routesb :=
-  (@DistributedDatalogToHardwareCompiler.input_output_routesb node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
-Notation routes_validb :=
-  (@DistributedDatalogToHardwareCompiler.routes_validb var fn aggregator node_id node_id_eqb node_id_set layout_map fact_locations_map node_id_edge_set).
+(* Membership on either side of a [union_with (list_union ...)] transfers to the union. *)
+Lemma In_get_or_default_union_with (m1 m2 : fact_locations_map) (R : rel_id) (n : node_id) :
+  In n (get_or_default m1 R) \/ In n (get_or_default m2 R) ->
+  In n (get_or_default (union_with (list_union eqb) m1 m2) R).
+Proof.
+  intros [Hn | Hn]; destruct (In_get_or_default _ R n Hn) as [v [Hget Hnv]];
+    unfold get_or_default, get_or; rewrite union_with_get, Hget.
+  - destruct (map.get m2 R) as [v2|]; [apply In_list_union_spec; left|]; exact Hnv.
+  - destruct (map.get m1 R) as [v1|]; [apply In_list_union_spec; right|]; exact Hnv.
+Qed.
 
-Lemma construction_good_source (all_rels : list rel_id) (ninfos : list node_info)
-    (g : node_graph) (llayout : layout_map) (lfc lfp : fact_locations_map)
+(* [all_producers]/[all_consumers] contain both the internal producers/consumers and the external ones. *)
+Lemma In_internal_all_producers (llayout : layout_map) (ext : fact_locations_map) (R : rel_id) (n : node_id) :
+  In n (get_or_default (get_internal_producers_of llayout) R) -> In n (get_or_default (all_producers llayout ext) R).
+Proof. intros H. apply In_get_or_default_union_with. left; exact H. Qed.
+
+Lemma In_internal_all_consumers (llayout : layout_map) (ext : fact_locations_map) (R : rel_id) (n : node_id) :
+  In n (get_or_default (get_internal_consumers_of llayout) R) -> In n (get_or_default (all_consumers llayout ext) R).
+Proof. intros H. apply In_get_or_default_union_with. left; exact H. Qed.
+
+Lemma In_external_all_consumers (llayout : layout_map) (ext : fact_locations_map) (R : rel_id) (n : node_id) :
+  In n (get_or_default ext R) -> In n (get_or_default (all_consumers llayout ext) R).
+Proof. intros H. apply In_get_or_default_union_with. right; exact H. Qed.
+
+Lemma In_external_all_producers (llayout : layout_map) (ext : fact_locations_map) (R : rel_id) (n : node_id) :
+  In n (get_or_default ext R) -> In n (get_or_default (all_producers llayout ext) R).
+Proof. intros H. apply In_get_or_default_union_with. right; exact H. Qed.
+
+(* [all_consumers] has an entry for every relation with a consumer, so its key set covers them. *)
+Lemma In_keys_all_consumers (llayout : layout_map) (ext : fact_locations_map) (R : rel_id) (n : node_id) :
+  In n (get_or_default (all_consumers llayout ext) R) -> In R (map.keys (all_consumers llayout ext)).
+Proof.
+  intros Hn. destruct (In_get_or_default _ R n Hn) as [v [Hget _]].
+  exact (map.in_keys _ R v Hget).
+Qed.
+
+(* [all_rules_fed]: every producer reaches every internal consumer (of the same relation). *)
+Lemma all_rules_fed_reach (g : node_graph) (apo ico : fact_locations_map) (R : rel_id) (np nc : node_id) :
+  all_rules_fed g apo ico = true ->
+  In np (get_or_default apo R) ->
+  In nc (get_or_default ico R) ->
+  is_Some (get_path g np nc) = true.
+Proof.
+  intros Hfed Hnp Hnc.
+  destruct (In_get_or_default _ R nc Hnc) as [ics [Hico Hncics]].
+  eapply map.get_forallb in Hfed; [| exact Hico].
+  unfold DistributedDatalogToHardwareCompiler.all_rules_fed_for_relation in Hfed.
+  rewrite forallb_forall in Hfed. exact (Hfed (np, nc) (in_prod _ _ np nc Hnp Hncics)).
+Qed.
+
+(* [producers_go_out]: every producer of a relation with an external sink reaches some external sink. *)
+Lemma producers_go_out_reach (g : node_graph) (apo eco : fact_locations_map) (R : rel_id) (np : node_id)
+    (ecs : list node_id) :
+  producers_go_out g apo eco = true ->
+  map.get eco R = Some ecs ->
+  In np (get_or_default apo R) ->
+  exists ec, In ec ecs /\ is_Some (get_path g np ec) = true.
+Proof.
+  intros Hpgo Heco Hnp.
+  eapply map.get_forallb in Hpgo; [| exact Heco].
+  unfold DistributedDatalogToHardwareCompiler.producers_go_out_for_relation in Hpgo.
+  rewrite forallb_forall in Hpgo. specialize (Hpgo np Hnp).
+  apply existsb_exists in Hpgo. destruct Hpgo as [ec [Hin Hsome]]. exists ec. split; assumption.
+Qed.
+
+(* A node in [all_producers R] is a good source for [R]: [all_rules_fed] routes it to every internal
+   consumer, and -- when [R] is a declared output ([ext_cons R] nonempty) -- [producers_go_out] routes
+   it to a sink.  Both rule-producers and external input nodes lie in [all_producers], so this is the
+   single fact behind [construction_good_source] and [edb_input_good_source]. *)
+Lemma all_producers_member_good_source (ninfos : list node_info)
+    (g : node_graph) (llayout : layout_map) (ext_prod ext_cons : fact_locations_map)
+    (net : DNet) (n : node_id) (R : rel_id) :
+  net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
+  net.(DistributedDatalog.forward) = fwd_list (fold_left (update_forwarding_table_for_rel g (all_consumers llayout ext_cons) (all_producers llayout ext_prod) ninfos) (map.keys (all_consumers llayout ext_cons)) map.empty) ->
+  net.(DistributedDatalog.output) = (fun n R => In n (get_or_default ext_cons R)) ->
+  all_rules_fed g (all_producers llayout ext_prod) (get_internal_consumers_of llayout) = true ->
+  producers_go_out g (all_producers llayout ext_prod) ext_cons = true ->
+  In n (get_or_default (all_producers llayout ext_prod) R) ->
+  DistributedDatalog.good_source net n R.
+Proof.
+  intros Hlay Hfwd Houtput Hfed Hpgo Hn_ap. split.
+  - intros n_cons Hcons.
+    assert (Hnc_ic : In n_cons (get_or_default (get_internal_consumers_of llayout) R)).
+    { apply node_consumes_internal. rewrite Hlay in Hcons. exact Hcons. }
+    assert (Hnc_ac : In n_cons (get_or_default (all_consumers llayout ext_cons) R))
+      by (apply In_internal_all_consumers; exact Hnc_ic).
+    rewrite Hfwd.
+    apply (construction_reach (map.keys (all_consumers llayout ext_cons)) ninfos g R n n_cons
+             (all_consumers llayout ext_cons) (all_producers llayout ext_prod)
+             (In_keys_all_consumers llayout ext_cons R n_cons Hnc_ac)
+             (proj1 (existsb_eqb_in n _) Hn_ap)
+             (proj1 (existsb_eqb_in n_cons _) Hnc_ac)
+             (all_rules_fed_reach g _ _ R n n_cons Hfed Hn_ap Hnc_ic)).
+  - intros [n_out0 Houtex]. rewrite Houtput in Houtex.
+    destruct (In_get_or_default ext_cons R n_out0 Houtex) as [ecs [Heco _]].
+    destruct (producers_go_out_reach g (all_producers llayout ext_prod) ext_cons R n ecs
+                Hpgo Heco Hn_ap) as [ec [Hec_in Hec_path]].
+    assert (Hec_ec : In ec (get_or_default ext_cons R))
+      by (unfold get_or_default, get_or; rewrite Heco; exact Hec_in).
+    assert (Hec_ac : In ec (get_or_default (all_consumers llayout ext_cons) R))
+      by (apply In_external_all_consumers; exact Hec_ec).
+    exists ec. split.
+    + rewrite Houtput. exact Hec_ec.
+    + rewrite Hfwd.
+      apply (construction_reach (map.keys (all_consumers llayout ext_cons)) ninfos g R n ec
+               (all_consumers llayout ext_cons) (all_producers llayout ext_prod)
+               (In_keys_all_consumers llayout ext_cons R ec Hec_ac)
+               (proj1 (existsb_eqb_in n _) Hn_ap)
+               (proj1 (existsb_eqb_in ec _) Hec_ac) Hec_path).
+Qed.
+
+(* Rule-producers are good sources ([node_produces => In all_producers]). *)
+Lemma construction_good_source (ninfos : list node_info)
+    (g : node_graph) (llayout : layout_map) (ext_prod ext_cons : fact_locations_map)
     (net : DNet) :
   net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
-  net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table all_rels ninfos g lfc lfp) ->
-  net.(DistributedDatalog.output) = (fun n R => In n (get_or_default lfc R)) ->
-  routes_validb all_rels g llayout lfc lfp = true ->
-  output_routesb all_rels g llayout lfc lfp = true ->
+  net.(DistributedDatalog.forward) = fwd_list (fold_left (update_forwarding_table_for_rel g (all_consumers llayout ext_cons) (all_producers llayout ext_prod) ninfos) (map.keys (all_consumers llayout ext_cons)) map.empty) ->
+  net.(DistributedDatalog.output) = (fun n R => In n (get_or_default ext_cons R)) ->
+  all_rules_fed g (all_producers llayout ext_prod) (get_internal_consumers_of llayout) = true ->
+  producers_go_out g (all_producers llayout ext_prod) ext_cons = true ->
   forall n_prod R, DistributedDatalog.node_produces net.(DistributedDatalog.layout) n_prod R ->
     DistributedDatalog.good_source net n_prod R.
 Proof.
-  intros Hlay Hfwd Houtput Hchk Houtchk n_prod R Hprod.
-  rewrite Hlay in Hprod. destruct Hprod as [rule_np [Hin_np HR_concl]].
-  destruct (map.get llayout n_prod) as [p_np|] eqn:Hgnp;
-    [|exfalso; revert Hin_np; rewrite (get_or_default_None _ _ Hgnp); intros []].
-  assert (Hkey_np : In n_prod (map.keys llayout)) by exact (map.in_keys llayout n_prod p_np Hgnp).
-  unfold DistributedDatalogToHardwareCompiler.routes_validb in Hchk. rewrite forallb_forall in Hchk. specialize (Hchk n_prod Hkey_np).
-  rewrite forallb_forall in Hchk. specialize (Hchk rule_np Hin_np).
-  rewrite forallb_forall in Hchk. specialize (Hchk R HR_concl).
-  apply andb_true_iff in Hchk. destruct Hchk as [Hchk Hnc].
-  apply andb_true_iff in Hchk. destruct Hchk as [Hrelids Hprodmem].
-  assert (HRin : In R (all_rels)).
-  { apply existsb_exists in Hrelids. destruct Hrelids as [R' [HR'in HR'eq]].
-    apply Nat.eqb_eq in HR'eq. subst R'. exact HR'in. }
-  rewrite forallb_forall in Hnc.
-  split.
-  - intros n_cons Hcons. rewrite Hlay in Hcons. destruct Hcons as [rule_nc [Hin_nc HR_hyp]].
-    destruct (map.get llayout n_cons) as [p_nc|] eqn:Hgnc;
-      [|exfalso; revert Hin_nc; rewrite (get_or_default_None _ _ Hgnc); intros []].
-    assert (Hkey_nc : In n_cons (map.keys llayout)) by exact (map.in_keys llayout n_cons p_nc Hgnc).
-    specialize (Hnc n_cons Hkey_nc).
-    assert (Hex : existsb (fun rnc => existsb (Nat.eqb R) (Datalog.hyp_rels rnc)) (get_or_default llayout n_cons) = true).
-    { apply existsb_exists. exists rule_nc. split.
-      - exact Hin_nc.
-      - apply existsb_exists. exists R. split; [exact HR_hyp | apply Nat.eqb_refl]. }
-    rewrite Hex in Hnc.
-    apply andb_true_iff in Hnc. destruct Hnc as [Hconsmem Hpathchk].
-    rewrite Hfwd.
-    exact (construction_reach all_rels ninfos g R n_prod n_cons lfc lfp HRin Hprodmem Hconsmem Hpathchk).
-  - unfold output_routesb in Houtchk. rewrite forallb_forall in Houtchk. specialize (Houtchk n_prod Hkey_np).
-    rewrite forallb_forall in Houtchk. specialize (Houtchk rule_np Hin_np).
-    rewrite forallb_forall in Houtchk. specialize (Houtchk R HR_concl).
-    apply andb_true_iff in Houtchk. destruct Houtchk as [_ Hexout].
-    apply existsb_exists in Hexout. destruct Hexout as [no [Hno_in Hpathchk_o]].
-    exists no. split.
-    + rewrite Houtput. exact Hno_in.
-    + rewrite Hfwd.
-      exact (construction_reach all_rels ninfos g R n_prod no lfc lfp HRin Hprodmem
-               (proj1 (existsb_eqb_in no _) Hno_in) Hpathchk_o).
-Qed.
-
-(*============================================================================*)
-(*  PATH B, CORRECT BY CONSTRUCTION: the producer-routing condition is no        *)
-(*  longer a separate checker -- it is threaded through the result monad in the  *)
-(*  compiler ([generate_forwarding_table_checked]).  The compiler REFUSES to      *)
-(*  emit a forwarding table unless every producer can reach every consumer, so    *)
-(*  [Success] is itself the witness of routing correctness.                       *)
-(*============================================================================*)
-
-Notation generate_forwarding_table_checked :=
-  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table_checked var fn aggregator node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map node_id_edge_set node_ftable_map).
-
-(* The compiler's forwarding gate IS (convertibly) the producer construction checker. *)
-(* The monadic forwarding step: on [Success] the table is the usual one AND the routing gate passed. *)
-Lemma generate_forwarding_table_checked_success (all_rels : list rel_id)
-    (ninfos : list node_info) (g : node_graph) (llayout : layout_map)
-    (ft : node_ftable_map) (lfc lfp : fact_locations_map) :
-  generate_forwarding_table_checked all_rels ninfos g llayout lfc lfp = Success ft ->
-  ft = generate_forwarding_table all_rels ninfos g lfc lfp /\ routes_validb all_rels g llayout lfc lfp = true.
-Proof.
-  unfold DistributedDatalogToHardwareCompiler.generate_forwarding_table_checked.
-  destruct (routes_validb all_rels g llayout lfc lfp) eqn:Hv; intros H.
-  - injection H as <-. split; reflexivity.
-  - discriminate H.
+  intros Hlay Hfwd Houtput Hfed Hpgo n_prod R Hprod.
+  apply (all_producers_member_good_source ninfos g llayout ext_prod ext_cons net n_prod R
+           Hlay Hfwd Houtput Hfed Hpgo).
+  apply In_internal_all_producers, node_produces_internal. rewrite Hlay in Hprod. exact Hprod.
 Qed.
 
 (*============================================================================*)
@@ -3126,9 +3094,6 @@ Qed.
 (*  are a layout check and bareness.  Base facts [Q] enter at the declared        *)
 (*  fact-producer locations.                                                      *)
 (*============================================================================*)
-
-Notation input_routes_validb :=
-  (@DistributedDatalogToHardwareCompiler.input_routes_validb var fn aggregator node_id node_id_eqb node_id_set layout_map fact_locations_map node_id_edge_set).
 
 (* The streaming network whose base facts [Q] enter at the declared fact-producer (input) locations
    and whose OUTPUT nodes are the declared fact-consumer (sink) locations [lfc]. *)
@@ -3140,113 +3105,76 @@ Definition compiled_base_edb (g : node_graph) (ftables : node_ftable_map)
      DistributedDatalog.output := fun n R => In n (get_or_default lfc R);
      DistributedDatalog.layout := fun _ => [] |}.
 
-(* Every declared input location is a good source, from the compiler's input gate [input_routes_validb]. *)
-Lemma edb_input_good_source (all_rels : list rel_id) (ninfos : list node_info)
-    (g : node_graph) (llayout : layout_map)
-    (lfp lfc : fact_locations_map) (net : DNet) :
+(* Every declared external input location is a good source: it lies in [all_producers], so the same
+   [all_rules_fed]/[producers_go_out] routing that makes producers good sources applies. *)
+Lemma edb_input_good_source (ninfos : list node_info)
+    (g : node_graph) (llayout : layout_map) (ext_prod ext_cons : fact_locations_map) (net : DNet) :
   net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
-  net.(DistributedDatalog.forward) = fwd_list (generate_forwarding_table all_rels ninfos g lfc lfp) ->
-  net.(DistributedDatalog.output) = (fun n R => In n (get_or_default lfc R)) ->
-  input_routes_validb all_rels g llayout lfc lfp = true ->
-  input_output_routesb all_rels g lfc lfp = true ->
-  forall R locs ni, map.get lfp R = Some locs -> In ni locs -> DistributedDatalog.good_source net ni R.
+  net.(DistributedDatalog.forward) = fwd_list (fold_left (update_forwarding_table_for_rel g (all_consumers llayout ext_cons) (all_producers llayout ext_prod) ninfos) (map.keys (all_consumers llayout ext_cons)) map.empty) ->
+  net.(DistributedDatalog.output) = (fun n R => In n (get_or_default ext_cons R)) ->
+  all_rules_fed g (all_producers llayout ext_prod) (get_internal_consumers_of llayout) = true ->
+  producers_go_out g (all_producers llayout ext_prod) ext_cons = true ->
+  forall R locs ni, map.get ext_prod R = Some locs -> In ni locs -> DistributedDatalog.good_source net ni R.
 Proof.
-  intros Hlay Hfwd Houtput Hchk Houtchk R locs ni Hlfp Hni. split.
-  - intros n_cons Hcons. rewrite Hlay in Hcons. destruct Hcons as [rule_nc [Hin_nc HR_hyp]].
-    destruct (map.get llayout n_cons) as [p_nc|] eqn:Hgnc;
-      [|exfalso; revert Hin_nc; rewrite (get_or_default_None _ _ Hgnc); intros []].
-    assert (Hkey_nc : In n_cons (map.keys llayout)) by exact (map.in_keys llayout n_cons p_nc Hgnc).
-    unfold input_routes_validb in Hchk. apply (fun H => map.get_forallb _ _ H _ _ Hlfp) in Hchk.
-    cbn beta in Hchk. rewrite forallb_forall in Hchk. specialize (Hchk ni Hni).
-    apply andb_true_iff in Hchk. destruct Hchk as [Hchk Hncf].
-    apply andb_true_iff in Hchk. destruct Hchk as [Hrelids Hprodmem].
-    assert (HRin : In R (all_rels)).
-    { apply existsb_exists in Hrelids. destruct Hrelids as [R' [HR'in HR'eq]].
-      apply Nat.eqb_eq in HR'eq. subst R'. exact HR'in. }
-    rewrite forallb_forall in Hncf. specialize (Hncf n_cons Hkey_nc). cbn beta in Hncf.
-    match type of Hncf with
-    | (if ?c then _ else _) = true => assert (Hcond : c = true)
-    end.
-    { apply existsb_exists. exists rule_nc. split.
-      - exact Hin_nc.
-      - apply existsb_exists. exists R. split; [exact HR_hyp | apply Nat.eqb_refl]. }
-    rewrite Hcond in Hncf.
-    apply andb_true_iff in Hncf. destruct Hncf as [Hconsmem Hpathchk].
-    rewrite Hfwd.
-    exact (construction_reach all_rels ninfos g R ni n_cons lfc lfp HRin Hprodmem Hconsmem Hpathchk).
-  - unfold input_output_routesb in Houtchk. apply (fun H => map.get_forallb _ _ H _ _ Hlfp) in Houtchk.
-    cbn beta in Houtchk. rewrite forallb_forall in Houtchk. specialize (Houtchk ni Hni).
-    apply andb_true_iff in Houtchk. destruct Houtchk as [Houtchk Hexout].
-    apply andb_true_iff in Houtchk. destruct Houtchk as [Hrelids Hprodmem].
-    assert (HRin : In R (all_rels)).
-    { apply existsb_exists in Hrelids. destruct Hrelids as [R' [HR'in HR'eq]].
-      apply Nat.eqb_eq in HR'eq. subst R'. exact HR'in. }
-    apply existsb_exists in Hexout. destruct Hexout as [no [Hno_in Hpathchk_o]].
-    exists no. split.
-    + rewrite Houtput. exact Hno_in.
-    + rewrite Hfwd.
-      exact (construction_reach all_rels ninfos g R ni no lfc lfp HRin Hprodmem
-               (proj1 (existsb_eqb_in no _) Hno_in) Hpathchk_o).
+  intros Hlay Hfwd Houtput Hfed Hpgo R locs ni Hext Hni.
+  apply (all_producers_member_good_source ninfos g llayout ext_prod ext_cons net ni R
+           Hlay Hfwd Houtput Hfed Hpgo).
+  apply In_external_all_producers. unfold get_or_default, get_or. rewrite Hext. exact Hni.
 Qed.
 
-(* PHASE D (EDB streaming): the compiled network with input at fact-producer locations is
-   [good_network_streaming].  Producers good-source via the [routes_validb] gate; input nodes via the
-   compiler's [input_routes_validb] gate; [Q] is the declared EDB (each base fact's relation has a
-   fact-producer location). *)
+(* PHASE D (EDB streaming): the compiled network -- input at external fact-producer locations
+   [ext_prod], output at external fact-consumer/sink locations [ext_cons], routing the merged
+   producer/consumer maps -- is [good_network_streaming].  Producers and input nodes are good sources
+   directly from the compiler's [layout_good] halves [all_rules_fed] and [producers_go_out]. *)
 Theorem compiled_good_network_streaming_edb
-    (g : node_graph) (all_rels : list rel_id) (ninfos : list node_info)
-    (llayout : layout_map) (lfp lfc input_lfp : fact_locations_map)
+    (g : node_graph) (ninfos : list node_info)
+    (llayout : layout_map) (ext_prod ext_cons : fact_locations_map)
     (program : list (Datalog.rule (rel := rel_id) (fn := fn))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   Graph.good_graph (cg2g g) ->
   DistributedDatalog.good_layout (fun n => get_or_default llayout n) (Graph.nodes (cg2g g)) program ->
-  routes_validb all_rels g llayout lfc lfp = true ->
-  input_routes_validb all_rels g llayout lfc lfp = true ->
-  output_routesb all_rels g llayout lfc lfp = true ->
-  input_output_routesb all_rels g lfc lfp = true ->
-  (* the external input locations are a subset of the (routed) producers *)
-  (forall R n, In n (get_or_default input_lfp R) -> In n (get_or_default lfp R)) ->
-  (forall f, Q f -> exists n, In n (get_or_default input_lfp (Datalog.rel_of f))) ->
+  all_rules_fed g (all_producers llayout ext_prod) (get_internal_consumers_of llayout) = true ->
+  producers_go_out g (all_producers llayout ext_prod) ext_cons = true ->
+  (forall f, Q f -> exists n, In n (get_or_default ext_prod (Datalog.rel_of f))) ->
   DistributedDatalog.good_network_streaming
-    (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) input_lfp lfc Q))
+    (dnet_of_llayout llayout (compiled_base_edb g (fold_left (update_forwarding_table_for_rel g (all_consumers llayout ext_cons) (all_producers llayout ext_prod) ninfos) (map.keys (all_consumers llayout ext_cons)) map.empty) ext_prod ext_cons Q))
     program Q.
 Proof.
-  intros Hgg Hlay Hroutes Hinput Houtroutes Hinoutroutes Hsub HQ.
+  intros Hgg Hlay Hfed Hpgo HQ.
   unfold DistributedDatalog.good_network_streaming, dnet_of_llayout, compiled_base_edb; cbn.
   split; [exact Hgg|].
   split; [exact Hlay|].
   split.
   - intros n1 n2 r Hin.
     assert (Hedge : @ComputableGraph.cg_edge node_id node_id_set node_id_edge_set g n1 n2)
-      by exact (generate_forwarding_table_sound g all_rels ninfos lfc lfp n1 r n2 Hin).
+      by exact (generate_forwarding_table_sound g (map.keys (all_consumers llayout ext_cons)) ninfos
+                  (all_consumers llayout ext_cons) (all_producers llayout ext_prod) n1 r n2 Hin).
     destruct (Hgg n1 n2 Hedge) as [Hn1 Hn2]. split; [exact Hn1 | split; [exact Hn2 | exact Hedge]].
   - split.
-    + apply (construction_good_source all_rels ninfos g llayout lfc lfp
-               (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) input_lfp lfc Q)));
-        [reflexivity | reflexivity | reflexivity | exact Hroutes | exact Houtroutes].
+    + apply (construction_good_source ninfos g llayout ext_prod ext_cons
+               (dnet_of_llayout llayout (compiled_base_edb g (fold_left (update_forwarding_table_for_rel g (all_consumers llayout ext_cons) (all_producers llayout ext_prod) ninfos) (map.keys (all_consumers llayout ext_cons)) map.empty) ext_prod ext_cons Q)));
+        [reflexivity | reflexivity | reflexivity | exact Hfed | exact Hpgo].
     + split.
       * intros n f [HQf _]. exact HQf.
       * intros f HQf. destruct (HQ f HQf) as [n Hn].
         exists n. split.
         -- split; [exact HQf | exact Hn].
-        -- destruct (In_get_or_default lfp (Datalog.rel_of f) n (Hsub _ _ Hn)) as [locs [Hlfp Hnlocs]].
-           apply (edb_input_good_source all_rels ninfos g llayout lfp lfc
-                    (dnet_of_llayout llayout (compiled_base_edb g (generate_forwarding_table all_rels ninfos g lfc lfp) input_lfp lfc Q)))
+        -- destruct (In_get_or_default ext_prod (Datalog.rel_of f) n Hn) as [locs [Hext Hnlocs]].
+           apply (edb_input_good_source ninfos g llayout ext_prod ext_cons
+                    (dnet_of_llayout llayout (compiled_base_edb g (fold_left (update_forwarding_table_for_rel g (all_consumers llayout ext_cons) (all_producers llayout ext_prod) ninfos) (map.keys (all_consumers llayout ext_cons)) map.empty) ext_prod ext_cons Q)))
              with (locs := locs);
-             [reflexivity | reflexivity | reflexivity | exact Hinput | exact Hinoutroutes | exact Hlfp | exact Hnlocs].
+             [reflexivity | reflexivity | reflexivity | exact Hfed | exact Hpgo | exact Hext | exact Hnlocs].
 Qed.
 
-(* [compile = Success] entails the per-node compilation, the forwarding gate, and the routing gates,
-   over the (already-lowered) layout/fact-tables and the rel-id set the compiler routes on. *)
+(* [compile = Success] entails the per-node compilation, the [layout_good] gate, and that the returned
+   [ninfos] carry the forwarding table [generate_forwarding_table] builds. *)
 Lemma compile_success_extract (layout : layout_map) (fps fcs : fact_locations_map)
     (g : node_graph) (ninfos : list node_info) :
   compile layout fps fcs g = Success ninfos ->
-  exists all_rels ninfos0 ftables,
-    ninfos = attach_forwarding_tables ninfos0 ftables /\
+  exists ninfos0,
+    ninfos = attach_forwarding_tables ninfos0
+               (generate_forwarding_table g ninfos0 (all_producers layout fps) (all_consumers layout fcs)) /\
     compile_all_nodes layout = Success ninfos0 /\
-    generate_forwarding_table_checked all_rels ninfos0 g layout (all_consumers layout fcs) (all_producers layout fps) = Success ftables /\
-    input_routes_validb all_rels g layout (all_consumers layout fcs) (all_producers layout fps) = true /\
-    output_routesb all_rels g layout (all_consumers layout fcs) (all_producers layout fps) = true /\
-    input_output_routesb all_rels g (all_consumers layout fcs) (all_producers layout fps) = true /\
+    check_layout_routable g fcs (get_internal_consumers_of layout) (all_producers layout fps) = Success tt /\
     check_graph_valid g = true /\
     layout_in_graphb g layout = true.
 Proof.
@@ -3254,19 +3182,13 @@ Proof.
   destruct (check_graph_valid g) eqn:Hcgv; cbn beta iota in H; [|discriminate].
   destruct (DistributedDatalogToHardwareCompiler.layout_in_graphb g layout) eqn:Hlig;
     cbn beta iota in H; [|discriminate].
+  destruct (check_layout_routable g fcs (get_internal_consumers_of layout)
+              (union_with (list_union eqb) (get_internal_producers_of layout) fps)) as [[]|] eqn:Hlr;
+    cbn beta iota in H; [|discriminate].
   destruct (compile_all_nodes layout) as [ninfos0|] eqn:Hcan; cbn beta iota in H; [|discriminate].
-  match type of H with context[generate_forwarding_table_checked ?ar ?ni ?gg ?ll ?lc ?lp] =>
-    destruct (generate_forwarding_table_checked ar ni gg ll lc lp) as [ftables|] eqn:Hft;
-    cbn beta iota in H; [|discriminate] end.
-  match type of H with context[input_routes_validb ?ar ?gg ?ll ?lc ?lp] =>
-    destruct (input_routes_validb ar gg ll lc lp) eqn:Hinp; cbn beta iota in H; [|discriminate] end.
-  match type of H with context[output_routesb ?ar ?gg ?ll ?lc ?lp] =>
-    destruct (output_routesb ar gg ll lc lp) eqn:Houtp; cbn beta iota in H; [|discriminate] end.
-  match type of H with context[input_output_routesb ?ar ?gg ?lc ?lp] =>
-    destruct (input_output_routesb ar gg lc lp) eqn:Hinoutp; cbn beta iota in H; [|discriminate] end.
   injection H as Hret.
-  do 3 eexists.
-  split; [exact (eq_sym Hret) | repeat split; first [reflexivity | eassumption]].
+  exists ninfos0. split; [exact (eq_sym Hret)|].
+  repeat split; (reflexivity || exact Hlr).
 Qed.
 
 (*----The hardware network read DIRECTLY off the returned [ninfos]----*)
@@ -3490,11 +3412,12 @@ Theorem compile_all_distributes_ninfos (llayout : layout_map) (all_rels : list r
   base.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
   base.(DistributedDatalog.forward) = fwd_list ft ->
   good_network_streaming base program Q ->
-  forall f, run_ninfos (attach_forwarding_tables ninfos0 ft)
+  forall f, (exists n_out, base.(DistributedDatalog.output) n_out (Datalog.rel_of f)) ->
+            run_ninfos (attach_forwarding_tables ninfos0 ft)
               (base.(DistributedDatalog.input)) (base.(DistributedDatalog.output)) f
             <-> DistributedDatalog.prog_impl_fact program Q f.
 Proof.
-  intros Hcan Hbare Hbaselay Hbasefwd Hgood f.
+  intros Hcan Hbare Hbaselay Hbasefwd Hgood f Houtrel.
   (* good_network_streaming transports to the [ninfos]-forwarded net (forwarding is pointwise equal). *)
   assert (Hgood' : good_network_streaming (dnet_of_ninfos (attach_forwarding_tables ninfos0 ft) base) program Q).
   { apply (good_network_streaming_forward_ext base
@@ -3525,7 +3448,7 @@ Proof.
   - intros Hnet. destruct Hgood' as [_ [Hgl [_ [_ [HinQ _]]]]].
     exact (soundness (dnet_of_ninfos (attach_forwarding_tables ninfos0 ft) base) program Q f HinQ Hgl Hnet).
   - intros Hprog.
-    exact (completeness (dnet_of_ninfos (attach_forwarding_tables ninfos0 ft) base) program Q Hgood' f Hprog).
+    exact (completeness (dnet_of_ninfos (attach_forwarding_tables ninfos0 ft) base) program Q Hgood' f Hprog Houtrel).
 Qed.
 
 (* THE TOP THEOREM: with the layout's [canonical_program] as reference and base facts [Q] entering at
@@ -3535,60 +3458,45 @@ Qed.
    read back out of [ninfos] -- no re-derivation) derive EXACTLY the reference [Datalog.prog_impl]
    facts.  Producer AND input routing are correct by construction (gated inside [compile]); there is
    NO route checker side condition. *)
-(* every external input location of [R] is one of the (merged) producers of [R]. *)
-Lemma all_producers_incl (layout : layout_map) (fps : fact_locations_map) (R : rel_id) (n : node_id) :
-  In n (get_or_default fps R) -> In n (get_or_default (all_producers layout fps) R).
-Proof.
-  intros Hn. destruct (In_get_or_default fps R n Hn) as [v2 [Hfps Hnv2]].
-  unfold get_or_default, get_or, DistributedDatalogToHardwareCompiler.all_producers.
-  rewrite union_with_get, Hfps.
-  destruct (map.get (DistributedDatalogToHardwareCompiler.internal_producers layout) R) as [v1|].
-  - apply In_list_union_spec. right. exact Hnv2.
-  - exact Hnv2.
-Qed.
-
 Theorem compile_distributed_correct
     (layout : layout_map) (fps fcs : fact_locations_map) (g : node_graph)
     (ninfos : list node_info) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   compile layout fps fcs g = Success ninfos ->
   bare_layoutb layout = true ->
   edb_routable fps Q ->
-  forall f, run_ninfos ninfos
-              (fun n f0 => Q f0 /\ In n (get_or_default fps (Datalog.rel_of f0)))
-              (fun n R => In n (get_or_default (all_consumers layout fcs) R))
-              f
-            <-> Datalog.prog_impl (canonical_program layout) Q f.
+  (* Base facts [Q] enter at the declared fact-producer locations [fps]; a fact is OUTPUT exactly at
+     the declared sink locations [fcs].  The equivalence holds for facts whose relation is a declared
+     output (has a sink).  All routing is by construction, from the compiler's [layout_good] gate. *)
+  forall f, (exists n, In n (get_or_default fcs (Datalog.rel_of f))) ->
+    run_ninfos ninfos
+      (fun n f0 => Q f0 /\ In n (get_or_default fps (Datalog.rel_of f0)))
+      (fun n R => In n (get_or_default fcs R))
+      f
+    <-> Datalog.prog_impl (canonical_program layout) Q f.
 Proof.
-  intros Hcomp Hbare HQ f.
+  intros Hcomp Hbare HQ f Houtrel.
   destruct (compile_success_extract layout fps fcs g ninfos Hcomp)
-    as [all_rels [ninfos0 [ftables [Hret [Hcan [Hft [Hinp [Houtp [Hinoutp [Hgraph Hkeys]]]]]]]]]].
-  set (lfp := all_producers layout fps) in *.
-  set (lfc := all_consumers layout fcs) in *.
-  destruct (generate_forwarding_table_checked_success all_rels
-              ninfos0 g layout ftables lfc lfp Hft) as [Hfteq Hroutes].
-  (* the returned [ninfos] IS [attach_forwarding_tables ninfos0 ftables]; [ftables] IS the generated
-     table.  The operational run of [ninfos] over the compiled EDB (external facts injected at [fps],
-     routing over the merged producers/consumers) equals [prog_impl_fact] of the canonical program. *)
-  rewrite Hret. rewrite Hfteq.
+    as [ninfos0 [Hret [Hcan [Hlr [Hgraph Hkeys]]]]].
+  unfold DistributedDatalogToHardwareCompiler.check_layout_routable in Hlr.
+  destruct (all_rules_fed g (all_producers layout fps) (get_internal_consumers_of layout)) eqn:Hfed;
+    cbn beta iota in Hlr; [|discriminate].
+  destruct (producers_go_out g (all_producers layout fps) fcs) eqn:Hpgo;
+    cbn beta iota in Hlr; [|discriminate].
+  rewrite Hret.
   apply (iff_trans
            (compile_all_distributes_ninfos layout
-              all_rels ninfos0
-              (generate_forwarding_table all_rels ninfos0 g lfc lfp)
+              (map.keys (all_consumers layout fcs)) ninfos0
+              (generate_forwarding_table g ninfos0 (all_producers layout fps) (all_consumers layout fcs))
               (dnet_of_llayout layout
-                 (compiled_base_edb g (generate_forwarding_table all_rels ninfos0 g lfc lfp)
-                    fps lfc Q))
+                 (compiled_base_edb g (generate_forwarding_table g ninfos0 (all_producers layout fps) (all_consumers layout fcs)) fps fcs Q))
               (canonical_program layout) Q Hcan Hbare
               eq_refl eq_refl
-              (compiled_good_network_streaming_edb g all_rels ninfos0
-                 layout lfp lfc fps
+              (compiled_good_network_streaming_edb g ninfos0 layout fps fcs
                  (canonical_program layout) Q
                  (proj1 (check_graph_correct g) Hgraph)
                  (canonical_good_layout g layout Hkeys)
-                 Hroutes
-                 Hinp Houtp Hinoutp
-                 (all_producers_incl layout fps)
-                 HQ)
-              f)).
+                 Hfed Hpgo HQ)
+              f Houtrel)).
   apply prog_impl_fact_iff_datalog. apply canonical_bare. exact Hbare.
 Qed.
 
@@ -3619,21 +3527,16 @@ Theorem nattify_and_compile_correct
     (NattifyRel.nattify_rel_prog (program_rels p) p) layout ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels p)) ->
   edb_routable fps (relabel_Q (encode_rel (program_rels p) p) Qsrc) ->
+  (* [fsrc]'s (nattified) relation is a declared output -- it has a sink location in [fcs]. *)
+  (exists n, In n (get_or_default fcs (Datalog.rel_of (nattify_rel_fact (program_rels p) p fsrc)))) ->
   ( run_ninfos ninfos
       (fun n f0 => relabel_Q (encode_rel (program_rels p) p) Qsrc f0
                    /\ In n (get_or_default fps (Datalog.rel_of f0)))
-      (fun n R => In n (get_or_default (all_consumers layout fcs) R))
-      (*Spec is buggy; the line above should be
-        (fun n R => In n (get_or_default fcs R)).
-
-        I believe the same bug was present in the original compile_implements_source statement.
-        I cannot understand the compiler well enough to be sure, but Claude claims that the current compiler only satisfies the buggy spec---fixing the bug in the spec would make the theorem unprovable.
-        I also don't know whether the original compiler satisfied the unbuggy spec---maybe it only stopped satisfying the unbuggy spec after I performed some refactoring.
-       *)
+      (fun n R => In n (get_or_default fcs R))
       (nattify_rel_fact (program_rels p) p fsrc)
     <-> Datalog.prog_impl p Qsrc fsrc ).
 Proof.
-  intros Hcomp Hbare Hdist Hscope Hedb.
+  intros Hcomp Hbare Hdist Hscope Hedb Houtrel.
   (* the compiled canonical program and the nattified source program are the same rule set *)
   assert (Hset : same_set (canonical_program layout)
                    (NattifyRel.nattify_rel_prog (program_rels p) p)).
@@ -3656,8 +3559,9 @@ Proof.
   (* numeric core; swap canonical -> nattified by [HB]; undo the nattification *)
   eapply iff_trans;
     [ exact (compile_distributed_correct layout fps fcs g ninfos
-               (relabel_Q (encode_rel (program_rels p) p) Qsrc) Hcomp Hbare Hedb
-               (nattify_rel_fact (program_rels p) p fsrc))
+               (relabel_Q (encode_rel (program_rels p) p) Qsrc)
+               Hcomp Hbare Hedb
+               (nattify_rel_fact (program_rels p) p fsrc) Houtrel)
     | ].
   eapply iff_trans; [ exact HB | ].
   symmetry.

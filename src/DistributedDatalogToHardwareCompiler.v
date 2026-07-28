@@ -308,22 +308,14 @@ Definition get_rule_var_index (rule_var_order : list var) (v : var) : result nat
   end.
 
 Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lowered_fact) : join :=
-  let '(ts, levels, cs, _) :=
-    fold_left (fun acc pair =>
-      let '(ts, levels, cs, clause) := acc in
-      let '(t, hyp) := pair in
-      let '(ts', levels', cs') :=
-        fold_left (fun inner_acc arg_idx =>
-          let '(ts', levels', cs') := inner_acc in
-          (t.(tid) :: ts', nth arg_idx t.(tperm) 0 :: levels', clause :: cs'))
-          (indexes_of (var_expr v) hyp.(clause_args)) (ts, levels, cs)
-      in
-      (ts', levels', cs', S clause))
-      (combine tries_by_hyp hyps) ([], [], [], 0)
-  in
-  {| tries := rev ts;
-     trie_levels := rev levels;
-     clauses := rev cs |}.
+  let entries :=
+    flat_map (fun '(clause, t, hyp) =>
+                List.map (fun arg_idx => (t.(tid), nth arg_idx t.(tperm) 0, clause))
+                         (indexes_of (var_expr v) hyp.(clause_args)))
+             (combine3 (seq 0 (length hyps)) tries_by_hyp hyps) in
+  {| tries := List.map fst3 entries;
+     trie_levels := List.map snd3 entries;
+     clauses := List.map thd3 entries |}.
 
 Definition generate_query (tries : list trie) (rule_var_order : list var)
     (hyps : list lowered_fact) : query :=
@@ -413,27 +405,19 @@ Definition add_paths_to_forwarding_table (rel : rel_id) (paths : list (list node
 
 Context {rels_at_node : map.map node_id (list rel_id)}.
 
-Definition internal_producers (layout : layout_map) :=
+Definition get_internal_producers_of (layout : layout_map) :=
   let internally_produced_at_node :=
     (*maps node n to set of rels which may be (internally) produced at n*)
     map.map_values (fun p => dedup (flat_map concl_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) produce R*)
   invert internally_produced_at_node.
 
-Definition all_producers (layout : layout_map) (external_producers : fact_locations) :
-  fact_locations :=
-  union_with (list_union eqb) (internal_producers layout) external_producers.
-
-Definition internal_consumers (layout : layout_map) :=
+Definition get_internal_consumers_of (layout : layout_map) :=
   let internally_consumed_at_node :=
     (*maps node n to set of rels which may be (internally) consumed at n*)
     map.map_values (fun p => dedup (flat_map hyp_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
-
-Definition all_consumers (layout : layout_map) (external_consumers : fact_locations) :
-  fact_locations :=
-  union_with (list_union eqb) (internal_consumers layout) external_consumers.
 
 Definition update_forwarding_table_for_rel
   (g : node_graph) lfc lfp (ninfos : list node_info)
@@ -449,89 +433,54 @@ Definition update_forwarding_table_for_rel
       (list_prod producers consumers) in
   add_paths_to_forwarding_table rel paths ftables ninfos.
 
-Definition generate_forwarding_table (all_rels : list rel_id) (ninfos : list node_info)
-    (g : node_graph) lfc lfp : node_ftable_map :=
-  fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty.
+(*note: this is suboptimal.
+  first: we add a path from each producer to every external consumer, where it would suffice to add a path from each producer to one external consumer.
+  this would not be too hard to fix.
+  second: we are making no effort to do any load-balancing etc.
+ *)
+Definition generate_forwarding_table (g : node_graph) (ninfos : list node_info)
+  (all_producers_of all_consumers_of : fact_locations)
+  : node_ftable_map :=
+  fold_left (update_forwarding_table_for_rel g all_consumers_of all_producers_of ninfos) (map.keys all_consumers_of) map.empty.
 
-(* FORWARDING-COMPLETENESS gate: for every node [np] that concludes relation [R], [R] is a
-   registered relation and [np] is a recorded producer; and for every node [nc] that hypothesizes
-   [R], [nc] is a recorded consumer AND the compiler's search [get_path] found a route [np ~> nc]
-   (or [np = nc]).  When this is [false] the compiler cannot certify that every produced fact
-   reaches every consumer. *)
-Definition routes_validb (all_rels : list rel_id) (g : node_graph)
-    (llayout : layout_map) (lfc lfp : fact_locations) : bool :=
-  forallb (fun np =>
-    forallb (fun rule_np =>
-      forallb (fun R =>
-        existsb (Nat.eqb R) all_rels
-        && existsb (eqb np) (get_or_default lfp R)
-        && forallb (fun nc =>
-             if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                        (get_or_default llayout nc)
-             then existsb (eqb nc) (get_or_default lfc R)
-                  && is_Some (get_path g np nc)
-             else true)
-           (map.keys llayout))
-      (Datalog.concl_rels rule_np))
-    (get_or_default llayout np))
-  (map.keys llayout).
+Definition path_exists (g : node_graph) (source dest : node_id) :=
+  is_Some (get_path g source dest).
 
-(* The forwarding table, THREADED THROUGH THE RESULT MONAD: emitted only when the routing is
-   complete.  On success it is exactly [generate_forwarding_table]; on a missing producer->consumer
-   route compilation FAILS.  This is the "correct by construction" gate -- [Success] witnesses that
-   the forwarding is right, so no separate route checker is needed downstream. *)
-Definition generate_forwarding_table_checked (all_rels : list rel_id) (ninfos : list node_info)
-    (g : node_graph) (llayout : layout_map) lfc lfp : result node_ftable_map :=
-  if routes_validb all_rels g llayout lfc lfp
-  then Success (generate_forwarding_table all_rels ninfos g lfc lfp)
-  else error:("generate_forwarding_table: some producer cannot reach some consumer (incomplete forwarding)").
+(*all rule_producers(R) -> all internal rule_consumers(R)*)
+Definition all_rules_fed_for_relation (g : node_graph)
+  (all_producers : list node_id) (internal_consumers : list node_id) :=
+  forallb (fun '(p, ic) => path_exists g p ic) (list_prod all_producers internal_consumers).
 
-(* INPUT-COMPLETENESS gate: every declared input/EDB location [ni] of relation [R] (from
-   [lfact_producers]) is a recorded producer of [R] and routes to every consumer of [R].  So once
-   compilation succeeds, the nodes where base facts are injected provably reach every consumer --
-   the input side is correct by construction, no input route checker needed downstream. *)
-Definition input_routes_validb (all_rels : list rel_id) (g : node_graph)
-    (llayout : layout_map) (lfc lfp : fact_locations) : bool :=
-  map.forallb (fun R locs =>
-    forallb (fun ni =>
-      existsb (eqb R) all_rels
-      && existsb (eqb ni) (get_or_default lfp R)
-      && forallb (fun nc =>
-           if existsb (fun rule_nc => existsb (Nat.eqb R) (Datalog.hyp_rels rule_nc))
-                      (get_or_default llayout nc)
-           then existsb (eqb nc) (get_or_default lfc R)
-                && is_Some (get_path g ni nc)
-           else true)
-         (map.keys llayout))
-    locs)
-  lfp.
+Definition all_rules_fed (g : node_graph)
+  (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
+  map.forallb (fun R internal_consumers =>
+                 let all_producers := get_or_default all_producers_of R in
+                 all_rules_fed_for_relation g all_producers internal_consumers)
+    internal_consumers_of.
 
-(* OUTPUT-COMPLETENESS gate (producers): every node [np] that concludes [R] forwards to some
-   declared output/sink node of [R] (a fact-consumer location).  This is what makes a producer a
-   "good source" on the output side, and forces every produced relation to have a sink. *)
-Definition output_routesb (all_rels : list rel_id) (g : node_graph)
-    (llayout : layout_map) (lfc lfp : fact_locations) : bool :=
-  forallb (fun np =>
-    forallb (fun rule_np =>
-      forallb (fun R =>
-                 existsb (Nat.eqb R) all_rels
-                 && existsb (eqb np) (get_or_default lfp R)
-                 && existsb (fun no => is_Some (get_path g np no)) (get_or_default lfc R))
-      (Datalog.concl_rels rule_np))
-    (get_or_default llayout np))
-  (map.keys llayout).
+(*all rule_producers(R) -> some external rule_consumer(R)*)
+Definition producers_go_out_for_relation (g : node_graph)
+  (all_producers : list node_id) (external_consumers : list node_id) :=
+  forallb
+    (fun producer => existsb (path_exists g producer) external_consumers)
+    all_producers.
 
-(* OUTPUT-COMPLETENESS gate (input nodes): every declared input/EDB location of [R] forwards to some
-   declared output/sink node of [R]. *)
-Definition input_output_routesb (all_rels : list rel_id) (g : node_graph)
-    (lfc lfp : fact_locations) : bool :=
-  map.forallb (fun R locs =>
-    forallb (fun ni =>
-      existsb (Nat.eqb R) all_rels
-      && existsb (eqb ni) (get_or_default lfp R)
-      && existsb (fun no => is_Some (get_path g ni no)) (get_or_default lfc R))
-      locs)
-  lfp.
+(*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
+Definition producers_go_out (g : node_graph)
+  (all_producers_of : fact_locations) (external_consumers_of : fact_locations) :=
+  map.forallb (fun R external_consumers =>
+                 let all_producers := get_or_default all_producers_of R in
+                 producers_go_out_for_relation g all_producers external_consumers)
+    external_consumers_of.
+
+Definition check_layout_routable (g : node_graph)
+  (external_consumers_of internal_consumers_of all_producers_of : fact_locations) : result unit :=
+  (if all_rules_fed g all_producers_of internal_consumers_of
+   then Success tt
+   else error:("compile: bad layout---some producer cannot reach some internal consumer")) ;;
+  (if producers_go_out g all_producers_of external_consumers_of
+   then Success tt
+   else error:("compile: bad layout---some producer of an output relation cannot reach any external sink")).
 
 (*----Final Compilation----*)
 
@@ -548,12 +497,7 @@ Definition compile_node (node : node_id) (program : lowered_program) : result no
              ntries := rev ncontext.(nctries) |}.
 
 Definition compile_all_nodes (llayout : layout_map) : result (list node_info) :=
-  ninfos <- map.fold (fun acc node program =>
-    ninfos <- acc ;;
-    ninfo <- compile_node node program ;;
-    Success (ninfo :: ninfos)
-  ) (Success []) llayout ;;
-  Success (ninfos).
+  List.all_success (List.map (fun '(node, program) => compile_node node program) (map.tuples llayout)).
 
 (* Attach the compiled forwarding tables to node_infos -- now for EVERY node that forwards, not
    just the layout nodes: layout nodes keep their compiled program/tries, and any extra node that
@@ -582,28 +526,21 @@ Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
 Definition compile (layout : layout_map)
-    (external_producers external_consumers : fact_locations)
-    (g : node_graph) : result (list node_info) :=
-  let all_rels := (dedup (flat_map all_rels (source_program layout))) in
-  let all_producers := all_producers layout external_producers in
-  let all_consumers := all_consumers layout external_consumers in
-  _ <- (if check_graph_valid g
-        then Success tt
-        else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
-  _ <- (if layout_in_graphb g layout
-        then Success tt
-        else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
+  (external_producers_of external_consumers_of : fact_locations)
+  (g : node_graph) : result (list node_info) :=
+  (if check_graph_valid g
+   then Success tt
+   else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
+  (if layout_in_graphb g layout
+   then Success tt
+   else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
+  let internal_consumers_of := get_internal_consumers_of layout in
+  let internal_producers_of := get_internal_producers_of layout in
+  let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
+  let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
+  check_layout_routable g external_consumers_of internal_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
-  ftables <- generate_forwarding_table_checked all_rels ninfos g layout all_consumers all_producers ;;
-  _ <- (if input_routes_validb all_rels g layout all_consumers all_producers
-        then Success tt
-        else error:("compile: a declared input/EDB location cannot reach some consumer (incomplete input forwarding)")) ;;
-  _ <- (if output_routesb all_rels g layout all_consumers all_producers
-        then Success tt
-        else error:("compile: a producer cannot reach an output/sink node (incomplete output forwarding)")) ;;
-  _ <- (if input_output_routesb all_rels g all_consumers all_producers
-        then Success tt
-        else error:("compile: an input/EDB location cannot reach an output/sink node")) ;;
+  let ftables := generate_forwarding_table g ninfos all_producers_of all_consumers_of in
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
 

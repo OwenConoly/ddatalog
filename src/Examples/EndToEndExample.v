@@ -62,6 +62,7 @@ Definition grid_equiv :=
     (GridTopology.node_id_map (SortedListNat.map (list destination)))
     (SortedListNat.map (list node_id)) (SortedListNat.ok _)
     (GridTopology.node_id_map (list rel_id))
+    (GridTopology.node_id_map_ok _)
     (SortedListNat.ok _)
     (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map_ok _)
@@ -113,6 +114,7 @@ Theorem end_to_end_equiv
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels P)) ->
   edb_routable NFPS (relabel_Q (encode_rel (program_rels P) P) Qsrc) ->
+  (exists n, In n (get_or_default NFPS (Datalog.rel_of (nattify_rel_fact (program_rels P) P fsrc)))) ->
   run_ninfos ninfos
     (fun n f0 => relabel_Q (encode_rel (program_rels P) P) Qsrc f0 /\
                  In n (get_or_default NFPS (Datalog.rel_of f0)))
@@ -120,12 +122,13 @@ Theorem end_to_end_equiv
     (nattify_rel_fact (program_rels P) P fsrc)
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
-  intros Hc Hscope Hedb.
+  intros Hc Hscope Hedb Houtrel.
   apply (grid_equiv P NLAYOUT NFPS NFPS G ninfos Qsrc fsrc Hc);
     [ vm_compute; reflexivity
     | apply layout_distributes_programb_spec; vm_compute; reflexivity
     | exact Hscope
-    | exact Hedb ].
+    | exact Hedb
+    | exact Houtrel ].
 Qed.
 
 (*==========================================================================*)
@@ -165,6 +168,7 @@ Theorem end_to_end_equiv_reach
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels Preach)) ->
   edb_routable NFPS_r (relabel_Q (encode_rel (program_rels Preach) Preach) Qsrc) ->
+  (exists n, In n (get_or_default NFPS_r (Datalog.rel_of (nattify_rel_fact (program_rels Preach) Preach fsrc)))) ->
   run_ninfos ninfos
     (fun n f0 => relabel_Q (encode_rel (program_rels Preach) Preach) Qsrc f0 /\
                  In n (get_or_default NFPS_r (Datalog.rel_of f0)))
@@ -172,10 +176,11 @@ Theorem end_to_end_equiv_reach
     (nattify_rel_fact (program_rels Preach) Preach fsrc)
   <-> Datalog.prog_impl Preach Qsrc fsrc.
 Proof.
-  intros Hc Hscope Hedb.
+  intros Hc Hscope Hedb Houtrel.
   apply (grid_equiv Preach NLAYOUT_r NFPS_r NFPS_r G_r ninfos Qsrc fsrc Hc);
     [ vm_compute; reflexivity
     | apply layout_distributes_programb_spec; vm_compute; reflexivity
     | exact Hscope
-    | exact Hedb ].
+    | exact Hedb
+    | exact Houtrel ].
 Qed.
