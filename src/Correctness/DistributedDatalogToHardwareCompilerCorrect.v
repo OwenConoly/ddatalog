@@ -2158,10 +2158,10 @@ Notation all_rules_fed :=
   (@DistributedDatalogToHardwareCompiler.all_rules_fed node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
 Notation producers_go_out :=
   (@DistributedDatalogToHardwareCompiler.producers_go_out node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
-Notation layout_good :=
-  (@DistributedDatalogToHardwareCompiler.layout_good var fn aggregator node_id node_id_eqb node_id_set layout_map fact_locations_map node_id_edge_set rels_at_node).
+Notation check_layout_routable :=
+  (@DistributedDatalogToHardwareCompiler.check_layout_routable node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
 Notation generate_forwarding_table :=
-  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table var fn aggregator node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map node_id_edge_set node_ftable_map).
+  (@DistributedDatalogToHardwareCompiler.generate_forwarding_table node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 
 (* [all_producers]/[all_consumers] are the merged (internal + external) location maps the compiler's
    [generate_forwarding_table] now computes inline; recompute them here for the correctness reasoning. *)
@@ -3172,9 +3172,9 @@ Lemma compile_success_extract (layout : layout_map) (fps fcs : fact_locations_ma
   compile layout fps fcs g = Success ninfos ->
   exists ninfos0,
     ninfos = attach_forwarding_tables ninfos0
-               (generate_forwarding_table g ninfos0 layout fps fcs) /\
+               (generate_forwarding_table g ninfos0 (all_producers layout fps) (all_consumers layout fcs)) /\
     compile_all_nodes layout = Success ninfos0 /\
-    layout_good g layout fps fcs = true /\
+    check_layout_routable g fcs (get_internal_consumers_of layout) (all_producers layout fps) = Success tt /\
     check_graph_valid g = true /\
     layout_in_graphb g layout = true.
 Proof.
@@ -3182,10 +3182,13 @@ Proof.
   destruct (check_graph_valid g) eqn:Hcgv; cbn beta iota in H; [|discriminate].
   destruct (DistributedDatalogToHardwareCompiler.layout_in_graphb g layout) eqn:Hlig;
     cbn beta iota in H; [|discriminate].
-  destruct (layout_good g layout fps fcs) eqn:Hlg; cbn beta iota in H; [|discriminate].
+  destruct (check_layout_routable g fcs (get_internal_consumers_of layout)
+              (union_with (list_union eqb) (get_internal_producers_of layout) fps)) as [[]|] eqn:Hlr;
+    cbn beta iota in H; [|discriminate].
   destruct (compile_all_nodes layout) as [ninfos0|] eqn:Hcan; cbn beta iota in H; [|discriminate].
   injection H as Hret.
-  exists ninfos0. split; [exact (eq_sym Hret) | repeat split; reflexivity].
+  exists ninfos0. split; [exact (eq_sym Hret)|].
+  repeat split; (reflexivity || exact Hlr).
 Qed.
 
 (*----The hardware network read DIRECTLY off the returned [ninfos]----*)
@@ -3473,16 +3476,19 @@ Theorem compile_distributed_correct
 Proof.
   intros Hcomp Hbare HQ f Houtrel.
   destruct (compile_success_extract layout fps fcs g ninfos Hcomp)
-    as [ninfos0 [Hret [Hcan [Hlg [Hgraph Hkeys]]]]].
-  unfold DistributedDatalogToHardwareCompiler.layout_good in Hlg.
-  apply andb_prop in Hlg. destruct Hlg as [Hfed Hpgo].
+    as [ninfos0 [Hret [Hcan [Hlr [Hgraph Hkeys]]]]].
+  unfold DistributedDatalogToHardwareCompiler.check_layout_routable in Hlr.
+  destruct (all_rules_fed g (all_producers layout fps) (get_internal_consumers_of layout)) eqn:Hfed;
+    cbn beta iota in Hlr; [|discriminate].
+  destruct (producers_go_out g (all_producers layout fps) fcs) eqn:Hpgo;
+    cbn beta iota in Hlr; [|discriminate].
   rewrite Hret.
   apply (iff_trans
            (compile_all_distributes_ninfos layout
               (map.keys (all_consumers layout fcs)) ninfos0
-              (generate_forwarding_table g ninfos0 layout fps fcs)
+              (generate_forwarding_table g ninfos0 (all_producers layout fps) (all_consumers layout fcs))
               (dnet_of_llayout layout
-                 (compiled_base_edb g (generate_forwarding_table g ninfos0 layout fps fcs) fps fcs Q))
+                 (compiled_base_edb g (generate_forwarding_table g ninfos0 (all_producers layout fps) (all_consumers layout fcs)) fps fcs Q))
               (canonical_program layout) Q Hcan Hbare
               eq_refl eq_refl
               (compiled_good_network_streaming_edb g ninfos0 layout fps fcs
