@@ -236,10 +236,15 @@ Definition good_network (net : DataflowNetwork) (program : list rule) : Prop :=
    reaches (by forwarding, or is already at) every consumer of [R] and some output node.  Both
    producers (by [good_forwarding]) and input nodes (by [good_input_streaming]) are good sources;
    this is the single property soundness/completeness reason about. *)
+(* A node [n] is a good source for [R] when a fact of [R] at [n] reaches every consumer of [R], and --
+   *when [R] is a declared output relation* (some node outputs it) -- also reaches an output node.
+   Internal relations (no output node) are not required to reach any output; the top-level
+   equivalence is correspondingly stated only for declared-output relations. *)
 Definition good_source (net : DataflowNetwork) (n : Node) (R : rel) : Prop :=
   (forall n_cons, node_consumes net.(layout) n_cons R ->
      n = n_cons \/ forwarding_reachable net.(forward) R n n_cons) /\
-  (exists n_out, net.(output) n_out R /\
+  ((exists n_out, net.(output) n_out R) ->
+   exists n_out, net.(output) n_out R /\
      (n = n_out \/ forwarding_reachable net.(forward) R n n_out)).
 
 (*----------------------------------------------------------------------------*)
@@ -635,11 +640,13 @@ Qed.
 
 Theorem completeness (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) :
   good_network_streaming net program Q ->
-  forall f, prog_impl_fact program Q f -> network_prog_impl_fact net f.
+  forall f, prog_impl_fact program Q f ->
+    (exists n_out, net.(output) n_out (rel_of f)) ->
+    network_prog_impl_fact net f.
 Proof.
-  intros Hnet f Hprog.
+  intros Hnet f Hprog Houtrel.
   destruct (completeness_with_source net program Q Hnet f Hprog) as [n [Hpf Hsrc]].
-  destruct Hsrc as [_ [n_out [Hout Hreach]]].
+  destruct Hsrc as [_ Hout2]. destruct (Hout2 Houtrel) as [n_out [Hout Hreach]].
   exists n_out.
   eapply pftree_step with (l := [FactOnNode n_out f]).
   - apply OutputStep. exact Hout.
