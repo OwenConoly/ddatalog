@@ -439,13 +439,8 @@ Definition update_forwarding_table_for_rel
   second: we are making no effort to do any load-balancing etc.
  *)
 Definition generate_forwarding_table (g : node_graph) (ninfos : list node_info)
-  (layout : layout_map)
-  (external_producers_of external_consumers_of : fact_locations)
+  (all_producers_of all_consumers_of : fact_locations)
   : node_ftable_map :=
-  let internal_consumers_of := get_internal_consumers_of layout in
-  let internal_producers_of := get_internal_producers_of layout in
-  let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
-  let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
   fold_left (update_forwarding_table_for_rel g all_consumers_of all_producers_of ninfos) (map.keys all_consumers_of) map.empty.
 
 Definition path_exists (g : node_graph) (source dest : node_id) :=
@@ -478,13 +473,14 @@ Definition producers_go_out (g : node_graph)
                  producers_go_out_for_relation g all_producers external_consumers)
     external_consumers_of.
 
-Definition layout_good (g : node_graph) (layout : layout_map)
-  (external_producers_of external_consumers_of : fact_locations) :=
-  let internal_consumers_of := get_internal_consumers_of layout in
-  let internal_producers_of := get_internal_producers_of layout in
-  let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
-  all_rules_fed g all_producers_of internal_consumers_of &&
-    producers_go_out g all_producers_of external_consumers_of.
+Definition check_layout_routable (g : node_graph)
+  (external_consumers_of internal_consumers_of all_producers_of : fact_locations) : result unit :=
+  (if all_rules_fed g all_producers_of internal_consumers_of
+   then Success tt
+   else error:("compile: bad layout---some producer cannot reach some internal consumer")) ;;
+  (if producers_go_out g all_producers_of external_consumers_of
+   then Success tt
+   else error:("compile: bad layout---some producer of an output relation cannot reach any external sink")).
 
 (*----Final Compilation----*)
 
@@ -530,20 +526,21 @@ Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
 Definition compile (layout : layout_map)
-    (external_producers_of external_consumers_of : fact_locations)
-    (g : node_graph) : result (list node_info) :=
+  (external_producers_of external_consumers_of : fact_locations)
+  (g : node_graph) : result (list node_info) :=
   (if check_graph_valid g
    then Success tt
    else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
   (if layout_in_graphb g layout
-       then Success tt
-       else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
-  (if layout_good g layout external_producers_of external_consumers_of
    then Success tt
-                (*TODO: more detailed error message*)
-   else error:("compile: bad layout---either some producer cannot reach any output, or some producer cannot reach some internal consumer")) ;;
+   else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
+  let internal_consumers_of := get_internal_consumers_of layout in
+  let internal_producers_of := get_internal_producers_of layout in
+  let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
+  let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
+  check_layout_routable g external_consumers_of internal_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
-  let ftables := generate_forwarding_table g ninfos layout external_producers_of external_consumers_of in
+  let ftables := generate_forwarding_table g ninfos all_producers_of all_consumers_of in
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
 
