@@ -399,8 +399,22 @@ Definition get_internal_consumers_of (layout : layout_map) :=
 Context {internode_forwarding_table : map.map rel_id (list node_id)}.
 Context {internode_forwarding_tables : map.map node_id internode_forwarding_table}.
 
-Definition graph_of_ftables_at_rel (ftables : internode_forwarding_tables) (R : rel_id) : node_graph.
-Admitted.
+Definition next_hops (ftables : internode_forwarding_tables) (n : node_id) (R : rel_id) : list node_id :=
+  get_or_default (get_or_default ftables n) R.
+
+Definition node_set_of_list (ns : list node_id) : node_id_set :=
+  map.of_list (List.map (fun n => (n, tt)) ns).
+
+Definition empty_node_graph : node_graph :=
+  {| nodes := map.empty; edges := map.empty |}.
+
+(* the one-hop graph along which the table routes R*)
+Definition graph_of_ftables_at_rel (ftables : internode_forwarding_tables) (R : rel_id) : node_graph :=
+  map.fold (fun g n ft =>
+    let hops := get_or_default ft R in
+    {| nodes := map.putmany g.(nodes) (node_set_of_list (n :: hops));
+       edges := map.put g.(edges) n (node_set_of_list hops) |})
+    empty_node_graph ftables.
 
 Definition path_exists (g : node_graph) (source dest : node_id) :=
   is_Some (get_path g source dest).
@@ -484,21 +498,42 @@ Definition attach_forwarding_tables (ninfos : list node_info)
 Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
-Definition dest_in_graphb (g : node_graph) (n : node_id) (d : destination) :=
-  match d with
-  | DestEdge m => check_edge_exists n m (ComputableGraph.edges g)
-  | DestTrie _ => true
-  end.
+Definition hops_in_graphb (g : node_graph) (n : node_id) (hops : list node_id) :=
+  forallb (fun m => check_edge_exists n m (ComputableGraph.edges g)) hops.
 
-Definition ftable_in_graphb (g : node_graph) (n : node_id) (ft : forwarding_table) :=
-  map.forallb (fun _ dests => forallb (dest_in_graphb g n) dests) ft.
+Definition ftable_in_graphb (g : node_graph) (n : node_id) (ft : internode_forwarding_table) :=
+  map.forallb (fun _ hops => hops_in_graphb g n hops) ft.
 
-Definition ftables_in_graphb (g : node_graph) (ftables : node_ftable_map) : bool :=
+Definition ftables_in_graphb (g : node_graph) (ftables : internode_forwarding_tables) : bool :=
   map.forallb
     (fun n ft => check_node_valid n (ComputableGraph.nodes g) && ftable_in_graphb g n ft)
     ftables.
 
-Definition compute_forwarding_table (ftables : internode_forwarding_tables) (ninfos : list node_info) : node_ftable_map. Admitted.
+Definition rels_of_node (ninfos : list node_info) (node : node_id) : list rel_id :=
+  match find (fun n => eqb n.(nid) node) ninfos with
+  | None => []
+  | Some ninfo => dedup (List.map trel ninfo.(ntries))
+  end.
+
+Definition dests_of_rel (ftables : internode_forwarding_tables) (ninfos : list node_info)
+    (n : node_id) (R : rel_id) : list destination :=
+  List.map DestEdge (next_hops ftables n R) ++
+    List.map DestTrie (trie_dests_of_rel ninfos n R).
+
+(* [R] needs an entry at [n] exactly when [n] forwards it onward or reads it locally. *)
+Definition forwarding_table_of_node (ftables : internode_forwarding_tables)
+    (ninfos : list node_info) (n : node_id) : forwarding_table :=
+  fold_left (fun ft R => map.put ft R (dests_of_rel ftables ninfos n R))
+    (list_union eqb (map.keys (get_or_default ftables n)) (rels_of_node ninfos n))
+    map.empty.
+
+(* the internal table: the externally chosen next hops become [DestEdge]s, and the node-local tries
+   reading [R] -- whose ids only this compiler knows -- are added as [DestTrie]s. *)
+Definition compute_forwarding_table (ftables : internode_forwarding_tables)
+    (ninfos : list node_info) : node_ftable_map :=
+  fold_left (fun acc n => map.put acc n (forwarding_table_of_node ftables ninfos n))
+    (list_union eqb (map.keys ftables) (List.map nid ninfos))
+    map.empty.
 
 Definition compile (layout : layout_map)
   (external_producers_of external_consumers_of : fact_locations)
@@ -510,14 +545,16 @@ Definition compile (layout : layout_map)
   (if layout_in_graphb g layout
    then Success tt
    else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
+  (if ftables_in_graphb g ftables
+   then Success tt
+   else error:("compile: the forwarding table routes over a link the topology graph does not have")) ;;
   let internal_consumers_of := get_internal_consumers_of layout in
   let internal_producers_of := get_internal_producers_of layout in
   let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
   let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
   check_layout_routable ftables external_consumers_of internal_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
-  let ftables := generate_forwarding_table g ninfos all_producers_of all_consumers_of in
-  Success (attach_forwarding_tables ninfos ftables).
+  Success (attach_forwarding_tables ninfos (compute_forwarding_table ftables ninfos)).
 End DistributedDatalogToHardwareCompiler.
 
 Existing Instance SortedListNat.map.

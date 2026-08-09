@@ -275,6 +275,26 @@ Proof.
   rewrite map.get_empty in H. simpl in H. destruct H.
 Qed.
 
+Notation ftables_in_graphb := (@DistributedDatalogToHardwareCompiler.ftables_in_graphb node_id node_id_set forwarding_table node_id_edge_set node_ftable_map).
+
+(* the decidable check on an externally generated table gives exactly the edge-soundness the
+   forwarding proofs consume from [get_path_spec] when the compiler builds the table itself. *)
+Lemma ftables_in_graphb_sound (g : node_graph) (ftables : node_ftable_map) :
+  ftables_in_graphb g ftables = true ->
+  ftable_edges_sound g ftables.
+Proof.
+  intros Hcheck node rel m Hfwd.
+  unfold has_fwd_edge, node_rel_dests, get_or_default, get_or in Hfwd.
+  destruct (map.get ftables node) as [ft|] eqn:Hnode.
+  2: { cbv [default map_default] in Hfwd. rewrite map.get_empty in Hfwd. destruct Hfwd. }
+  pose proof (map.get_forallb _ ftables Hcheck node ft Hnode) as Hnodeok.
+  apply andb_prop in Hnodeok. destruct Hnodeok as [_ Hft].
+  destruct (map.get ft rel) as [dests|] eqn:Hrel; [|destruct Hfwd].
+  pose proof (map.get_forallb _ ft Hft rel dests Hrel) as Hdests.
+  rewrite forallb_forall in Hdests.
+  apply In_dest_edges in Hfwd. exact (Hdests _ Hfwd).
+Qed.
+
 (* laying down a real edge-path keeps the table edge-sound *)
 Lemma add_path_pres_sound (g : node_graph) (rel : rel_id) (ninfos : list node_info)
     (path : list node_id) (ftables : node_ftable_map) (s e : node_id) :
