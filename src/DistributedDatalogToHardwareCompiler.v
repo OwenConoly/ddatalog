@@ -372,36 +372,13 @@ Definition compile_rule (rule : lowered_rule)
 
 Context {node_ftable_map : map.map node_id forwarding_table}.
 
-Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
-    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
-  let ft := get_or_default ftables node in
+Definition trie_dests_of_rel (ninfos : list node_info) (node : node_id) (rel : rel_id) : list trie_id :=
   let matching_tries :=
     match find (fun n => eqb n.(nid) node) ninfos with
     | None => []
-    | Some ninfo => filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
+    | Some ninfo => filter (fun t => eqb t.(trel) rel) ninfo.(ntries)
     end in
-  let existing := get_or_default ft rel in
-  let updated_ft :=
-    map.put ft rel
-      (list_union eqb (List.map (fun t => DestTrie t.(tid)) matching_tries) existing) in
-  map.put ftables node updated_ft.
-
-(* TODO later maybe do edges by which node it connects to instead of direction? *)
-Fixpoint add_path_to_forwarding_table (ninfos : list node_info) (rel : rel_id)
-    (ftables : node_ftable_map) (path : list node_id) : node_ftable_map :=
-  match path with
-  | [] => ftables
-  | [node] => add_trie_dest_to_forwarding_table node rel ftables ninfos
-  | node :: ((next :: _) as rest) =>
-    let ft := get_or_default ftables node in
-    let existing := get_or_default ft rel in
-    let ft' := map.put ft rel (list_union eqb [DestEdge next] existing) in
-    add_path_to_forwarding_table ninfos rel (map.put ftables node ft') rest
-  end.
-
-Definition add_paths_to_forwarding_table (rel : rel_id) (paths : list (list node_id))
-    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
-  fold_left (add_path_to_forwarding_table ninfos rel) paths ftables.
+  List.map tid matching_tries.
 
 Context {rels_at_node : map.map node_id (list rel_id)}.
 
@@ -419,29 +396,11 @@ Definition get_internal_consumers_of (layout : layout_map) :=
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
 
-Definition update_forwarding_table_for_rel
-  (g : node_graph) lfc lfp (ninfos : list node_info)
-  (ftables : node_ftable_map) (rel : rel_id) : node_ftable_map :=
-  let producers := get_or_default lfp rel in
-  let consumers := get_or_default lfc rel in
-  let paths :=
-    flat_map (fun '(producer, consumer) =>
-                match get_path g producer consumer with
-                | None => []
-                | Some path => [path]
-                end)
-      (list_prod producers consumers) in
-  add_paths_to_forwarding_table rel paths ftables ninfos.
+Context {internode_forwarding_table : map.map rel_id (list node_id)}.
+Context {internode_forwarding_tables : map.map node_id internode_forwarding_table}.
 
-(*note: this is suboptimal.
-  first: we add a path from each producer to every external consumer, where it would suffice to add a path from each producer to one external consumer.
-  this would not be too hard to fix.
-  second: we are making no effort to do any load-balancing etc.
- *)
-Definition generate_forwarding_table (g : node_graph) (ninfos : list node_info)
-  (all_producers_of all_consumers_of : fact_locations)
-  : node_ftable_map :=
-  fold_left (update_forwarding_table_for_rel g all_consumers_of all_producers_of ninfos) (map.keys all_consumers_of) map.empty.
+Definition graph_of_ftables_at_rel (ftables : internode_forwarding_tables) (R : rel_id) : node_graph.
+Admitted.
 
 Definition path_exists (g : node_graph) (source dest : node_id) :=
   is_Some (get_path g source dest).
@@ -451,11 +410,11 @@ Definition all_rules_fed_for_relation (g : node_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
   forallb (fun '(p, ic) => path_exists g p ic) (list_prod all_producers internal_consumers).
 
-Definition all_rules_fed (g : node_graph)
+Definition all_rules_fed ftables
   (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
   map.forallb (fun R internal_consumers =>
                  let all_producers := get_or_default all_producers_of R in
-                 all_rules_fed_for_relation g all_producers internal_consumers)
+                 all_rules_fed_for_relation (graph_of_ftables_at_rel ftables R) all_producers internal_consumers)
     internal_consumers_of.
 
 (*all rule_producers(R) -> some external rule_consumer(R)*)
@@ -466,21 +425,21 @@ Definition producers_go_out_for_relation (g : node_graph)
     all_producers.
 
 (*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
-Definition producers_go_out (g : node_graph)
+Definition producers_go_out ftables
   (all_producers_of : fact_locations) (external_consumers_of : fact_locations) :=
   map.forallb (fun R external_consumers =>
                  let all_producers := get_or_default all_producers_of R in
-                 producers_go_out_for_relation g all_producers external_consumers)
+                 producers_go_out_for_relation (graph_of_ftables_at_rel ftables R) all_producers external_consumers)
     external_consumers_of.
 
-Definition check_layout_routable (g : node_graph)
+Definition check_layout_routable ftables
   (external_consumers_of internal_consumers_of all_producers_of : fact_locations) : result unit :=
-  (if all_rules_fed g all_producers_of internal_consumers_of
+  (if all_rules_fed ftables all_producers_of internal_consumers_of
    then Success tt
-   else error:("compile: bad layout---some producer cannot reach some internal consumer")) ;;
-  (if producers_go_out g all_producers_of external_consumers_of
+   else error:("compile: bad layout/forwarding table---some producer cannot reach some internal consumer")) ;;
+  (if producers_go_out ftables all_producers_of external_consumers_of
    then Success tt
-   else error:("compile: bad layout---some producer of an output relation cannot reach any external sink")).
+   else error:("compile: bad layout/forwarding table---some producer of an output relation cannot reach any external sink")).
 
 (*----Final Compilation----*)
 
@@ -525,8 +484,25 @@ Definition attach_forwarding_tables (ninfos : list node_info)
 Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
+Definition dest_in_graphb (g : node_graph) (n : node_id) (d : destination) :=
+  match d with
+  | DestEdge m => check_edge_exists n m (ComputableGraph.edges g)
+  | DestTrie _ => true
+  end.
+
+Definition ftable_in_graphb (g : node_graph) (n : node_id) (ft : forwarding_table) :=
+  map.forallb (fun _ dests => forallb (dest_in_graphb g n) dests) ft.
+
+Definition ftables_in_graphb (g : node_graph) (ftables : node_ftable_map) : bool :=
+  map.forallb
+    (fun n ft => check_node_valid n (ComputableGraph.nodes g) && ftable_in_graphb g n ft)
+    ftables.
+
+Definition compute_forwarding_table (ftables : internode_forwarding_tables) (ninfos : list node_info) : node_ftable_map. Admitted.
+
 Definition compile (layout : layout_map)
   (external_producers_of external_consumers_of : fact_locations)
+  (ftables : internode_forwarding_tables)
   (g : node_graph) : result (list node_info) :=
   (if check_graph_valid g
    then Success tt
@@ -538,7 +514,7 @@ Definition compile (layout : layout_map)
   let internal_producers_of := get_internal_producers_of layout in
   let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
   let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
-  check_layout_routable g external_consumers_of internal_consumers_of all_producers_of ;;
+  check_layout_routable ftables external_consumers_of internal_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
   let ftables := generate_forwarding_table g ninfos all_producers_of all_consumers_of in
   Success (attach_forwarding_tables ninfos ftables).
