@@ -200,8 +200,7 @@ Proof.
   unfold get_or_default, get_or in Hfwd.
   destruct (map.get ftables node) as [ft|] eqn:Hnode;
     [| cbv [default map_default list_default] in Hfwd; rewrite map.get_empty in Hfwd; destruct Hfwd].
-  pose proof (map.get_forallb _ ftables Hcheck node ft Hnode) as Hnodeok.
-  apply andb_prop in Hnodeok. destruct Hnodeok as [_ Hft].
+  pose proof (map.get_forallb _ ftables Hcheck node ft Hnode) as Hft.
   destruct (map.get ft rel) as [hops|] eqn:Hrel; [|destruct Hfwd].
   pose proof (map.get_forallb _ ft Hft rel hops Hrel) as Hhops.
   unfold DistributedDatalogToHardwareCompiler.hops_in_graphb in Hhops.
