@@ -1,5 +1,6 @@
-From Stdlib Require Import List Bool Relation_Operators.
-From Datalog Require Import Datalog.
+From Stdlib Require Import List Bool Relation_Operators Sorting.Sorted.
+From Datalog Require Import Datalog Tactics.
+From GraphSearch Require Import List.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 From DatalogRocq Require Import Topologies.Graph.
 
@@ -104,43 +105,34 @@ Definition forwards_rel (forward : ForwardingFn) (R : rel) (original_source : No
 Definition forwarding_reachable (forward : ForwardingFn) (R : rel) (original_source : Node) :=
   clos_refl_trans_1n _ (forwards_rel forward R original_source).
 
-(* A walk whose every consecutive pair forwards [r] makes its last node forwarding-reachable
-   from its first (or they coincide).  This is the bridge from a laid-down forwarding path to
-   the [forwarding_reachable] closure that [good_source] reasons about. *)
+Lemma last_cons_cons A a b d (l : list A) :
+  last (a :: b :: l) d = last (b :: l) d.
+Proof. apply last_cons_nonempty. congruence. Qed.
 
-Lemma forwarding_chain_reachable (forward : ForwardingFn) (r : rel) :
-
-  forall (path : list Node) (a b : Node),
-  (forall i x y, nth_error path i = Some x -> nth_error path (S i) = Some y -> In y (forward x r)) ->
-  nth_error path 0 = Some a ->
-  nth_error path (pred (length path)) = Some b ->
-  a = b \/ forwarding_reachable forward r a b.
+Lemma forwarding_chain_reachable (forward : ForwardingFn) (R : rel) (original_source : Node)
+    (mid : list Node) (a b d : Node) :
+  LocallySorted (forwards_rel forward R original_source) (a :: mid) ->
+  last (a :: mid) d = b ->
+  forwarding_reachable forward R original_source a b.
 Proof.
-  induction path as [|x [|y rest] IH]; intros a b Hcons Ha Hb.
-  - discriminate Ha.
-  - cbn in Ha, Hb. injection Ha as <-. injection Hb as <-. left. reflexivity.
-  - cbn in Ha. injection Ha as <-.
-    assert (Hxy : In y (forward x r)) by (apply (Hcons 0 x y); reflexivity).
-    assert (Hcons' : forall i u v, nth_error (y :: rest) i = Some u ->
-                       nth_error (y :: rest) (S i) = Some v -> In v (forward u r)).
-    { intros i u v Hu Hv. apply (Hcons (S i) u v); cbn; [exact Hu | exact Hv]. }
-    assert (Hb' : nth_error (y :: rest) (pred (length (y :: rest))) = Some b)
-      by (cbn [length pred] in Hb |- *; cbn [nth_error] in Hb; exact Hb).
-    destruct (IH y b Hcons' eq_refl Hb') as [Heq | Hreach].
-    + subst y. right. apply fwd_step. exact Hxy.
-    + right. exact (fwd_trans forward r x y b Hxy Hreach).
+  revert a b. induction mid as [|c mid IH]; intros a b Hwalk Hlast.
+  - cbn in Hlast. subst b. apply rt1n_refl.
+  - invert Hwalk. eapply rt1n_trans; [eassumption|].
+    apply IH; [assumption|]. rewrite last_cons_cons. reflexivity.
 Qed.
 
 (* A *computable* validator (the "checker that takes in paths" approach): [check_fwd_walk
    forward r path] is [true] iff every consecutive node of [path] forwards [r] to the next.
    Validating a candidate path is cheap (membership checks); proving the BFS that produced it
    is complete is not -- so the top-level checker emits/validates paths instead. *)
-Fixpoint check_fwd_walk (forward : ForwardingFn) (r : rel) (path : list Node) : bool :=
+Fixpoint check_fwd_walk (forward : ForwardingFn) (R : rel) (original_source : Node)
+    (path : list Node) : bool :=
   match path with
   | [] => true
   | [_] => true
   | x :: ((y :: _) as rest) =>
-      existsb (node_eqb y) (forward x r) && check_fwd_walk forward r rest
+      existsb (node_eqb y) (forward x R original_source) &&
+      check_fwd_walk forward R original_source rest
   end.
 
 Lemma existsb_node_eqb_In (y : Node) (l : list Node) :
@@ -150,33 +142,24 @@ Proof.
   destruct (node_eqb_spec y z) as [->|]; [exact Hz | discriminate].
 Qed.
 
-Lemma check_fwd_walk_sound (forward : ForwardingFn) (r : rel) :
-  forall (path : list Node),
-  check_fwd_walk forward r path = true ->
-  forall i x y, nth_error path i = Some x -> nth_error path (S i) = Some y -> In y (forward x r).
+Lemma check_fwd_walk_sound forward R original_source path :
+  check_fwd_walk forward R original_source path = true ->
+  LocallySorted (forwards_rel forward R original_source) path.
 Proof.
-  induction path as [|x [|y rest] IH]; intros Hchk i u v Hu Hv.
-  - destruct i; discriminate.
-  - destruct i; cbn in Hv; [discriminate | destruct i; discriminate].
-  - cbn in Hchk. apply andb_true_iff in Hchk. destruct Hchk as [Hstep Hrest].
-    destruct i as [|i'].
-    + cbn in Hu, Hv. injection Hu as <-. injection Hv as <-.
-      apply existsb_node_eqb_In. exact Hstep.
-    + apply (IH Hrest i' u v); [exact Hu | exact Hv].
+  induction path as [|x [|y rest] IH]; intros Hchk; try solve [constructor].
+  cbn in Hchk. apply andb_true_iff in Hchk. destruct Hchk as [Hstep Hrest].
+  constructor; auto. apply existsb_node_eqb_In. assumption.
 Qed.
 
-(* the validator certifies reachability: a checked walk's endpoints are reachable (or equal). *)
-Lemma checked_path_reachable (forward : ForwardingFn) (r : rel) (path : list Node) (a b : Node) :
-  check_fwd_walk forward r path = true ->
-  nth_error path 0 = Some a ->
-  nth_error path (pred (length path)) = Some b ->
-  a = b \/ forwarding_reachable forward r a b.
+Lemma checked_path_reachable (forward : ForwardingFn) (R : rel) (original_source : Node)
+    (mid : list Node) (a b d : Node) :
+  check_fwd_walk forward R original_source (a :: mid) = true ->
+  last (a :: mid) d = b ->
+  forwarding_reachable forward R original_source a b.
 Proof.
-  intros Hchk Ha Hb.
-  apply (forwarding_chain_reachable forward r path a b).
-  - apply check_fwd_walk_sound. exact Hchk.
-  - exact Ha.
-  - exact Hb.
+  intros. eapply forwarding_chain_reachable.
+  - apply check_fwd_walk_sound. eassumption.
+  - eassumption.
 Qed.
 
 (* The forwarding table is good for a relation r if for every producer,
