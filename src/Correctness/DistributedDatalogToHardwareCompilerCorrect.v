@@ -16,7 +16,7 @@
    [compile_rule] produces, i.e. the *generic-join correctness*: the trie-join query
    [generate_query] admits exactly the variable bindings under which the lowered rule fires. *)
 
-From Stdlib Require Import List Bool ZArith Lia.
+From Stdlib Require Import List Bool ZArith Lia Relation_Operators.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Datatypes.Result Eqb.
 From Datalog Require Import Datalog Interpreter List Map Default NattifyRel RelMap.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
@@ -2445,7 +2445,8 @@ Notation get_path := (@ComputableGraph.get_path node_id node_id_eqb node_id_set 
 
 (* the forwarding function a compiled node exposes for a relation: the [DestEdge] targets
    recorded in its forwarding table.  [In n2 (fwd_list ft n r)] is exactly [has_fwd_edge]. *)
-Definition fwd_list (ftables : node_ftable_map) (n : node_id) (r : rel_id) : list node_id :=
+Definition fwd_list (ftables : node_ftable_map) (n : node_id) (r : rel_id)
+    (original_source : node_id) : list node_id :=
   @ForwardingCorrect.dest_edges node_id
     (@ForwardingCorrect.node_rel_dests node_id forwarding_table node_ftable_map ftables n r).
 
@@ -2500,27 +2501,31 @@ Qed.
 
 (* The forwarding FUNCTION read off [ninfos]: for node [n], relation [r], the edge destinations its
    own attached forwarding table lists. *)
-Definition forward_of_ninfos (ninfos : list node_info) (n : node_id) (r : rel_id) : list node_id :=
+Definition forward_of_ninfos (ninfos : list node_info) (n : node_id) (r : rel_id)
+    (original_source : node_id) : list node_id :=
   @ForwardingCorrect.dest_edges node_id
     (match map.get (find_ninfo ninfos n).(nforwarding) r with Some ds => ds | None => [] end).
 
 (* It coincides, pointwise, with the [fwd_list] of the generated table. *)
-Lemma forward_of_ninfos_eq (ninfos0 : list node_info) (ft : node_ftable_map) (n : node_id) (r : rel_id) :
-  forward_of_ninfos (attach_forwarding_tables ninfos0 ft) n r = fwd_list ft n r.
+Lemma forward_of_ninfos_eq (ninfos0 : list node_info) (ft : node_ftable_map) (n : node_id) (r : rel_id)
+    (s : node_id) :
+  forward_of_ninfos (attach_forwarding_tables ninfos0 ft) n r s = fwd_list ft n r s.
 Proof.
   unfold forward_of_ninfos, fwd_list, ForwardingCorrect.node_rel_dests.
   rewrite (find_ninfo_nforwarding ninfos0 ft n). reflexivity.
 Qed.
 
 (* [forwarding_reachable] respects pointwise-equal forwarding functions (avoids funext). *)
-Lemma forwarding_reachable_ext (f1 f2 : node_id -> rel_id -> list node_id) (r : rel_id) (a b : node_id) :
-  (forall n r', f1 n r' = f2 n r') ->
-  DistributedDatalog.forwarding_reachable f1 r a b ->
-  DistributedDatalog.forwarding_reachable f2 r a b.
+Lemma forwarding_reachable_ext (f1 f2 : node_id -> rel_id -> node_id -> list node_id)
+    (r : rel_id) (s a b : node_id) :
+  (forall n r' s', f1 n r' s' = f2 n r' s') ->
+  DistributedDatalog.forwarding_reachable f1 r s a b ->
+  DistributedDatalog.forwarding_reachable f2 r s a b.
 Proof.
-  intros Hext H. induction H as [n1 n2 Hin | n1 n2 n3 Hin Hr IH].
-  - apply DistributedDatalog.fwd_step. rewrite <- (Hext n1 r). exact Hin.
-  - apply (DistributedDatalog.fwd_trans f2 r n1 n2 n3); [rewrite <- (Hext n1 r); exact Hin | exact IH].
+  intros Hext H. induction H as [x | x y z Hstep Hr IH].
+  - apply rt1n_refl.
+  - eapply rt1n_trans; [| exact IH].
+    unfold DistributedDatalog.forwards_rel in *. rewrite <- Hext. exact Hstep.
 Qed.
 
 (* [good_source] depends on the forwarding function only through [forwarding_reachable], so it
@@ -2528,20 +2533,18 @@ Qed.
 Lemma good_source_forward_ext (net1 net2 : DNet) (n : node_id) (R : rel_id) :
   net1.(DistributedDatalog.layout) = net2.(DistributedDatalog.layout) ->
   net1.(DistributedDatalog.output) = net2.(DistributedDatalog.output) ->
-  (forall a r, net1.(DistributedDatalog.forward) a r = net2.(DistributedDatalog.forward) a r) ->
+  (forall a r s, net1.(DistributedDatalog.forward) a r s = net2.(DistributedDatalog.forward) a r s) ->
   DistributedDatalog.good_source net1 n R -> DistributedDatalog.good_source net2 n R.
 Proof.
   intros Hlay Hout Hfwd [Hcons Hexout]. split.
-  - intros n_cons Hncons. rewrite <- Hlay in Hncons. destruct (Hcons n_cons Hncons) as [Heq | Hreach].
-    + left; exact Heq.
-    + right. exact (forwarding_reachable_ext _ _ R n n_cons Hfwd Hreach).
+  - intros n_cons Hncons. rewrite <- Hlay in Hncons.
+    exact (forwarding_reachable_ext _ _ R n n n_cons Hfwd (Hcons n_cons Hncons)).
   - intros Houtex2.
     assert (Houtex1 : exists n_out, net1.(DistributedDatalog.output) n_out R).
     { destruct Houtex2 as [n_out Ho]. exists n_out. rewrite Hout. exact Ho. }
     destruct (Hexout Houtex1) as [n_out [Hout_o Hreach_o]]. exists n_out. split.
     + rewrite <- Hout. exact Hout_o.
-    + destruct Hreach_o as [Heq | Hreach];
-        [left; exact Heq | right; exact (forwarding_reachable_ext _ _ R n n_out Hfwd Hreach)].
+    + exact (forwarding_reachable_ext _ _ R n n n_out Hfwd Hreach_o).
 Qed.
 
 (* [good_network_streaming] transports across two nets agreeing on graph/layout/input/output with
@@ -2554,7 +2557,7 @@ Lemma good_network_streaming_forward_ext (net1 net2 : DNet)
   net1.(DistributedDatalog.layout) = net2.(DistributedDatalog.layout) ->
   net1.(DistributedDatalog.input) = net2.(DistributedDatalog.input) ->
   net1.(DistributedDatalog.output) = net2.(DistributedDatalog.output) ->
-  (forall a r, net1.(DistributedDatalog.forward) a r = net2.(DistributedDatalog.forward) a r) ->
+  (forall a r s, net1.(DistributedDatalog.forward) a r s = net2.(DistributedDatalog.forward) a r s) ->
   DistributedDatalog.good_network_streaming net1 program Q ->
   DistributedDatalog.good_network_streaming net2 program Q.
 Proof.
@@ -2563,9 +2566,8 @@ Proof.
   split; [rewrite <- Hg; exact Hgg|].
   split; [rewrite <- Hg, <- Hl; exact Hlay|].
   split.
-  - unfold DistributedDatalog.good_forwarding_sound. intros n1 n2 r Hin2.
-    rewrite <- Hf in Hin2. destruct (Hfwd n1 n2 r Hin2) as (H1 & H2 & He).
-    rewrite <- Hg. split; [exact H1 | split; [exact H2 | exact He]].
+  - unfold DistributedDatalog.good_forwarding_sound. intros n1 n2 r s Hin2.
+    rewrite <- Hf in Hin2. rewrite <- Hg. exact (Hfwd n1 n2 r s Hin2).
   - split.
     + intros n_prod R Hprodu. rewrite <- Hl in Hprodu.
       exact (good_source_forward_ext net1 net2 n_prod R Hl Ho Hf (Hprod n_prod R Hprodu)).
@@ -2581,25 +2583,20 @@ Qed.
    The table IS the graph, so this is just [get_path_spec] plus the edge characterization. *)
 Lemma ftables_forwarding_reachable (ftables : internode_forwarding_tables) (ninfos : list node_info)
     (rel0 : rel_id) (prod cons : node_id) (path : list node_id) :
-  prod <> cons ->
   get_path (graph_of_ftables_at_rel ftables rel0) prod cons = Some path ->
   @DistributedDatalog.forwarding_reachable rel_id node_id
-    (fwd_list (compute_forwarding_table ftables ninfos)) rel0 prod cons.
+    (fwd_list (compute_forwarding_table ftables ninfos)) rel0 prod prod cons.
 Proof.
-  intros Hne Hpath.
-  destruct (@ComputableGraph.get_path_spec node_id node_id_eqb node_id_eqb_spec node_id_set
-              node_id_set_ok node_id_edge_set (graph_of_ftables_at_rel ftables rel0) prod cons path
-              Hpath) as [_ [Hhd [Hlast Hwalk]]].
-  set (FT := compute_forwarding_table ftables ninfos).
-  assert (Hchain : forall i x y, nth_error path i = Some x -> nth_error path (S i) = Some y ->
-                     In y (fwd_list FT x rel0)).
-  { intros i x y Hx Hy. unfold fwd_list, FT.
-    apply ForwardingCorrect.has_fwd_edge_compute.
-    apply ForwardingCorrect.cg_edge_graph_of_ftables. exact (Hwalk i x y Hx Hy). }
-  destruct (@DistributedDatalog.forwarding_chain_reachable rel_id node_id
-              (fwd_list FT) rel0 path prod cons Hchain Hhd Hlast) as [Heq | Hreach].
-  - exfalso. apply Hne. exact Heq.
-  - exact Hreach.
+  intros Hpath.
+  apply (@ComputableGraph.get_path_spec node_id node_id_eqb node_id_eqb_spec node_id_set
+           node_id_set_ok node_id_edge_set) in Hpath.
+  apply ComputableGraph.is_path_cons in Hpath.
+  destruct Hpath as [mid [_ [Hwalk Hlast]]].
+  eapply DistributedDatalog.forwarding_chain_reachable; [| exact Hlast].
+  eapply ComputableGraph.LocallySorted_impl; [exact Hwalk|].
+  intros x y Hedge. unfold DistributedDatalog.forwards_rel, fwd_list.
+  apply ForwardingCorrect.has_fwd_edge_compute.
+  apply ForwardingCorrect.cg_edge_graph_of_ftables. exact Hedge.
 Qed.
 
 Notation cg2g := (@ComputableGraph.computable_graph_to_graph node_id node_id_set node_id_edge_set).
@@ -2655,14 +2652,14 @@ Lemma prog_impl_fact_iff_datalog (program : list (Datalog.rule (rel := rel_id) (
   DistributedDatalog.prog_impl_fact program Q f <-> Datalog.prog_impl program Q f.
 Proof.
   intros Hbare. unfold DistributedDatalog.prog_impl_fact, Datalog.prog_impl. split.
-  - apply NodeHardwareSemantics.pftree_weaken. intros x l Hx.
+  - intros Htree. eapply Datalog.pftree_weaken; [exact Htree|]. intros x l Hx.
     apply Exists_exists in Hx. destruct Hx as [r [Hin Hfires]].
     apply Exists_exists. exists r. split; [exact Hin|].
     apply (proj2 (rule_impl_iff_fires (Datalog.one_step_derives program) r x l
                     (match Hfires with ex_intro _ R (ex_intro _ args (conj He _)) =>
                        ex_intro _ R (ex_intro _ args He) end))).
     exact Hfires.
-  - apply NodeHardwareSemantics.pftree_weaken. intros x l Hx.
+  - intros Htree. eapply Datalog.pftree_weaken; [exact Htree|]. intros x l Hx.
     apply Exists_exists in Hx. destruct Hx as [r [Hin Hri]].
     apply Exists_exists. exists r. split; [exact Hin|].
     pose proof (proj1 (Forall_forall _ _) Hbare r Hin) as Hbr.
@@ -2822,15 +2819,13 @@ Qed.
 Lemma construction_reach (ftables : internode_forwarding_tables) (ninfos : list node_info)
     (R : rel_id) (np nc : node_id) :
   Datalog.List.is_Some (get_path (graph_of_ftables_at_rel ftables R) np nc) = true ->
-  np = nc \/
   @DistributedDatalog.forwarding_reachable rel_id node_id
-    (fwd_list (compute_forwarding_table ftables ninfos)) R np nc.
+    (fwd_list (compute_forwarding_table ftables ninfos)) R np np nc.
 Proof.
   intros Hpath.
-  destruct (eqb_boolspec _ np nc) as [E|Hne]; [left; exact E | right].
   destruct (get_path (graph_of_ftables_at_rel ftables R) np nc) as [path|] eqn:Hgpath;
     [| cbn in Hpath; discriminate].
-  exact (ftables_forwarding_reachable ftables ninfos R np nc path Hne Hgpath).
+  exact (ftables_forwarding_reachable ftables ninfos R np nc path Hgpath).
 Qed.
 
 Lemma In_get_or_default (lfp : fact_locations_map) (R : rel_id) (n : node_id) :
@@ -3025,10 +3020,8 @@ Proof.
   split; [exact Hgg|].
   split; [exact Hlay|].
   split.
-  - intros n1 n2 r Hin.
-    assert (Hedge : @ComputableGraph.cg_edge node_id node_id_set node_id_edge_set g n1 n2)
-      by exact (ForwardingCorrect.ftables_in_graphb_sound g ftables ninfos Hfig n1 r n2 Hin).
-    destruct (Hgg n1 n2 Hedge) as [Hn1 Hn2]. split; [exact Hn1 | split; [exact Hn2 | exact Hedge]].
+  - intros n1 n2 r s Hin.
+    exact (ForwardingCorrect.ftables_in_graphb_sound g ftables ninfos Hfig n1 r n2 Hin).
   - split.
     + apply (construction_good_source ninfos ftables llayout ext_prod ext_cons
                (dnet_of_llayout llayout
@@ -3100,21 +3093,15 @@ Definition dnet_of_ninfos (ninfos : list node_info) (base : DNet) : DNet :=
 (* [get_facts_on_node] shape lemmas. *)
 Lemma get_facts_on_node_in (l : list (@DistributedDatalog.network_prop rel_id T node_id))
       (n : node_id) (g : Datalog.fact (rel := rel_id)) :
-  In (n, g) (get_facts_on_node l) -> In (FactOnNode n g) l.
+  In (n, g) (get_facts_on_node l) -> exists s, In (FactOnNode n g s) l.
 Proof.
   induction l as [| p l IH]; cbn; [intros []|].
-  destruct p as [n0 g0 | n0 g0].
-  - intros [Heq | Hin]; [injection Heq as -> ->; left; reflexivity | right; apply IH, Hin].
-  - intros Hin; right; apply IH, Hin.
+  destruct p as [n0 g0 s0 | n0 g0].
+  - intros [Heq | Hin];
+      [ injection Heq as -> ->; exists s0; left; reflexivity
+      | destruct (IH Hin) as [s Hs]; exists s; right; exact Hs ].
+  - intros Hin. destruct (IH Hin) as [s Hs]. exists s. right. exact Hs.
 Qed.
-
-Lemma facts_on_node_map_fst (n : node_id) (l : list (Datalog.fact (rel := rel_id))) :
-  Forall (fun n' => n' = n) (map fst (get_facts_on_node (map (FactOnNode n) l))).
-Proof. induction l as [|a l IH]; cbn; [constructor | constructor; [reflexivity | exact IH]]. Qed.
-
-Lemma facts_on_node_map_snd (n : node_id) (l : list (Datalog.fact (rel := rel_id))) :
-  map snd (get_facts_on_node (map (FactOnNode n) l)) = l.
-Proof. induction l as [|a l IH]; cbn; [reflexivity | rewrite IH; reflexivity]. Qed.
 
 Section OperationalNetworkAdequacy.
 Context (net : DNet) (prog : node_id -> hardware_program) (tries : node_id -> list trie).
@@ -3147,54 +3134,45 @@ Proof.
     exact (proj2 (rule_impl_iff_fires (fun _ _ _ => False) r f hyps' Hnorm) Hfires).
 Qed.
 
-(* a single node's [node_run] re-plays as a network proof tree of [FactOnNode]s *)
-Lemma node_run_to_netpft (c : DistributedHardwareSemantics.config) (n : node_id) (f : Datalog.fact (rel := rel_id)) :
-  (forall h, c n h -> network_pftree net (FactOnNode n h)) ->
-  node_run (tries n) (prog n) (c n) f ->
-  network_pftree net (FactOnNode n f).
-Proof.
-  intros Hleaf. unfold node_run. revert f.
-  apply (Datalog.pftree_ind
-           (fun f hyps' => Exists (fun hr => hw_rule_impl (tries n) hr f hyps') (prog n))
-           (c n)
-           (fun f => network_pftree net (FactOnNode n f))).
-  - intros f0 HQ. apply Hleaf, HQ.
-  - intros f0 hyps' Hex _ HR.
-    apply node_fires_iff in Hex. apply Exists_exists in Hex. destruct Hex as [r [Hin Hfires]].
-    unfold network_pftree. eapply pftree_step with (l := map (FactOnNode n) hyps').
-    + eapply DistributedDatalog.RuleApp;
-        [ exact Hin | apply facts_on_node_map_fst | rewrite facts_on_node_map_snd; exact Hfires ].
-    + apply Forall_forall. intros p Hp. apply in_map_iff in Hp.
-      destruct Hp as [g [<- Hg]]. rewrite Forall_forall in HR. apply HR, Hg.
-Qed.
-
 (* SOUNDNESS of the operational run: every reachable fact is derivable by the network *)
 Lemma reach_to_netpft (c : DistributedHardwareSemantics.config) :
   DistributedHardwareSemantics.dreach prog tries Fwd Inp c ->
-  forall n f, c n f -> network_pftree net (FactOnNode n f).
+  forall n s f, c n s f -> network_pftree net (FactOnNode n f s).
 Proof.
-  intros Hr. induction Hr as [| c c' Hr IH Hstep]; intros n f Hcf.
+  intros Hr. induction Hr as [| c c' Hr IH Hstep]; intros n s f Hcf.
   - destruct Hcf.
-  - inversion Hstep as [a g Hi | a g Hru | a a' g Hag Hfwd]; subst c'.
-    + destruct Hcf as [Hold | [-> ->]].
+  - inversion Hstep as [a g Hi | a g hyps Hfire Hhyps | a a' s0 g Hag Hfwd]; subst c'.
+    + destruct Hcf as [Hold | [-> [-> ->]]].
       * apply IH; exact Hold.
-      * unfold network_pftree. eapply pftree_step with (l := []); [apply DistributedDatalog.Input; exact Hi | constructor].
-    + destruct Hcf as [Hold | [-> ->]].
+      * unfold network_pftree. eapply pftree_step with (l := []);
+          [apply DistributedDatalog.Input; exact Hi | constructor].
+    + destruct Hcf as [Hold | [-> [-> ->]]].
       * apply IH; exact Hold.
-      * apply (node_run_to_netpft c a g); [intros h Hch; apply IH; exact Hch | exact Hru].
-    + destruct Hcf as [Hold | [-> ->]].
+      * assert (Hlift : Forall (fun h => exists s', network_pftree net (FactOnNode a h s')) hyps).
+        { rewrite Forall_forall in Hhyps |- *. intros h Hh.
+          destruct (Hhyps h Hh) as [s' Hs']. exists s'. exact (IH a s' h Hs'). }
+        destruct (DistributedDatalog.hyps_at_node net a hyps Hlift) as [prems [Hall Hget]].
+        apply node_fires_iff in Hfire. apply Exists_exists in Hfire.
+        destruct Hfire as [r [Hin Hfires]].
+        unfold network_pftree. eapply pftree_step with (l := prems); [| exact Hall].
+        eapply DistributedDatalog.RuleApp; [exact Hin | |].
+        -- rewrite Hget, map_map. cbn. apply Forall_forall. intros x Hx.
+           apply in_map_iff in Hx. destruct Hx as [? [? ?]]. auto.
+        -- rewrite Hget, map_map. cbn. rewrite map_id. exact Hfires.
+    + destruct Hcf as [Hold | [-> [-> ->]]].
       * apply IH; exact Hold.
-      * unfold network_pftree. eapply pftree_step with (l := [FactOnNode a g]);
-          [apply DistributedDatalog.Forward; exact Hfwd | constructor; [apply IH; exact Hag | constructor]].
+      * unfold network_pftree. eapply pftree_step;
+          [apply DistributedDatalog.Forward; exact Hfwd
+          | constructor; [apply IH; exact Hag | constructor]].
 Qed.
 
 Theorem hw_run_output_to_network (f : Datalog.fact (rel := rel_id)) :
   DistributedHardwareSemantics.hw_run_output prog tries Fwd Inp Outp f -> network_prog_impl_fact net f.
 Proof.
-  intros [n [c [Hr [Hcf Hout]]]]. exists n.
-  unfold network_pftree. eapply pftree_step with (l := [FactOnNode n f]);
+  intros [n [s [c [Hr [Hcf Hout]]]]]. exists n.
+  unfold network_pftree. eapply pftree_step with (l := [FactOnNode n f s]);
     [apply DistributedDatalog.OutputStep; exact Hout
-    | constructor; [apply (reach_to_netpft c Hr n f Hcf) | constructor]].
+    | constructor; [apply (reach_to_netpft c Hr n s f Hcf) | constructor]].
 Qed.
 
 (* COMPLETENESS of the operational run: the [RuleApp] case merges the present hypotheses
@@ -3202,57 +3180,53 @@ Qed.
 Lemma netpft_present (x : @DistributedDatalog.network_prop rel_id T node_id) :
   network_pftree net x ->
   match x with
-  | FactOnNode n f => present n f
-  | Output n f => present n f /\ Outp n (Datalog.rel_of f)
+  | FactOnNode n f s => present n s f
+  | Output n f => (exists s, present n s f) /\ Outp n (Datalog.rel_of f)
   end.
 Proof.
   revert x. unfold network_pftree.
   apply (Datalog.pftree_ind (fun fact_node hyps => network_step net fact_node hyps) (fun _ => False)
            (fun x => match x with
-                     | FactOnNode n f => present n f
-                     | Output n f => present n f /\ Outp n (Datalog.rel_of f)
+                     | FactOnNode n f s => present n s f
+                     | Output n f => (exists s, present n s f) /\ Outp n (Datalog.rel_of f)
                      end)).
   - intros x [].
   - intros x l Hstep _ HR.
-    destruct Hstep as [n f Hi | n f r hyps Hin Hfst Hfires | n n' f Hfwd | n f Hout].
-    + exists (DistributedHardwareSemantics.cadd (fun _ _ => False) n f). split.
+    destruct Hstep as [n f Hi | n f r hyps Hin Hfst Hfires | n n' f s Hfwd | n f s Hout].
+    + exists (DistributedHardwareSemantics.cadd (fun _ _ _ => False) n n f). split.
       * eapply DistributedHardwareSemantics.dreachS;
           [apply DistributedHardwareSemantics.dreach0 | apply DistributedHardwareSemantics.dstep_input; exact Hi].
-      * right; split; reflexivity.
-    + assert (Hpres : Forall (fun g => present n g) (map snd (get_facts_on_node hyps))).
+      * right; repeat split; reflexivity.
+    + assert (Hpres : Forall (fun g => exists s, present n s g) (map snd (get_facts_on_node hyps))).
       { apply Forall_forall. intros g Hg. apply in_map_iff in Hg.
         destruct Hg as [[n' g'] [Heq Hin']]. cbn in Heq; subst g'.
         assert (Hn' : n' = n).
         { rewrite Forall_forall in Hfst. apply Hfst, in_map_iff.
           exists (n', g); split; [reflexivity | exact Hin']. }
-        subst n'. pose proof (get_facts_on_node_in hyps n g Hin') as HinFact.
-        rewrite Forall_forall in HR. exact (HR _ HinFact). }
+        subst n'. destruct (get_facts_on_node_in hyps n g Hin') as [s HinFact].
+        exists s. rewrite Forall_forall in HR. exact (HR _ HinFact). }
       destruct (DistributedHardwareSemantics.present_list prog tries Fwd Inp n _ Hpres)
         as [c [Hrc Hcfacts]].
-      assert (Hnr : node_run (tries n) (prog n) (c n) f).
-      { unfold node_run. eapply pftree_step with (l := map snd (get_facts_on_node hyps)).
-        - apply node_fires_iff. apply Exists_exists. exists r. split; [exact Hin | exact Hfires].
-        - apply Forall_forall. intros g Hg. apply pftree_leaf.
-          rewrite Forall_forall in Hcfacts. apply Hcfacts, Hg. }
-      exists (DistributedHardwareSemantics.cadd c n f). split.
-      * eapply DistributedHardwareSemantics.dreachS;
-          [exact Hrc | apply DistributedHardwareSemantics.dstep_run; exact Hnr].
-      * right; split; reflexivity.
+      exists (DistributedHardwareSemantics.cadd c n n f). split.
+      * eapply DistributedHardwareSemantics.dreachS; [exact Hrc |].
+        eapply DistributedHardwareSemantics.dstep_run; [| exact Hcfacts].
+        apply node_fires_iff. apply Exists_exists. exists r. split; [exact Hin | exact Hfires].
+      * right; repeat split; reflexivity.
     + pose proof (Forall_inv HR) as Hpres. destruct Hpres as [c [Hrc Hcnf]].
-      exists (DistributedHardwareSemantics.cadd c n' f). split.
+      exists (DistributedHardwareSemantics.cadd c n' s f). split.
       * eapply DistributedHardwareSemantics.dreachS;
           [exact Hrc
-          | apply (DistributedHardwareSemantics.dstep_forward prog tries Fwd Inp c n n' f Hcnf Hfwd)].
-      * right; split; reflexivity.
-    + split; [exact (Forall_inv HR) | exact Hout].
+          | apply (DistributedHardwareSemantics.dstep_forward prog tries Fwd Inp c n n' s f Hcnf Hfwd)].
+      * right; repeat split; reflexivity.
+    + split; [exists s; exact (Forall_inv HR) | exact Hout].
 Qed.
 
 Theorem network_to_hw_run_output (f : Datalog.fact (rel := rel_id)) :
   network_prog_impl_fact net f -> DistributedHardwareSemantics.hw_run_output prog tries Fwd Inp Outp f.
 Proof.
   intros [n Hpf]. pose proof (netpft_present (Output n f) Hpf) as Hmot.
-  destruct Hmot as [[c [Hrc Hcnf]] Hout].
-  exists n, c. split; [exact Hrc | split; [exact Hcnf | exact Hout]].
+  destruct Hmot as [[s [c [Hrc Hcnf]]] Hout].
+  exists n, s, c. split; [exact Hrc | split; [exact Hcnf | exact Hout]].
 Qed.
 
 (* ADEQUACY: the operational run of [net]'s data equals the network's derivability. *)
@@ -3308,7 +3282,7 @@ Proof.
   { apply (good_network_streaming_forward_ext base
              (dnet_of_ninfos (attach_forwarding_tables ninfos0 ft) base) program Q);
       [reflexivity | reflexivity | reflexivity | reflexivity | | exact Hgood].
-    intros a r. cbn. rewrite Hbasefwd. symmetry. exact (forward_of_ninfos_eq ninfos0 ft a r). }
+    intros a r s. cbn. rewrite Hbasefwd. symmetry. exact (forward_of_ninfos_eq ninfos0 ft a r s). }
   unfold DistributedHardwareSemantics.run_ninfos, DistributedHardwareSemantics.node_prog, DistributedHardwareSemantics.node_tries.
   (* operational run with [forward_from_ninfos] == with [forward_of_ninfos] (pointwise equal) ... *)
   apply (iff_trans
@@ -3318,7 +3292,7 @@ Proof.
               (DistributedHardwareSemantics.forward_from_ninfos (attach_forwarding_tables ninfos0 ft))
               (forward_of_ninfos (attach_forwarding_tables ninfos0 ft))
               (base.(DistributedDatalog.input)) (base.(DistributedDatalog.output)) f
-              (fun _ _ => eq_refl))).
+              (fun _ _ _ => eq_refl))).
   (* ... == network derivability of the [ninfos]-forwarded net ... *)
   apply (iff_trans
            (hw_run_output_iff_network (dnet_of_ninfos (attach_forwarding_tables ninfos0 ft) base)
