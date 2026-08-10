@@ -1,4 +1,4 @@
-From Stdlib Require Import List Bool.
+From Stdlib Require Import List Bool Relation_Operators.
 From Datalog Require Import Datalog.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 From DatalogRocq Require Import Topologies.Graph.
@@ -25,7 +25,7 @@ Section DistributedDatalog.
   Definition fires (r : rule) (f : fact) (hyps : list fact) : Prop :=
     exists R args, f = normal_fact R args /\ non_meta_rule_impl r R args hyps.
 
-  Definition ForwardingTable := rel -> list Node.
+  Definition ForwardingTable := rel ->  Node -> list Node.
   Definition ForwardingFn := Node -> ForwardingTable.
   Definition InputFn := Node -> fact -> Prop.
   Definition OutputFn := Node -> rel -> Prop.
@@ -40,31 +40,31 @@ Section DistributedDatalog.
   }.
 
 Inductive network_prop :=
-  | FactOnNode (n : Node) (f : fact)
+  | FactOnNode (n : Node) (f : fact) (source : Node)
   | Output (n : Node) (f : fact).
 
 Fixpoint get_facts_on_node (nps : list (network_prop)) : list (Node * fact) :=
   match nps with
   | [] => []
-  | FactOnNode n f :: t => (n, f) :: get_facts_on_node t
+  | FactOnNode n f _ :: t => (n, f) :: get_facts_on_node t
   | Output n f :: t => get_facts_on_node t
   end.
 
 Inductive network_step (net : DataflowNetwork) : network_prop -> list (network_prop) -> Prop :=
   | Input n f :
       net.(input) n f ->
-      network_step net (FactOnNode n f) []
+      network_step net (FactOnNode n f n) []
   | RuleApp n f r hyps :
       In r (net.(layout) n) ->
       Forall (fun n' => n' = n) (map fst (get_facts_on_node hyps)) ->
       fires r f (map snd (get_facts_on_node hyps)) ->
-      network_step net (FactOnNode n f) (hyps)
-  | Forward n n' f :
-      In n' (net.(forward) n (rel_of f)) ->
-      network_step net (FactOnNode n' f) [FactOnNode n f]
-  | OutputStep n f :
+      network_step net (FactOnNode n f n) (hyps)
+  | Forward n n' f original_source :
+      In n' (net.(forward) n (rel_of f) original_source) ->
+      network_step net (FactOnNode n' f original_source) [FactOnNode n f original_source]
+  | OutputStep n f original_source :
       net.(output) n (rel_of f) ->
-      network_step net (Output n f) [FactOnNode n f].
+      network_step net (Output n f) [FactOnNode n f original_source].
 
 Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
   pftree (fun fact_node hyps => network_step net fact_node hyps) (fun _ => False).
@@ -97,23 +97,19 @@ Definition node_consumes (layout : Layout) (n : Node) (r : rel) : Prop :=
   exists rule, In rule (layout n) /\ In r (hyp_rels rule).
 
 (* There exists a forwarding path for relation r from n1 to n2 *)
-Definition forwards_rel (forward : ForwardingFn) (n1 n2 : Node) (r : rel) : Prop :=
-  In n2 (forward n1 r).
+Definition forwards_rel (forward : ForwardingFn) (R : rel) (original_source : Node) (n1 n2 : Node) : Prop :=
+  In n2 (forward n1 R original_source).
 
 (* n2 is reachable from n1 via forwarding for relation r in one or more steps *)
-Inductive forwarding_reachable (forward : ForwardingFn) (r : rel) : Node -> Node -> Prop :=
-  | fwd_step : forall n1 n2,
-      In n2 (forward n1 r) ->
-      forwarding_reachable forward r n1 n2
-  | fwd_trans : forall n1 n2 n3,
-      In n2 (forward n1 r) ->
-      forwarding_reachable forward r n2 n3 ->
-      forwarding_reachable forward r n1 n3.
+Definition forwarding_reachable (forward : ForwardingFn) (R : rel) (original_source : Node) :=
+  clos_refl_trans_1n _ (forwards_rel forward R original_source).
 
 (* A walk whose every consecutive pair forwards [r] makes its last node forwarding-reachable
    from its first (or they coincide).  This is the bridge from a laid-down forwarding path to
    the [forwarding_reachable] closure that [good_source] reasons about. *)
+
 Lemma forwarding_chain_reachable (forward : ForwardingFn) (r : rel) :
+
   forall (path : list Node) (a b : Node),
   (forall i x y, nth_error path i = Some x -> nth_error path (S i) = Some y -> In y (forward x r)) ->
   nth_error path 0 = Some a ->
@@ -469,6 +465,7 @@ Proof.
     + apply Forward. exact H.
     + constructor; [exact Hpf | constructor].
 Qed.
+Search Forall2.
 
 Lemma Forall2_exists_l {A B : Type} (P : A -> B -> Prop) (l1 : list A) (l2 : list B) (a : A) :
   Forall2 P l1 l2 ->
