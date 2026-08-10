@@ -20,7 +20,7 @@ Context {node_id_edge_set : map.map node_id node_id_set} {node_id_edge_set_ok : 
 Notation node_graph := (@ComputableGraph.ComputableGraph node_id node_id_set node_id_edge_set).
 Notation cg_edge := (@ComputableGraph.cg_edge node_id node_id_set node_id_edge_set).
 
-Context {forwarding_table : map.map rel_id (list node_id)}
+Context {forwarding_table : map.map (rel_id * node_id) (list node_id)}
         {forwarding_table_ok : map.ok forwarding_table}.
 Context {node_ftable_map : map.map node_id forwarding_table}
         {node_ftable_map_ok : map.ok node_ftable_map}.
@@ -28,11 +28,13 @@ Context {node_ftable_map : map.map node_id forwarding_table}
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 (* the forwarding edges node [node] has for relation [rel] in [ftables] *)
-Definition node_rel_dests (ftables : node_ftable_map) (node : node_id) (rel : rel_id) : list node_id :=
-  get_or_default (get_or_default ftables node) rel.
+Definition node_rel_dests (ftables : node_ftable_map) (node : node_id) (rel : rel_id)
+    (original_source : node_id) : list node_id :=
+  get_or_default (get_or_default ftables node) (rel, original_source).
 
-Definition has_fwd_edge (ftables : node_ftable_map) (node : node_id) (rel : rel_id) (m : node_id) : Prop :=
-  In m (node_rel_dests ftables node rel).
+Definition has_fwd_edge (ftables : node_ftable_map) (node : node_id) (rel : rel_id)
+    (original_source : node_id) (m : node_id) : Prop :=
+  In m (node_rel_dests ftables node rel original_source).
 
 (*============================================================================*)
 (*  Soundness: every forwarding edge is a real graph edge                      *)
@@ -40,7 +42,7 @@ Definition has_fwd_edge (ftables : node_ftable_map) (node : node_id) (rel : rel_
 
 (* the table is *edge-sound* when every forwarding edge it records is a real graph edge *)
 Definition ftable_edges_sound (g : node_graph) (ftables : node_ftable_map) : Prop :=
-  forall node rel m, has_fwd_edge ftables node rel m -> cg_edge g node m.
+  forall node rel s m, has_fwd_edge ftables node rel s m -> cg_edge g node m.
 
 Lemma get_map_values {K V1 V2 : Type} {keqb : Eqb K} {keqb_ok : Eqb_ok keqb}
     {M1 : map.map K V1} {M1ok : map.ok M1} {M2 : map.map K V2} {M2ok : map.ok M2}
@@ -65,12 +67,13 @@ Proof.
 Qed.
 
 (* an edge of the graph the table induces for [R] is exactly a recorded next hop *)
-Lemma cg_edge_graph_of_ftables (ftables : node_ftable_map) (R : rel_id) (n m : node_id) :
-  cg_edge (graph_of_ftables_at_rel ftables R) n m <-> has_fwd_edge ftables n R m.
+Lemma cg_edge_graph_of_ftables (ftables : node_ftable_map) (R : rel_id) (s : node_id)
+    (n m : node_id) :
+  cg_edge (graph_of_ftables_at ftables R s) n m <-> has_fwd_edge ftables n R s m.
 Proof.
   unfold ComputableGraph.cg_edge, ComputableGraph.check_edge_exists,
-    DistributedDatalogToHardwareCompiler.graph_of_ftables_at_rel,
-    DistributedDatalogToHardwareCompiler.edges_of_ftables_at_rel,
+    DistributedDatalogToHardwareCompiler.graph_of_ftables_at,
+    DistributedDatalogToHardwareCompiler.edges_of_ftables_at,
     has_fwd_edge, node_rel_dests, get_or_default, get_or.
   cbn [ComputableGraph.edges]. rewrite get_map_values.
   destruct (map.get ftables n) as [ft|] eqn:Hn; cbn [option_map].
@@ -87,13 +90,13 @@ Qed.
 Lemma ftables_in_graphb_sound (g : node_graph) (ftables : node_ftable_map) :
   ftables_in_graphb g ftables = true -> ftable_edges_sound g ftables.
 Proof.
-  intros Hcheck node rel m Hfwd.
+  intros Hcheck node rel s m Hfwd.
   unfold has_fwd_edge, node_rel_dests, get_or_default, get_or in Hfwd.
   destruct (map.get ftables node) as [ft|] eqn:Hnode;
     [| cbv [default map_default list_default] in Hfwd; rewrite map.get_empty in Hfwd; destruct Hfwd].
   pose proof (map.get_forallb _ ftables Hcheck node ft Hnode) as Hft.
-  destruct (map.get ft rel) as [hops|] eqn:Hrel; [|destruct Hfwd].
-  pose proof (map.get_forallb _ ft Hft rel hops Hrel) as Hhops.
+  destruct (map.get ft (rel, s)) as [hops|] eqn:Hrel; [|destruct Hfwd].
+  pose proof (map.get_forallb _ ft Hft (rel, s) hops Hrel) as Hhops.
   unfold DistributedDatalogToHardwareCompiler.hops_in_graphb in Hhops.
   rewrite forallb_forall in Hhops. exact (Hhops _ Hfwd).
 Qed.

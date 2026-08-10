@@ -82,7 +82,7 @@ End Run.
 
 (*----Running the compiler's output [ninfos] directly----*)
 
-Context {forwarding_table : map.map rel_id (list node_id)}.
+Context {forwarding_table : map.map (rel_id * node_id) (list node_id)}.
 Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 (* read a node's compiled data off the returned [ninfos] (empty default if the node is absent). *)
@@ -102,7 +102,7 @@ Definition node_tries (ninfos : list node_info) (n : node_id) : list trie :=
 (* the forwarding function read off [ninfos]: the destinations a node lists for a relation. *)
 Definition forward_from_ninfos (ninfos : list node_info) (n : node_id) (r : rel_id)
     (original_source : node_id) : list node_id :=
-  match map.get (find_ninfo ninfos n).(DistributedHardwareProgram.nforwarding) r with
+  match map.get (find_ninfo ninfos n).(DistributedHardwareProgram.nforwarding) (r, original_source) with
   | Some ds => ds | None => [] end.
 
 (* RUN THE COMPILED NETWORK, straight from the compiler output [ninfos]: each node runs [node_prog]

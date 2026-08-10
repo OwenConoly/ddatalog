@@ -19,7 +19,7 @@ Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 #[local] Existing Instance rel_id.
 
 Context {node_id_set : map.map node_id unit}.
-Context {forwarding_table : map.map rel_id (list node_id)}.
+Context {forwarding_table : map.map (rel_id * node_id) (list node_id)}.
 Context {layout_map : map.map node_id lowered_program}.
 Context {fact_locations : map.map rel_id (list node_id)}.
 
@@ -389,38 +389,39 @@ Definition get_internal_consumers_of (layout : layout_map) :=
 Definition node_set_of_list (ns : list node_id) : node_id_set :=
   map.of_list (List.map (fun n => (n, tt)) ns).
 
-Definition edges_of_ftables_at_rel (ftables : node_ftable_map) (R : rel_id)
+Definition edges_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (original_source : node_id)
   : node_id_edge_set :=
-  map.map_values (fun ft => node_set_of_list (get_or_default ft R)) ftables.
+  map.map_values (fun ft => node_set_of_list (get_or_default ft (R, original_source))) ftables.
 
 (*TODO use a different representation of grpahs so i don't have to deal with this*)
 Definition nodes_of_edges (es : node_id_edge_set) : node_id_set :=
   map.fold (fun ns n hops => map.putmany (map.put ns n tt) hops) map.empty es.
 
-Definition graph_of_ftables_at_rel (ftables : node_ftable_map) (R : rel_id) : node_graph :=
-  let es := edges_of_ftables_at_rel ftables R in
+Definition graph_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (original_source : node_id)
+  : node_graph :=
+  let es := edges_of_ftables_at ftables R original_source in
   {| nodes := nodes_of_edges es; edges := es |}.
 
 Definition path_exists (g : node_graph) (source dest : node_id) :=
   is_Some (get_path g source dest).
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
-Definition all_rules_fed_for_relation (g : node_graph)
+Definition all_rules_fed_for_relation (gof : node_id -> node_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
-  forallb (fun '(p, ic) => path_exists g p ic) (list_prod all_producers internal_consumers).
+  forallb (fun '(p, ic) => path_exists (gof p) p ic) (list_prod all_producers internal_consumers).
 
 Definition all_rules_fed ftables
   (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
   map.forallb (fun R internal_consumers =>
                  let all_producers := get_or_default all_producers_of R in
-                 all_rules_fed_for_relation (graph_of_ftables_at_rel ftables R) all_producers internal_consumers)
+                 all_rules_fed_for_relation (graph_of_ftables_at ftables R) all_producers internal_consumers)
     internal_consumers_of.
 
 (*all rule_producers(R) -> some external rule_consumer(R)*)
-Definition producers_go_out_for_relation (g : node_graph)
+Definition producers_go_out_for_relation (gof : node_id -> node_graph)
   (all_producers : list node_id) (external_consumers : list node_id) :=
   forallb
-    (fun producer => existsb (path_exists g producer) external_consumers)
+    (fun producer => existsb (path_exists (gof producer) producer) external_consumers)
     all_producers.
 
 (*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
@@ -428,7 +429,7 @@ Definition producers_go_out ftables
   (all_producers_of : fact_locations) (external_consumers_of : fact_locations) :=
   map.forallb (fun R external_consumers =>
                  let all_producers := get_or_default all_producers_of R in
-                 producers_go_out_for_relation (graph_of_ftables_at_rel ftables R) all_producers external_consumers)
+                 producers_go_out_for_relation (graph_of_ftables_at ftables R) all_producers external_consumers)
     external_consumers_of.
 
 Definition check_layout_routable ftables
