@@ -56,14 +56,16 @@ Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
         (forward : node_id -> rel_id -> node_id -> list node_id)
         (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop).
 
-(* one operational step: an EDB fact ENTERS at an input node; a node RUNS its hardware program over
-   the facts it currently holds ([node_run]); or a fact is FORWARDED to a neighbour per that node's
-   forwarding table. *)
+(* one operational step: an EDB fact ENTERS at an input node; a node FIRES one hardware rule on
+   facts it currently holds; or a fact is FORWARDED to a neighbour per that node's forwarding
+   table. *)
 Inductive dstep (c : config) : config -> Prop :=
 | dstep_input n f :
     input n f -> dstep c (cadd c n n f)
-| dstep_run n f :
-    node_run (tries n) (prog n) (facts_at c n) f -> dstep c (cadd c n n f)
+| dstep_run n f hyps :
+    Exists (fun hr => hw_rule_impl (tries n) hr f hyps) (prog n) ->
+    Forall (facts_at c n) hyps ->
+    dstep c (cadd c n n f)
 | dstep_forward n n' s f :
     c n s f -> In n' (forward n (Datalog.rel_of f) s) -> dstep c (cadd c n' s f).
 
@@ -121,20 +123,6 @@ Definition run_ninfos (ninfos : list node_info) (input : node_id -> dl_fact -> P
 (*  engine; everything else is two inductions.                                  *)
 (*============================================================================*)
 
-(* [pftree] is monotone in its leaf predicate: more leaves -> more trees. *)
-Lemma pftree_Q_mono {U : Type} (P : U -> list U -> Prop) (Q1 Q2 : U -> Prop) (x : U) :
-  (forall y, Q1 y -> Q2 y) -> pftree P Q1 x -> pftree P Q2 x.
-Proof.
-  intros Hsub. apply (Datalog.pftree_ind P Q1 (fun x => pftree P Q2 x)).
-  - intros x0 HQ. apply pftree_leaf, Hsub, HQ.
-  - intros x0 l HP _ HR. eapply pftree_step; eassumption.
-Qed.
-
-(* [node_run] inherits leaf-monotonicity: a node run on a bigger input set derives at least as much. *)
-Lemma node_run_mono (tries : list trie) (hp : hardware_program) (Q1 Q2 : dl_fact -> Prop) (f : dl_fact) :
-  (forall g, Q1 g -> Q2 g) -> node_run tries hp Q1 f -> node_run tries hp Q2 f.
-Proof. apply pftree_Q_mono. Qed.
-
 Section Adequacy.
 Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
         (forward : node_id -> rel_id -> node_id -> list node_id)
@@ -153,12 +141,13 @@ Lemma dstep_replay (c d c' : config) :
   exists d', step d d' /\ (forall n s f, c' n s f -> d' n s f)
              /\ (forall n s f, d n s f -> d' n s f).
 Proof.
-  intros Hsub Hstep. inversion Hstep as [n f Hin | n f Hrun | n n' s f Hcnf Hfwd]; subst;
+  intros Hsub Hstep. inversion Hstep as [n f Hin | n f hyps Hfire Hhyps | n n' s f Hcnf Hfwd]; subst;
     [ exists (cadd d n n f); split; [apply dstep_input; exact Hin |]
     | exists (cadd d n n f); split;
-        [apply dstep_run;
-         exact (node_run_mono (tries n) (prog n) (facts_at c n) (facts_at d n) f
-                  (fun g Hg => let (s, Hs) := Hg in ex_intro _ s (Hsub n s g Hs)) Hrun) |]
+        [eapply dstep_run;
+           [ exact Hfire
+           | rewrite Forall_forall in Hhyps |- *; intros h Hh;
+             destruct (Hhyps h Hh) as [s0 Hs0]; exists s0; exact (Hsub n s0 h Hs0) ] |]
     | exists (cadd d n' s f); split;
         [apply (dstep_forward prog tries forward input d n n' s f (Hsub n s f Hcnf) Hfwd) |] ];
     (split; intros n0 s0 f0; unfold cadd; [intros [H|H]; [left; apply Hsub; exact H | right; exact H]
@@ -210,9 +199,9 @@ Proof.
   intros Hext Hr. induction Hr as [| c0 c0' Hr0 IH Hstep].
   - apply dreach0.
   - eapply dreachS; [exact IH |].
-    inversion Hstep as [n f Hi | n f Hru | n n' s f Hcnf Hfwd]; subst c0'.
+    inversion Hstep as [n f Hi | n f hyps Hfire Hhyps | n n' s f Hcnf Hfwd]; subst c0'.
     + apply dstep_input; exact Hi.
-    + apply dstep_run; exact Hru.
+    + eapply dstep_run; eassumption.
     + eapply dstep_forward; [exact Hcnf | rewrite <- (Hext n (Datalog.rel_of f) s); exact Hfwd].
 Qed.
 
