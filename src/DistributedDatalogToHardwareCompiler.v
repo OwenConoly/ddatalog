@@ -494,6 +494,7 @@ Definition hops_in_graphb (g : node_graph) (n : node_id) (hops : list node_id) :
 Definition ftable_in_graphb (g : node_graph) (n : node_id) (ft : internode_forwarding_table) :=
   map.forallb (fun _ hops => hops_in_graphb g n hops) ft.
 
+(*TODO get rid of redundant check_node_valid thing*)
 Definition ftables_in_graphb (g : node_graph) (ftables : internode_forwarding_tables) : bool :=
   map.forallb
     (fun n ft => check_node_valid n (ComputableGraph.nodes g) && ftable_in_graphb g n ft)

@@ -168,15 +168,13 @@ Definition good_forwarding_prod_cons (net : DataflowNetwork) (r : rel) : Prop :=
   forall n_prod n_cons,
     node_produces net.(layout) n_prod r ->
     node_consumes net.(layout) n_cons r ->
-    n_prod = n_cons \/
-    forwarding_reachable net.(forward) r n_prod n_cons.
+    forwarding_reachable net.(forward) r n_prod n_prod n_cons.
 
 Definition good_forwarding_output_nodes (net : DataflowNetwork) (r : rel) : Prop :=
   forall n_prod,
     node_produces (layout net) n_prod r ->
     exists n_out,
-      output net n_out r /\
-      (n_prod = n_out \/ forwarding_reachable (forward net) r n_prod n_out).
+      output net n_out r /\ forwarding_reachable (forward net) r n_prod n_prod n_out.
 
 (* Apply it to all relations *)
 Definition good_forwarding_complete (net : DataflowNetwork) : Prop :=
@@ -184,11 +182,12 @@ Definition good_forwarding_complete (net : DataflowNetwork) : Prop :=
 
 (* A good forwarding function should only be able to forward things along the
    edges *)
-Definition good_forwarding_sound (forward : ForwardingFn) (nodes : Node -> Prop) (edges : Node -> Node -> Prop) : Prop :=
-  forall n1 n2 r, In n2 (forward n1 r) -> nodes n1 /\ nodes n2 /\ edges n1 n2.
+Definition good_forwarding_sound (forward : ForwardingFn) (edges : Node -> Node -> Prop) : Prop :=
+  forall n1 n2 r original_source,
+    In n2 (forward n1 r original_source) -> edges n1 n2.
 
 Definition good_forwarding (forward : ForwardingFn) (net : DataflowNetwork): Prop :=
-  good_forwarding_sound forward net.(graph).(nodes) net.(graph).(edge) /\
+  good_forwarding_sound forward net.(graph).(edge) /\
   good_forwarding_complete net.
 
 Definition good_input (input : InputFn) (program : list rule) : Prop :=
@@ -221,10 +220,9 @@ Definition good_network (net : DataflowNetwork) (program : list rule) : Prop :=
    equivalence is correspondingly stated only for declared-output relations. *)
 Definition good_source (net : DataflowNetwork) (n : Node) (R : rel) : Prop :=
   (forall n_cons, node_consumes net.(layout) n_cons R ->
-     n = n_cons \/ forwarding_reachable net.(forward) R n n_cons) /\
+     forwarding_reachable net.(forward) R n n n_cons) /\
   ((exists n_out, net.(output) n_out R) ->
-   exists n_out, net.(output) n_out R /\
-     (n = n_out \/ forwarding_reachable net.(forward) R n n_out)).
+   exists n_out, net.(output) n_out R /\ forwarding_reachable net.(forward) R n n n_out).
 
 (*----------------------------------------------------------------------------*)
 (* [good_source] via the path checker: rather than proving forwarding complete, *)
@@ -233,33 +231,37 @@ Definition good_source (net : DataflowNetwork) (n : Node) (R : rel) : Prop :=
 (* [n ~> target] (or [n = target]); soundness then hands back reachability.     *)
 (*----------------------------------------------------------------------------*)
 
-Definition validate_route (forward : ForwardingFn) (R : rel) (n target : Node)
-    (path : list Node) : bool :=
+Definition validate_route (forward : ForwardingFn) (R : rel) (original_source : Node)
+    (n target : Node) (path : list Node) : bool :=
   node_eqb n target ||
-  (check_fwd_walk forward R path
-   && match nth_error path 0 with Some h => node_eqb h n | None => false end
-   && match nth_error path (pred (length path)) with Some l => node_eqb l target | None => false end).
+  match path with
+  | [] => false
+  | a :: _ =>
+      node_eqb a n
+      && check_fwd_walk forward R original_source path
+      && node_eqb (last path n) target
+  end.
 
-Lemma validate_route_sound (forward : ForwardingFn) (R : rel) (n target : Node) (path : list Node) :
-  validate_route forward R n target path = true ->
-  n = target \/ forwarding_reachable forward R n target.
+Lemma validate_route_sound (forward : ForwardingFn) (R : rel) (original_source : Node)
+    (n target : Node) (path : list Node) :
+  validate_route forward R original_source n target path = true ->
+  forwarding_reachable forward R original_source n target.
 Proof.
   unfold validate_route. intros H. apply orb_true_iff in H. destruct H as [Heq | H].
-  - left. destruct (node_eqb_spec n target) as [E|]; [exact E | discriminate].
-  - apply andb_true_iff in H. destruct H as [H Hl]. apply andb_true_iff in H. destruct H as [Hwalk Hh].
-    destruct (nth_error path 0) as [h|] eqn:Eh; [|discriminate].
-    destruct (node_eqb_spec h n) as [->|]; [|discriminate].
-    destruct (nth_error path (pred (length path))) as [l|] eqn:El; [|discriminate].
-    destruct (node_eqb_spec l target) as [->|]; [|discriminate].
-    exact (checked_path_reachable forward R path n target Hwalk Eh El).
+  - destruct (node_eqb_spec n target) as [->|]; [apply rt1n_refl | discriminate].
+  - destruct path as [|a mid]; [discriminate|].
+    apply andb_true_iff in H. destruct H as [H Hl]. apply andb_true_iff in H. destruct H as [Ha Hwalk].
+    destruct (node_eqb_spec a n) as [->|]; [|discriminate].
+    destruct (node_eqb_spec (last (n :: mid) n) target) as [Hlast|]; [|discriminate].
+    exact (checked_path_reachable forward R original_source mid n target n Hwalk Hlast).
 Qed.
 
 (* [n] is validated a good source for [R]: a checked route to every (enumerated) consumer, and to
    at least one output node. *)
 Definition good_sourceb (forward : ForwardingFn) (R : rel) (n : Node)
     (consumers outputs : list Node) (cpath opath : Node -> list Node) : bool :=
-  forallb (fun nc => validate_route forward R n nc (cpath nc)) consumers
-  && existsb (fun no => validate_route forward R n no (opath no)) outputs.
+  forallb (fun nc => validate_route forward R n n nc (cpath nc)) consumers
+  && existsb (fun no => validate_route forward R n n no (opath no)) outputs.
 
 Lemma good_sourceb_sound (net : DataflowNetwork) (R : rel) (n : Node)
     (consumers outputs : list Node) (cpath opath : Node -> list Node) :
@@ -270,9 +272,12 @@ Lemma good_sourceb_sound (net : DataflowNetwork) (R : rel) (n : Node)
 Proof.
   intros Hcons Hout H. apply andb_true_iff in H. destruct H as [Hall Hex]. split.
   - intros nc Hnc. apply Hcons in Hnc.
-    rewrite forallb_forall in Hall. exact (validate_route_sound net.(forward) R n nc (cpath nc) (Hall nc Hnc)).
+    rewrite forallb_forall in Hall.
+    exact (validate_route_sound net.(forward) R n n nc (cpath nc) (Hall nc Hnc)).
   - apply existsb_exists in Hex. destruct Hex as [no [Hin Hval]].
-    exists no. split; [apply Hout; exact Hin | exact (validate_route_sound net.(forward) R n no (opath no) Hval)].
+    exists no. split;
+      [apply Hout; exact Hin
+      | exact (validate_route_sound net.(forward) R n n no (opath no) Hval)].
 Qed.
 
 (*----------------------------------------------------------------------------*)
@@ -332,7 +337,7 @@ Definition good_input_streaming (net : DataflowNetwork) (Q : fact -> Prop) : Pro
 Definition good_network_streaming (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) : Prop :=
   good_graph net.(graph) /\
   good_layout net.(layout) net.(graph).(nodes) program /\
-  good_forwarding_sound net.(forward) net.(graph).(nodes) net.(graph).(edge) /\
+  good_forwarding_sound net.(forward) net.(graph).(edge) /\
   (forall n_prod R, node_produces net.(layout) n_prod R -> good_source net n_prod R) /\
   good_input_streaming net Q.
 
@@ -340,39 +345,37 @@ Lemma Forall_get_facts_on_node :
   forall (l : list network_prop)
          (P : Node * fact -> Prop)
          (Q : network_prop -> Prop),
-    (forall n f, Q (FactOnNode n f) -> P (n, f)) ->
+    (forall n f s, Q (FactOnNode n f s) -> P (n, f)) ->
     Forall Q l ->
     Forall P (get_facts_on_node l).
 Proof.
   induction l; intros; simpl; auto.
   - destruct a; simpl in *; auto.
     + econstructor.
-      * apply H. inversion H0. assumption.
+      * eapply H. inversion H0. eassumption.
       * eapply IHl; inversion H0; eauto.
     + eapply IHl; inversion H0; eauto.
 Qed.
 
-Lemma get_facts_on_node_map_FactOnNode :
-  forall n l,
-    get_facts_on_node (List.map (FactOnNode n) l) = List.map (pair n) l.
+Lemma hyps_at_node (net : DataflowNetwork) (n : Node) (l : list fact) :
+  Forall (fun f => exists s, network_pftree net (FactOnNode n f s)) l ->
+  exists hyps, Forall (network_pftree net) hyps /\
+               get_facts_on_node hyps = List.map (pair n) l.
 Proof.
-  induction l; simpl; auto.
-  rewrite IHl. reflexivity.
-Qed.
-
-Lemma get_facts_fst_map_FactOnNode :
-  forall n l,
-    map fst (get_facts_on_node (map (FactOnNode n) l)) = map (fun _ => n) l.
-Proof.
-  induction l; simpl; auto.
-  rewrite IHl. reflexivity.
+  induction l as [|f l IH]; intros H.
+  - exists []. split; [constructor | reflexivity].
+  - inversion H as [|? ? [s Hs] Hrest]; subst.
+    destruct (IH Hrest) as [hyps [Hall Hget]].
+    exists (FactOnNode n f s :: hyps). split.
+    + constructor; assumption.
+    + cbn. rewrite Hget. reflexivity.
 Qed.
 
 (* [pftree] induction predicate for the network: every derivable network proposition's
    carried fact is derivable from the program given the base facts [Q]. *)
 Definition np_sound (program : list rule) (Q : fact -> Prop) (np : network_prop) : Prop :=
   match np with
-  | FactOnNode _ f => prog_impl_fact program Q f
+  | FactOnNode _ f _ => prog_impl_fact program Q f
   | Output _ f => prog_impl_fact program Q f
   end.
 
@@ -400,18 +403,18 @@ Proof.
         apply in_map_iff in Hf'in. destruct Hf'in as [[n' f''] [Heq Hin]]. simpl in Heq. subst f''.
         (* the (n', f') comes from a FactOnNode n' f' premise in l *)
         rewrite Forall_forall in IH.
-        assert (Hnp : In (FactOnNode n' f') l).
+        assert (Hnp : exists s, In (FactOnNode n' f' s) l).
         { clear -Hin. induction l as [|a l IHl]; simpl in *; [contradiction|].
-          destruct a; simpl in Hin.
-          - destruct Hin as [Heq | Hin]; [inversion Heq; subst; left; reflexivity | right; auto].
-          - right; auto. }
-        specialize (IH _ Hnp). simpl in IH. exact IH.
+          destruct a as [n0 f0 s0|]; simpl in Hin.
+          - destruct Hin as [Heq | Hin];
+              [inversion Heq; subst; exists s0; left; reflexivity
+              | destruct (IHl Hin) as [s Hs]; exists s; right; exact Hs].
+          - destruct (IHl Hin) as [s Hs]; exists s; right; exact Hs. }
+        destruct Hnp as [s Hnp]. specialize (IH _ Hnp). simpl in IH. exact IH.
     + (* Forward: same fact, carried over *)
-      rewrite Forall_forall in IH.
-      specialize (IH (FactOnNode n f)). simpl in IH. apply IH. left. reflexivity.
+      apply (Forall_inv IH).
     + (* OutputStep: same fact, carried over *)
-      rewrite Forall_forall in IH.
-      specialize (IH (FactOnNode n f)). simpl in IH. apply IH. left. reflexivity.
+      apply (Forall_inv IH).
 Qed.
 
 Theorem soundness (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) :
@@ -425,30 +428,18 @@ Proof.
   apply (soundness'' net program Q HinQ Hgl (Output n f) Hpf).
 Qed.
 
-Lemma In_singular : forall {A} (x y : A) (l : list A), In x (y :: l) -> x = y \/ In x l.
-Proof.
-  intros. inversion H; auto.
-Qed.
-
 Lemma forwarding_lifts :
-  forall net n1 n2 f,
-    network_pftree net (FactOnNode n1 f) ->
-    forwarding_reachable net.(forward) (rel_of f) n1 n2 ->
-    network_pftree net (FactOnNode n2 f).
+  forall net n1 n2 f s,
+    network_pftree net (FactOnNode n1 f s) ->
+    forwarding_reachable net.(forward) (rel_of f) s n1 n2 ->
+    network_pftree net (FactOnNode n2 f s).
 Proof.
-  intros net n1 n2 f Hpf Hreach.
-  induction Hreach.
-  - (* single step: n1 -> n2 directly *)
-    eapply pftree_step with (l := [FactOnNode n1 f]).
-    + apply Forward. exact H.
-    + constructor; [exact Hpf | constructor].
-  - (* transitive: n1 -> n2 -> n3 *)
-    apply IHHreach.
-    eapply pftree_step with (l := [FactOnNode n1 f]).
-    + apply Forward. exact H.
-    + constructor; [exact Hpf | constructor].
+  intros net n1 n2 f s Hpf Hreach. revert Hpf.
+  induction Hreach as [x | x y z Hstep Hreach IH]; intros Hpf; [exact Hpf|].
+  apply IH. eapply pftree_step with (l := [FactOnNode x f s]).
+  - apply Forward. exact Hstep.
+  - constructor; [exact Hpf | constructor].
 Qed.
-Search Forall2.
 
 Lemma Forall2_exists_l {A B : Type} (P : A -> B -> Prop) (l1 : list A) (l2 : list B) (a : A) :
   Forall2 P l1 l2 ->
@@ -544,15 +535,13 @@ Qed.
 (* A fact at a good source for its relation can be carried to any consumer of that relation. *)
 Lemma fact_at_source_consumer :
   forall (net : DataflowNetwork) (f : fact) (n n_cons : Node),
-    network_pftree net (FactOnNode n f) ->
+    network_pftree net (FactOnNode n f n) ->
     good_source net n (rel_of f) ->
     node_consumes (layout net) n_cons (rel_of f) ->
-    network_pftree net (FactOnNode n_cons f).
+    network_pftree net (FactOnNode n_cons f n).
 Proof.
   intros net f n n_cons Hpf [Hcons _] Hc.
-  destruct (Hcons n_cons Hc) as [-> | Hreach].
-  - exact Hpf.
-  - eapply forwarding_lifts; eauto.
+  eapply forwarding_lifts; [exact Hpf | exact (Hcons n_cons Hc)].
 Qed.
 
 (* Every derivable fact (from base facts [Q]) exists at a node that is a good source for its
@@ -560,7 +549,7 @@ Qed.
 Lemma completeness_with_source (net : DataflowNetwork) (program : list rule) (Q : fact -> Prop) :
   good_network_streaming net program Q ->
   forall f, prog_impl_fact program Q f ->
-    exists n, network_pftree net (FactOnNode n f) /\ good_source net n (rel_of f).
+    exists n, network_pftree net (FactOnNode n f n) /\ good_source net n (rel_of f).
 Proof.
   intros Hnet.
   destruct Hnet as [Hgraph [[Hlc Hls] [Hfwds [Hprodsrc [HinQ_s HinQ_c]]]]].
@@ -568,7 +557,7 @@ Proof.
   apply (pftree_ind
            (fun f hyps => Exists (fun r => fires r f hyps) program)
            Q
-           (fun f => exists n, network_pftree net (FactOnNode n f) /\
+           (fun f => exists n, network_pftree net (FactOnNode n f n) /\
                                good_source net n (rel_of f))).
   - (* leaf: a base fact is injected at its input node, which is a good source *)
     intros f HQ. destruct (HinQ_c f HQ) as [n [Hin Hsrc]].
@@ -583,22 +572,21 @@ Proof.
     assert (Hsrc : good_source net n_r (rel_of f)) by (apply Hprodsrc; exact Hprod).
     exists n_r. split; [|exact Hsrc].
     (* every hypothesis is available at [n_r] (forwarded from its own source to this consumer) *)
-    assert (Hlifted : Forall (fun f' => network_pftree net (FactOnNode n_r f')) l).
+    assert (Hlifted : Forall (fun f' => exists s, network_pftree net (FactOnNode n_r f' s)) l).
     { rewrite Forall_forall in IH |- *. intros f' Hf'in.
       destruct (IH f' Hf'in) as [n' [Hpf' Hsrc']].
       assert (Hcons : node_consumes (layout net) n_r (rel_of f'))
         by (eapply fires_node_consumes; eauto).
-      eapply fact_at_source_consumer; eauto. }
-    eapply pftree_step with (l := List.map (FactOnNode n_r) l).
+      exists n'. eapply fact_at_source_consumer; eauto. }
+    destruct (hyps_at_node net n_r l Hlifted) as [hyps [Hall Hget]].
+    eapply pftree_step with (l := hyps).
     + apply RuleApp with (r := r).
       * exact Hn_r_layout.
-      * rewrite get_facts_fst_map_FactOnNode.
+      * rewrite Hget, map_map. cbn.
         apply Forall_forall. intros n' Hin.
         apply in_map_iff in Hin. destruct Hin as [? [? ?]]. auto.
-      * rewrite get_facts_on_node_map_FactOnNode.
-        rewrite map_map. simpl. rewrite map_id. exact Hfires.
-    + apply Forall_map.
-      rewrite Forall_forall in Hlifted |- *. intros f' Hf'in. apply Hlifted. exact Hf'in.
+      * rewrite Hget, map_map. cbn. rewrite map_id. exact Hfires.
+    + exact Hall.
 Qed.
 
 (* Derivability depends only on the rule SET: a larger program derives at least as much.  Used to
@@ -628,12 +616,10 @@ Proof.
   destruct (completeness_with_source net program Q Hnet f Hprog) as [n [Hpf Hsrc]].
   destruct Hsrc as [_ Hout2]. destruct (Hout2 Houtrel) as [n_out [Hout Hreach]].
   exists n_out.
-  eapply pftree_step with (l := [FactOnNode n_out f]).
+  eapply pftree_step with (l := [FactOnNode n_out f n]).
   - apply OutputStep. exact Hout.
   - constructor; [| constructor].
-    destruct Hreach as [-> | Hfwd].
-    + exact Hpf.
-    + eapply forwarding_lifts; [exact Hpf | exact Hfwd].
+    eapply forwarding_lifts; [exact Hpf | exact Hreach].
 Qed.
 
 End DistributedDatalog.
