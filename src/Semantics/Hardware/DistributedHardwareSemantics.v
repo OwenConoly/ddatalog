@@ -87,7 +87,7 @@ Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_
 
 (* read a node's compiled data off the returned [ninfos] (empty default if the node is absent). *)
 Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
-  match List.find (fun ni => node_id_eqb ni.(DistributedHardwareProgram.nid) n) ninfos with
+  match List.find (fun ni => eqb ni.(DistributedHardwareProgram.nid) n) ninfos with
   | Some ni => ni
   | None => {| DistributedHardwareProgram.nid := n; DistributedHardwareProgram.nprogram := [];
                DistributedHardwareProgram.nforwarding := map.empty; DistributedHardwareProgram.ntries := [] |}
@@ -186,35 +186,5 @@ Proof.
 Qed.
 
 End Adequacy.
-
-(* The run depends on the forwarding function only POINTWISE: equal forwarding tables give equal runs.
-   (Used to bridge the operational [forward_from_ninfos] to the correctness layer's [forward_of_ninfos],
-   which are pointwise-equal but not syntactically identical -- keeps the top theorem funext-free.) *)
-Lemma dreach_forward_ext (prog : node_id -> hardware_program) (tries : node_id -> list trie)
-      (fwd1 fwd2 : node_id -> rel_id -> node_id -> list node_id)
-      (input : node_id -> dl_fact -> Prop) (c : config) :
-  (forall n r s, fwd1 n r s = fwd2 n r s) ->
-  dreach prog tries fwd1 input c -> dreach prog tries fwd2 input c.
-Proof.
-  intros Hext Hr. induction Hr as [| c0 c0' Hr0 IH Hstep].
-  - apply dreach0.
-  - eapply dreachS; [exact IH |].
-    inversion Hstep as [n f Hi | n f hyps Hfire Hhyps | n n' s f Hcnf Hfwd]; subst c0'.
-    + apply dstep_input; exact Hi.
-    + eapply dstep_run; eassumption.
-    + eapply dstep_forward; [exact Hcnf | rewrite <- (Hext n (Datalog.rel_of f) s); exact Hfwd].
-Qed.
-
-Lemma hw_run_output_forward_ext (prog : node_id -> hardware_program) (tries : node_id -> list trie)
-      (fwd1 fwd2 : node_id -> rel_id -> node_id -> list node_id)
-      (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop) (f : dl_fact) :
-  (forall n r s, fwd1 n r s = fwd2 n r s) ->
-  hw_run_output prog tries fwd1 input output f <-> hw_run_output prog tries fwd2 input output f.
-Proof.
-  intros Hext. split; intros [n [s [c [Hr [Hcf Ho]]]]]; exists n, s, c;
-    (split; [| split; [exact Hcf | exact Ho]]).
-  - exact (dreach_forward_ext prog tries fwd1 fwd2 input c Hext Hr).
-  - exact (dreach_forward_ext prog tries fwd2 fwd1 input c (fun n r s => eq_sym (Hext n r s)) Hr).
-Qed.
 
 End DistributedHardwareSemantics.

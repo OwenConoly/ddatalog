@@ -2252,13 +2252,6 @@ Proof.
   exists ninfo. split; [exact Hcn | exact Hin].
 Qed.
 
-(* The per-node info read off the returned [ninfos] (empty default if the node is absent). *)
-Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
-  match List.find (fun ni => eqb ni.(nid) n) ninfos with
-  | Some ni => ni
-  | None => {| nid := n; nprogram := []; nforwarding := map.empty; ntries := [] |}
-  end.
-
 (* Each entry of the (all-node) attached list is either a layout node (same id/tries/program as its
    [compile_all_nodes] info) or a forwarding-only node (empty program/tries, id not in [ninfos0]). *)
 Lemma attach_in_data (ninfos0 : list node_info) (ft : node_ftable_map) (x : node_info) :
@@ -2499,19 +2492,12 @@ Proof.
     cbn. unfold get_or_default, get_or. rewrite Hgn. reflexivity.
 Qed.
 
-(* The forwarding FUNCTION read off [ninfos]: for node [n], relation [r], the edge destinations its
-   own attached forwarding table lists. *)
-Definition forward_of_ninfos (ninfos : list node_info) (n : node_id) (r : rel_id)
-    (original_source : node_id) : list node_id :=
-  @ForwardingCorrect.dest_edges node_id
-    (match map.get (find_ninfo ninfos n).(nforwarding) r with Some ds => ds | None => [] end).
-
-(* It coincides, pointwise, with the [fwd_list] of the generated table. *)
 Lemma forward_of_ninfos_eq (ninfos0 : list node_info) (ft : node_ftable_map) (n : node_id) (r : rel_id)
     (s : node_id) :
-  forward_of_ninfos (attach_forwarding_tables ninfos0 ft) n r s = fwd_list ft n r s.
+  forward_from_ninfos (attach_forwarding_tables ninfos0 ft) n r s = fwd_list ft n r s.
 Proof.
-  unfold forward_of_ninfos, fwd_list, ForwardingCorrect.node_rel_dests.
+  unfold forward_from_ninfos, fwd_list,
+         ForwardingCorrect.dest_edges, ForwardingCorrect.node_rel_dests.
   rewrite (find_ninfo_nforwarding ninfos0 ft n). reflexivity.
 Qed.
 
@@ -2549,7 +2535,7 @@ Qed.
 
 (* [good_network_streaming] transports across two nets agreeing on graph/layout/input/output with
    pointwise-equal forwarding -- the forwarding function only enters via [good_forwarding_sound] and
-   [good_source].  This is the bridge that lets the [forward_of_ninfos] network inherit the
+   [good_source].  This is the bridge that lets the [forward_from_ninfos] network inherit the
    [fwd_list] network's well-formedness (no funext). *)
 Lemma good_network_streaming_forward_ext (net1 net2 : DNet)
     (program : list (Datalog.rule (rel := rel_id) (fn := fn))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
@@ -3072,11 +3058,11 @@ Qed.
 (*----The hardware network read DIRECTLY off the returned [ninfos]----*)
 
 (* [dnet_of_ninfos ninfos base]: the dataflow network whose forwarding function is read off the
-   per-node [nforwarding] of [ninfos] (via [forward_of_ninfos]); graph/input/output/layout are
+   per-node [nforwarding] of [ninfos] (via [forward_from_ninfos]); graph/input/output/layout are
    inherited from [base] (the reference graph + EDB + output sinks + datalog layout). *)
 Definition dnet_of_ninfos (ninfos : list node_info) (base : DNet) : DNet :=
   {| DistributedDatalog.graph := base.(DistributedDatalog.graph);
-     DistributedDatalog.forward := forward_of_ninfos ninfos;
+     DistributedDatalog.forward := forward_from_ninfos ninfos;
      DistributedDatalog.input := base.(DistributedDatalog.input);
      DistributedDatalog.output := base.(DistributedDatalog.output);
      DistributedDatalog.layout := base.(DistributedDatalog.layout) |}.
@@ -3284,16 +3270,7 @@ Proof.
       [reflexivity | reflexivity | reflexivity | reflexivity | | exact Hgood].
     intros a r s. cbn. rewrite Hbasefwd. symmetry. exact (forward_of_ninfos_eq ninfos0 ft a r s). }
   unfold DistributedHardwareSemantics.run_ninfos, DistributedHardwareSemantics.node_prog, DistributedHardwareSemantics.node_tries.
-  (* operational run with [forward_from_ninfos] == with [forward_of_ninfos] (pointwise equal) ... *)
-  apply (iff_trans
-           (DistributedHardwareSemantics.hw_run_output_forward_ext
-              (fun n => (find_ninfo (attach_forwarding_tables ninfos0 ft) n).(nprogram))
-              (fun n => (find_ninfo (attach_forwarding_tables ninfos0 ft) n).(ntries))
-              (DistributedHardwareSemantics.forward_from_ninfos (attach_forwarding_tables ninfos0 ft))
-              (forward_of_ninfos (attach_forwarding_tables ninfos0 ft))
-              (base.(DistributedDatalog.input)) (base.(DistributedDatalog.output)) f
-              (fun _ _ _ => eq_refl))).
-  (* ... == network derivability of the [ninfos]-forwarded net ... *)
+  (* the operational run == network derivability of the [ninfos]-forwarded net ... *)
   apply (iff_trans
            (hw_run_output_iff_network (dnet_of_ninfos (attach_forwarding_tables ninfos0 ft) base)
               (fun n => (find_ninfo (attach_forwarding_tables ninfos0 ft) n).(nprogram))
