@@ -12,9 +12,7 @@ Section DistributedDatalog.
   Context `{sig : signature fn aggregator T}.
   Context {context : map.map exprvar T}.
   Context {context_ok : map.ok context}.
-  Context {Node Info : Type}.
-  Context {node_eqb : Node -> Node -> bool}.
-  Context {node_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
+  Context {Node : Type}.
 
   (* An atom in a rule is a [clause]; a rule is the [normal_rule | meta_rule | agg_rule]
      inductive; a ground/runtime fact is a [fact] ([normal_fact R args]). *)
@@ -121,47 +119,6 @@ Proof.
     apply IH; [assumption|]. rewrite last_cons_cons. reflexivity.
 Qed.
 
-(* A *computable* validator (the "checker that takes in paths" approach): [check_fwd_walk
-   forward r path] is [true] iff every consecutive node of [path] forwards [r] to the next.
-   Validating a candidate path is cheap (membership checks); proving the BFS that produced it
-   is complete is not -- so the top-level checker emits/validates paths instead. *)
-Fixpoint check_fwd_walk (forward : ForwardingFn) (R : rel) (original_source : Node)
-    (path : list Node) : bool :=
-  match path with
-  | [] => true
-  | [_] => true
-  | x :: ((y :: _) as rest) =>
-      existsb (node_eqb y) (forward x R original_source) &&
-      check_fwd_walk forward R original_source rest
-  end.
-
-Lemma existsb_node_eqb_In (y : Node) (l : list Node) :
-  existsb (node_eqb y) l = true -> In y l.
-Proof.
-  intros H. apply existsb_exists in H. destruct H as [z [Hz Heq]].
-  destruct (node_eqb_spec y z) as [->|]; [exact Hz | discriminate].
-Qed.
-
-Lemma check_fwd_walk_sound forward R original_source path :
-  check_fwd_walk forward R original_source path = true ->
-  LocallySorted (forwards_rel forward R original_source) path.
-Proof.
-  induction path as [|x [|y rest] IH]; intros Hchk; try solve [constructor].
-  cbn in Hchk. apply andb_true_iff in Hchk. destruct Hchk as [Hstep Hrest].
-  constructor; auto. apply existsb_node_eqb_In. assumption.
-Qed.
-
-Lemma checked_path_reachable (forward : ForwardingFn) (R : rel) (original_source : Node)
-    (mid : list Node) (a b d : Node) :
-  check_fwd_walk forward R original_source (a :: mid) = true ->
-  last (a :: mid) d = b ->
-  forwarding_reachable forward R original_source a b.
-Proof.
-  intros. eapply forwarding_chain_reachable.
-  - apply check_fwd_walk_sound. eassumption.
-  - eassumption.
-Qed.
-
 (* The forwarding table is good for a relation r if for every producer,
    there is a path to every consumer *)
 Definition good_forwarding_prod_cons (net : DataflowNetwork) (r : rel) : Prop :=
@@ -223,62 +180,6 @@ Definition good_source (net : DataflowNetwork) (n : Node) (R : rel) : Prop :=
      forwarding_reachable net.(forward) R n n n_cons) /\
   ((exists n_out, net.(output) n_out R) ->
    exists n_out, net.(output) n_out R /\ forwarding_reachable net.(forward) R n n n_out).
-
-(*----------------------------------------------------------------------------*)
-(* [good_source] via the path checker: rather than proving forwarding complete, *)
-(* the compiler emits a candidate route to each target and we VALIDATE it.      *)
-(* [validate_route net R n target path] checks [path] is a forwarding walk      *)
-(* [n ~> target] (or [n = target]); soundness then hands back reachability.     *)
-(*----------------------------------------------------------------------------*)
-
-Definition validate_route (forward : ForwardingFn) (R : rel) (original_source : Node)
-    (n target : Node) (path : list Node) : bool :=
-  node_eqb n target ||
-  match path with
-  | [] => false
-  | a :: _ =>
-      node_eqb a n
-      && check_fwd_walk forward R original_source path
-      && node_eqb (last path n) target
-  end.
-
-Lemma validate_route_sound (forward : ForwardingFn) (R : rel) (original_source : Node)
-    (n target : Node) (path : list Node) :
-  validate_route forward R original_source n target path = true ->
-  forwarding_reachable forward R original_source n target.
-Proof.
-  unfold validate_route. intros H. apply orb_true_iff in H. destruct H as [Heq | H].
-  - destruct (node_eqb_spec n target) as [->|]; [apply rt1n_refl | discriminate].
-  - destruct path as [|a mid]; [discriminate|].
-    apply andb_true_iff in H. destruct H as [H Hl]. apply andb_true_iff in H. destruct H as [Ha Hwalk].
-    destruct (node_eqb_spec a n) as [->|]; [|discriminate].
-    destruct (node_eqb_spec (last (n :: mid) n) target) as [Hlast|]; [|discriminate].
-    exact (checked_path_reachable forward R original_source mid n target n Hwalk Hlast).
-Qed.
-
-(* [n] is validated a good source for [R]: a checked route to every (enumerated) consumer, and to
-   at least one output node. *)
-Definition good_sourceb (forward : ForwardingFn) (R : rel) (n : Node)
-    (consumers outputs : list Node) (cpath opath : Node -> list Node) : bool :=
-  forallb (fun nc => validate_route forward R n n nc (cpath nc)) consumers
-  && existsb (fun no => validate_route forward R n n no (opath no)) outputs.
-
-Lemma good_sourceb_sound (net : DataflowNetwork) (R : rel) (n : Node)
-    (consumers outputs : list Node) (cpath opath : Node -> list Node) :
-  (forall nc, node_consumes net.(layout) nc R -> In nc consumers) ->
-  (forall no, In no outputs -> net.(output) no R) ->
-  good_sourceb net.(forward) R n consumers outputs cpath opath = true ->
-  good_source net n R.
-Proof.
-  intros Hcons Hout H. apply andb_true_iff in H. destruct H as [Hall Hex]. split.
-  - intros nc Hnc. apply Hcons in Hnc.
-    rewrite forallb_forall in Hall.
-    exact (validate_route_sound net.(forward) R n n nc (cpath nc) (Hall nc Hnc)).
-  - apply existsb_exists in Hex. destruct Hex as [no [Hin Hval]].
-    exists no. split;
-      [apply Hout; exact Hin
-      | exact (validate_route_sound net.(forward) R n n no (opath no) Hval)].
-Qed.
 
 (*----------------------------------------------------------------------------*)
 (* Decidable [good_layout] check, over a plain node enumeration [all_nodes]    *)
