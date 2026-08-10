@@ -18,10 +18,8 @@ Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 
 #[local] Existing Instance rel_id.
 
-Notation destination := (@DistributedHardwareProgram.destination node_id).
-
 Context {node_id_set : map.map node_id unit}.
-Context {forwarding_table : map.map rel_id (list destination)}.
+Context {forwarding_table : map.map rel_id (list node_id)}.
 Context {layout_map : map.map node_id lowered_program}.
 Context {fact_locations : map.map rel_id (list node_id)}.
 
@@ -388,13 +386,10 @@ Definition get_internal_consumers_of (layout : layout_map) :=
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
 
-Context {internode_forwarding_table : map.map rel_id (list node_id)}.
-Context {internode_forwarding_tables : map.map node_id internode_forwarding_table}.
-
 Definition node_set_of_list (ns : list node_id) : node_id_set :=
   map.of_list (List.map (fun n => (n, tt)) ns).
 
-Definition edges_of_ftables_at_rel (ftables : internode_forwarding_tables) (R : rel_id)
+Definition edges_of_ftables_at_rel (ftables : node_ftable_map) (R : rel_id)
   : node_id_edge_set :=
   map.map_values (fun ft => node_set_of_list (get_or_default ft R)) ftables.
 
@@ -402,7 +397,7 @@ Definition edges_of_ftables_at_rel (ftables : internode_forwarding_tables) (R : 
 Definition nodes_of_edges (es : node_id_edge_set) : node_id_set :=
   map.fold (fun ns n hops => map.putmany (map.put ns n tt) hops) map.empty es.
 
-Definition graph_of_ftables_at_rel (ftables : internode_forwarding_tables) (R : rel_id) : node_graph :=
+Definition graph_of_ftables_at_rel (ftables : node_ftable_map) (R : rel_id) : node_graph :=
   let es := edges_of_ftables_at_rel ftables R in
   {| nodes := nodes_of_edges es; edges := es |}.
 
@@ -491,28 +486,15 @@ Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
 Definition hops_in_graphb (g : node_graph) (n : node_id) (hops : list node_id) :=
   forallb (fun m => check_edge_exists n m (ComputableGraph.edges g)) hops.
 
-Definition ftable_in_graphb (g : node_graph) (n : node_id) (ft : internode_forwarding_table) :=
+Definition ftable_in_graphb (g : node_graph) (n : node_id) (ft : forwarding_table) :=
   map.forallb (fun _ hops => hops_in_graphb g n hops) ft.
 
-Definition ftables_in_graphb (g : node_graph) (ftables : internode_forwarding_tables) : bool :=
+Definition ftables_in_graphb (g : node_graph) (ftables : node_ftable_map) : bool :=
   map.forallb (ftable_in_graphb g) ftables.
-
-Definition edge_ftables (ftables : internode_forwarding_tables) : node_ftable_map :=
-  map.map_values (map.map_values (List.map DestEdge)) ftables.
-
-Definition trie_ftable (tries : list trie) : forwarding_table :=
-  fold_right (fun t ft => mupd_with_default (cons (DestTrie t.(tid))) ft t.(trel)) map.empty tries.
-
-Definition trie_ftables (ninfos : list node_info) : node_ftable_map :=
-  map.of_list (List.map (fun ninfo => (ninfo.(nid), trie_ftable ninfo.(ntries))) ninfos).
-
-Definition compute_forwarding_table (ftables : internode_forwarding_tables)
-    (ninfos : list node_info) : node_ftable_map :=
-  union_with (union_with (@app _)) (edge_ftables ftables) (trie_ftables ninfos).
 
 Definition compile (layout : layout_map)
   (external_producers_of external_consumers_of : fact_locations)
-  (ftables : internode_forwarding_tables)
+  (ftables : node_ftable_map)
   (g : node_graph) : result (list node_info) :=
   (if check_graph_valid g
    then Success tt
@@ -529,7 +511,7 @@ Definition compile (layout : layout_map)
   let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
   check_layout_routable ftables external_consumers_of internal_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
-  Success (attach_forwarding_tables ninfos (compute_forwarding_table ftables ninfos)).
+  Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
 
 Existing Instance SortedListNat.map.

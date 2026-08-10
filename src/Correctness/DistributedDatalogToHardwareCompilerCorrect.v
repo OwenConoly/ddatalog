@@ -1852,7 +1852,7 @@ Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
-Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
+Context {forwarding_table : map.map rel_id (list node_id)}.
 #[local] Existing Instance rel_id.
 Context {var_node_set : map.map var unit}.
 Context {var_edge_set : map.map var var_node_set}.
@@ -1962,7 +1962,7 @@ Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
-Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
+Context {forwarding_table : map.map rel_id (list node_id)}.
 #[local] Existing Instance rel_id.
 
 Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
@@ -2129,12 +2129,10 @@ Context {node_id : Type}
 Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Context {node_id_set : map.map node_id unit}.
 Context {node_id_edge_set : map.map node_id node_id_set}.
-Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
+Context {forwarding_table : map.map rel_id (list node_id)}.
 Context {layout_map : map.map node_id (@HardwareProgram.lowered_program var fn aggregator)}
         {layout_map_ok : map.ok layout_map}.
 Context {node_ftable_map : map.map node_id forwarding_table}.
-Context {internode_forwarding_table : map.map rel_id (list node_id)}.
-Context {internode_forwarding_tables : map.map node_id internode_forwarding_table}.
 Context {fact_locations_map : map.map rel_id (list node_id)}
         {fact_locations_map_ok : map.ok fact_locations_map}.
 Context {rels_at_node : map.map node_id (list rel_id)}
@@ -2151,23 +2149,21 @@ Notation attach_forwarding_tables :=
   (@DistributedDatalogToHardwareCompiler.attach_forwarding_tables node_id node_id_eqb forwarding_table node_ftable_map).
 Notation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
 Notation compile :=
-  (@DistributedDatalogToHardwareCompiler.compile var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map rels_at_node internode_forwarding_table internode_forwarding_tables).
+  (@DistributedDatalogToHardwareCompiler.compile var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map rels_at_node).
 Notation get_internal_producers_of :=
   (@DistributedDatalogToHardwareCompiler.get_internal_producers_of var fn aggregator node_id layout_map fact_locations_map rels_at_node).
 Notation get_internal_consumers_of :=
   (@DistributedDatalogToHardwareCompiler.get_internal_consumers_of var fn aggregator node_id layout_map fact_locations_map rels_at_node).
 Notation all_rules_fed :=
-  (@DistributedDatalogToHardwareCompiler.all_rules_fed node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set internode_forwarding_table internode_forwarding_tables).
+  (@DistributedDatalogToHardwareCompiler.all_rules_fed node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 Notation producers_go_out :=
-  (@DistributedDatalogToHardwareCompiler.producers_go_out node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set internode_forwarding_table internode_forwarding_tables).
+  (@DistributedDatalogToHardwareCompiler.producers_go_out node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 Notation check_layout_routable :=
-  (@DistributedDatalogToHardwareCompiler.check_layout_routable node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set internode_forwarding_table internode_forwarding_tables).
+  (@DistributedDatalogToHardwareCompiler.check_layout_routable node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 Notation graph_of_ftables_at_rel :=
-  (@DistributedDatalogToHardwareCompiler.graph_of_ftables_at_rel node_id node_id_set node_id_edge_set internode_forwarding_table internode_forwarding_tables).
+  (@DistributedDatalogToHardwareCompiler.graph_of_ftables_at_rel node_id node_id_set forwarding_table node_id_edge_set node_ftable_map).
 Notation ftables_in_graphb :=
-  (@DistributedDatalogToHardwareCompiler.ftables_in_graphb node_id node_id_set node_id_edge_set internode_forwarding_table internode_forwarding_tables).
-Notation compute_forwarding_table :=
-  (@DistributedDatalogToHardwareCompiler.compute_forwarding_table node_id forwarding_table node_ftable_map internode_forwarding_table internode_forwarding_tables).
+  (@DistributedDatalogToHardwareCompiler.ftables_in_graphb node_id node_id_set forwarding_table node_id_edge_set node_ftable_map).
 
 (* [all_producers]/[all_consumers] are the merged (internal + external) location maps the compiler's
    [generate_forwarding_table] now computes inline; recompute them here for the correctness reasoning. *)
@@ -2428,20 +2424,15 @@ Context {forwarding_table_ok : map.ok forwarding_table}.
 Context {node_ftable_map_ok : map.ok node_ftable_map}.
 Context {node_id_set_ok : map.ok node_id_set}.
 Context {node_id_edge_set_ok : map.ok node_id_edge_set}.
-Context {internode_forwarding_table_ok : map.ok internode_forwarding_table}.
-Context {internode_forwarding_tables_ok : map.ok internode_forwarding_tables}.
 
 Notation ftable_edges_sound :=
   (@ForwardingCorrect.ftable_edges_sound node_id node_id_set node_id_edge_set forwarding_table node_ftable_map).
 Notation has_fwd_edge := (@ForwardingCorrect.has_fwd_edge node_id forwarding_table node_ftable_map).
 Notation get_path := (@ComputableGraph.get_path node_id node_id_eqb node_id_set node_id_edge_set).
 
-(* the forwarding function a compiled node exposes for a relation: the [DestEdge] targets
-   recorded in its forwarding table.  [In n2 (fwd_list ft n r)] is exactly [has_fwd_edge]. *)
 Definition fwd_list (ftables : node_ftable_map) (n : node_id) (r : rel_id)
     (original_source : node_id) : list node_id :=
-  @ForwardingCorrect.dest_edges node_id
-    (@ForwardingCorrect.node_rel_dests node_id forwarding_table node_ftable_map ftables n r).
+  @ForwardingCorrect.node_rel_dests node_id forwarding_table node_ftable_map ftables n r.
 
 (*----Forwarding read off the returned [ninfos]----*)
 
@@ -2496,8 +2487,7 @@ Lemma forward_of_ninfos_eq (ninfos0 : list node_info) (ft : node_ftable_map) (n 
     (s : node_id) :
   forward_from_ninfos (attach_forwarding_tables ninfos0 ft) n r s = fwd_list ft n r s.
 Proof.
-  unfold forward_from_ninfos, fwd_list,
-         ForwardingCorrect.dest_edges, ForwardingCorrect.node_rel_dests.
+  unfold forward_from_ninfos, fwd_list, ForwardingCorrect.node_rel_dests.
   rewrite (find_ninfo_nforwarding ninfos0 ft n). reflexivity.
 Qed.
 
@@ -2567,11 +2557,11 @@ Qed.
 (* PACKAGED RESULT: when the external table's own routing graph for [rel0] carries a path from
    [prod] to [cons], the computed forwarding table makes [cons] forwarding-reachable from [prod].
    The table IS the graph, so this is just [get_path_spec] plus the edge characterization. *)
-Lemma ftables_forwarding_reachable (ftables : internode_forwarding_tables) (ninfos : list node_info)
+Lemma ftables_forwarding_reachable (ftables : node_ftable_map) (ninfos : list node_info)
     (rel0 : rel_id) (prod cons : node_id) (path : list node_id) :
   get_path (graph_of_ftables_at_rel ftables rel0) prod cons = Some path ->
   @DistributedDatalog.forwarding_reachable rel_id node_id
-    (fwd_list (compute_forwarding_table ftables ninfos)) rel0 prod prod cons.
+    (fwd_list (ftables)) rel0 prod prod cons.
 Proof.
   intros Hpath.
   apply (@ComputableGraph.get_path_spec node_id node_id_eqb node_id_eqb_spec node_id_set
@@ -2581,7 +2571,6 @@ Proof.
   eapply DistributedDatalog.forwarding_chain_reachable; [| exact Hlast].
   eapply ComputableGraph.LocallySorted_impl; [exact Hwalk|].
   intros x y Hedge. unfold DistributedDatalog.forwards_rel, fwd_list.
-  apply ForwardingCorrect.has_fwd_edge_compute.
   apply ForwardingCorrect.cg_edge_graph_of_ftables. exact Hedge.
 Qed.
 
@@ -2802,11 +2791,11 @@ Qed.
 
 (* CORE REACH: a producer/consumer pair the external table's own routing graph for [R] connects
    is forwarding-reachable in the computed table. *)
-Lemma construction_reach (ftables : internode_forwarding_tables) (ninfos : list node_info)
+Lemma construction_reach (ftables : node_ftable_map) (ninfos : list node_info)
     (R : rel_id) (np nc : node_id) :
   Datalog.List.is_Some (get_path (graph_of_ftables_at_rel ftables R) np nc) = true ->
   @DistributedDatalog.forwarding_reachable rel_id node_id
-    (fwd_list (compute_forwarding_table ftables ninfos)) R np np nc.
+    (fwd_list (ftables)) R np np nc.
 Proof.
   intros Hpath.
   destruct (get_path (graph_of_ftables_at_rel ftables R) np nc) as [path|] eqn:Hgpath;
@@ -2867,7 +2856,7 @@ Proof.
 Qed.
 
 (* [all_rules_fed]: every producer reaches every internal consumer (of the same relation). *)
-Lemma all_rules_fed_reach (ftables : internode_forwarding_tables) (apo ico : fact_locations_map)
+Lemma all_rules_fed_reach (ftables : node_ftable_map) (apo ico : fact_locations_map)
     (R : rel_id) (np nc : node_id) :
   all_rules_fed ftables apo ico = true ->
   In np (get_or_default apo R) ->
@@ -2882,7 +2871,7 @@ Proof.
 Qed.
 
 (* [producers_go_out]: every producer of a relation with an external sink reaches some external sink. *)
-Lemma producers_go_out_reach (ftables : internode_forwarding_tables) (apo eco : fact_locations_map)
+Lemma producers_go_out_reach (ftables : node_ftable_map) (apo eco : fact_locations_map)
     (R : rel_id) (np : node_id) (ecs : list node_id) :
   producers_go_out ftables apo eco = true ->
   map.get eco R = Some ecs ->
@@ -2901,10 +2890,10 @@ Qed.
    it to a sink.  Both rule-producers and external input nodes lie in [all_producers], so this is the
    single fact behind [construction_good_source] and [edb_input_good_source]. *)
 Lemma all_producers_member_good_source (ninfos : list node_info)
-    (ftables : internode_forwarding_tables) (llayout : layout_map)
+    (ftables : node_ftable_map) (llayout : layout_map)
     (ext_prod ext_cons : fact_locations_map) (net : DNet) (n : node_id) (R : rel_id) :
   net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
-  net.(DistributedDatalog.forward) = fwd_list (compute_forwarding_table ftables ninfos) ->
+  net.(DistributedDatalog.forward) = fwd_list (ftables) ->
   net.(DistributedDatalog.output) = (fun n R => In n (get_or_default ext_cons R)) ->
   all_rules_fed ftables (all_producers llayout ext_prod) (get_internal_consumers_of llayout) = true ->
   producers_go_out ftables (all_producers llayout ext_prod) ext_cons = true ->
@@ -2931,10 +2920,10 @@ Qed.
 
 (* Rule-producers are good sources ([node_produces => In all_producers]). *)
 Lemma construction_good_source (ninfos : list node_info)
-    (ftables : internode_forwarding_tables) (llayout : layout_map)
+    (ftables : node_ftable_map) (llayout : layout_map)
     (ext_prod ext_cons : fact_locations_map) (net : DNet) :
   net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
-  net.(DistributedDatalog.forward) = fwd_list (compute_forwarding_table ftables ninfos) ->
+  net.(DistributedDatalog.forward) = fwd_list (ftables) ->
   net.(DistributedDatalog.output) = (fun n R => In n (get_or_default ext_cons R)) ->
   all_rules_fed ftables (all_producers llayout ext_prod) (get_internal_consumers_of llayout) = true ->
   producers_go_out ftables (all_producers llayout ext_prod) ext_cons = true ->
@@ -2967,10 +2956,10 @@ Definition compiled_base_edb (g : node_graph) (ftables : node_ftable_map)
 (* Every declared external input location is a good source: it lies in [all_producers], so the same
    [all_rules_fed]/[producers_go_out] routing that makes producers good sources applies. *)
 Lemma edb_input_good_source (ninfos : list node_info)
-    (ftables : internode_forwarding_tables) (llayout : layout_map)
+    (ftables : node_ftable_map) (llayout : layout_map)
     (ext_prod ext_cons : fact_locations_map) (net : DNet) :
   net.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
-  net.(DistributedDatalog.forward) = fwd_list (compute_forwarding_table ftables ninfos) ->
+  net.(DistributedDatalog.forward) = fwd_list (ftables) ->
   net.(DistributedDatalog.output) = (fun n R => In n (get_or_default ext_cons R)) ->
   all_rules_fed ftables (all_producers llayout ext_prod) (get_internal_consumers_of llayout) = true ->
   producers_go_out ftables (all_producers llayout ext_prod) ext_cons = true ->
@@ -2987,7 +2976,7 @@ Qed.
    externally supplied table -- is [good_network_streaming].  Forwarding soundness is now the
    [ftables_in_graphb] check rather than a property of a table the compiler built. *)
 Theorem compiled_good_network_streaming_edb
-    (g : node_graph) (ftables : internode_forwarding_tables) (ninfos : list node_info)
+    (g : node_graph) (ftables : node_ftable_map) (ninfos : list node_info)
     (llayout : layout_map) (ext_prod ext_cons : fact_locations_map)
     (program : list (Datalog.rule (rel := rel_id) (fn := fn))) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   Graph.good_graph (cg2g g) ->
@@ -2998,7 +2987,7 @@ Theorem compiled_good_network_streaming_edb
   (forall f, Q f -> exists n, In n (get_or_default ext_prod (Datalog.rel_of f))) ->
   DistributedDatalog.good_network_streaming
     (dnet_of_llayout llayout
-       (compiled_base_edb g (compute_forwarding_table ftables ninfos) ext_prod ext_cons Q))
+       (compiled_base_edb g (ftables) ext_prod ext_cons Q))
     program Q.
 Proof.
   intros Hgg Hlay Hfig Hfed Hpgo HQ.
@@ -3007,11 +2996,11 @@ Proof.
   split; [exact Hlay|].
   split.
   - intros n1 n2 r s Hin.
-    exact (ForwardingCorrect.ftables_in_graphb_sound g ftables ninfos Hfig n1 r n2 Hin).
+    exact (ForwardingCorrect.ftables_in_graphb_sound g ftables Hfig n1 r n2 Hin).
   - split.
     + apply (construction_good_source ninfos ftables llayout ext_prod ext_cons
                (dnet_of_llayout llayout
-                  (compiled_base_edb g (compute_forwarding_table ftables ninfos) ext_prod ext_cons Q)));
+                  (compiled_base_edb g (ftables) ext_prod ext_cons Q)));
         [reflexivity | reflexivity | reflexivity | exact Hfed | exact Hpgo].
     + split.
       * intros n f [HQf _]. exact HQf.
@@ -3021,18 +3010,18 @@ Proof.
         -- destruct (In_get_or_default ext_prod (Datalog.rel_of f) n Hn) as [locs [Hext Hnlocs]].
            apply (edb_input_good_source ninfos ftables llayout ext_prod ext_cons
                     (dnet_of_llayout llayout
-                       (compiled_base_edb g (compute_forwarding_table ftables ninfos) ext_prod ext_cons Q)))
+                       (compiled_base_edb g (ftables) ext_prod ext_cons Q)))
              with (locs := locs);
              [reflexivity | reflexivity | reflexivity | exact Hfed | exact Hpgo | exact Hext | exact Hnlocs].
 Qed.
 
 (* [compile = Success] entails the per-node compilation, the checks the compiler gates on, and that
-   the returned [ninfos] carry the table [compute_forwarding_table] merges. *)
+   the returned [ninfos] carry the given forwarding table. *)
 Lemma compile_success_extract (layout : layout_map) (fps fcs : fact_locations_map)
-    (ftables : internode_forwarding_tables) (g : node_graph) (ninfos : list node_info) :
+    (ftables : node_ftable_map) (g : node_graph) (ninfos : list node_info) :
   compile layout fps fcs ftables g = Success ninfos ->
   exists ninfos0,
-    ninfos = attach_forwarding_tables ninfos0 (compute_forwarding_table ftables ninfos0) /\
+    ninfos = attach_forwarding_tables ninfos0 ftables /\
     compile_all_nodes layout = Success ninfos0 /\
     check_layout_routable ftables fcs (get_internal_consumers_of layout) (all_producers layout fps)
       = Success tt /\
@@ -3296,7 +3285,7 @@ Qed.
    NO route checker side condition. *)
 Theorem compile_distributed_correct
     (layout : layout_map) (fps fcs : fact_locations_map)
-    (ftables : internode_forwarding_tables) (g : node_graph)
+    (ftables : node_ftable_map) (g : node_graph)
     (ninfos : list node_info) (Q : Datalog.fact (rel := rel_id) -> Prop) :
   compile layout fps fcs ftables g = Success ninfos ->
   bare_layoutb layout = true ->
@@ -3323,9 +3312,9 @@ Proof.
   apply (iff_trans
            (compile_all_distributes_ninfos layout
               (map.keys (all_consumers layout fcs)) ninfos0
-              (compute_forwarding_table ftables ninfos0)
+              ftables
               (dnet_of_llayout layout
-                 (compiled_base_edb g (compute_forwarding_table ftables ninfos0) fps fcs Q))
+                 (compiled_base_edb g ftables fps fcs Q))
               (canonical_program layout) Q Hcan Hbare
               eq_refl eq_refl
               (compiled_good_network_streaming_edb g ftables ninfos0 layout fps fcs
@@ -3356,7 +3345,7 @@ Definition relabel_Q (rho : rel -> rel_id) (Q : @Datalog.fact rel T -> Prop)
 Theorem nattify_and_compile_correct
     (p : list (@Datalog.rule rel var fn aggregator))
     (layout : layout_map) (fps fcs : fact_locations_map)
-    (ftables : internode_forwarding_tables) (g : node_graph)
+    (ftables : node_ftable_map) (g : node_graph)
     (ninfos : list node_info)
     (Qsrc : @Datalog.fact rel T -> Prop) (fsrc : @Datalog.fact rel T) :
   compile layout fps fcs ftables g = Success ninfos ->
