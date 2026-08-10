@@ -372,14 +372,6 @@ Definition compile_rule (rule : lowered_rule)
 
 Context {node_ftable_map : map.map node_id forwarding_table}.
 
-Definition trie_dests_of_rel (ninfos : list node_info) (node : node_id) (rel : rel_id) : list trie_id :=
-  let matching_tries :=
-    match find (fun n => eqb n.(nid) node) ninfos with
-    | None => []
-    | Some ninfo => filter (fun t => eqb t.(trel) rel) ninfo.(ntries)
-    end in
-  List.map tid matching_tries.
-
 Context {rels_at_node : map.map node_id (list rel_id)}.
 
 Definition get_internal_producers_of (layout : layout_map) :=
@@ -399,22 +391,20 @@ Definition get_internal_consumers_of (layout : layout_map) :=
 Context {internode_forwarding_table : map.map rel_id (list node_id)}.
 Context {internode_forwarding_tables : map.map node_id internode_forwarding_table}.
 
-Definition next_hops (ftables : internode_forwarding_tables) (n : node_id) (R : rel_id) : list node_id :=
-  get_or_default (get_or_default ftables n) R.
-
 Definition node_set_of_list (ns : list node_id) : node_id_set :=
   map.of_list (List.map (fun n => (n, tt)) ns).
 
-Definition empty_node_graph : node_graph :=
-  {| nodes := map.empty; edges := map.empty |}.
+Definition edges_of_ftables_at_rel (ftables : internode_forwarding_tables) (R : rel_id)
+  : node_id_edge_set :=
+  map.map_values (fun ft => node_set_of_list (get_or_default ft R)) ftables.
 
-(* the one-hop graph along which the table routes R*)
+(*TODO use a different representation of grpahs so i don't have to deal with this*)
+Definition nodes_of_edges (es : node_id_edge_set) : node_id_set :=
+  map.fold (fun ns n hops => map.putmany (map.put ns n tt) hops) map.empty es.
+
 Definition graph_of_ftables_at_rel (ftables : internode_forwarding_tables) (R : rel_id) : node_graph :=
-  map.fold (fun g n ft =>
-    let hops := get_or_default ft R in
-    {| nodes := map.putmany g.(nodes) (node_set_of_list (n :: hops));
-       edges := map.put g.(edges) n (node_set_of_list hops) |})
-    empty_node_graph ftables.
+  let es := edges_of_ftables_at_rel ftables R in
+  {| nodes := nodes_of_edges es; edges := es |}.
 
 Definition path_exists (g : node_graph) (source dest : node_id) :=
   is_Some (get_path g source dest).
@@ -509,31 +499,18 @@ Definition ftables_in_graphb (g : node_graph) (ftables : internode_forwarding_ta
     (fun n ft => check_node_valid n (ComputableGraph.nodes g) && ftable_in_graphb g n ft)
     ftables.
 
-Definition rels_of_node (ninfos : list node_info) (node : node_id) : list rel_id :=
-  match find (fun n => eqb n.(nid) node) ninfos with
-  | None => []
-  | Some ninfo => dedup (List.map trel ninfo.(ntries))
-  end.
+Definition edge_ftables (ftables : internode_forwarding_tables) : node_ftable_map :=
+  map.map_values (map.map_values (List.map DestEdge)) ftables.
 
-Definition dests_of_rel (ftables : internode_forwarding_tables) (ninfos : list node_info)
-    (n : node_id) (R : rel_id) : list destination :=
-  List.map DestEdge (next_hops ftables n R) ++
-    List.map DestTrie (trie_dests_of_rel ninfos n R).
+Definition trie_ftable (tries : list trie) : forwarding_table :=
+  fold_right (fun t ft => mupd_with_default (cons (DestTrie t.(tid))) ft t.(trel)) map.empty tries.
 
-(* [R] needs an entry at [n] exactly when [n] forwards it onward or reads it locally. *)
-Definition forwarding_table_of_node (ftables : internode_forwarding_tables)
-    (ninfos : list node_info) (n : node_id) : forwarding_table :=
-  fold_left (fun ft R => map.put ft R (dests_of_rel ftables ninfos n R))
-    (list_union eqb (map.keys (get_or_default ftables n)) (rels_of_node ninfos n))
-    map.empty.
+Definition trie_ftables (ninfos : list node_info) : node_ftable_map :=
+  map.of_list (List.map (fun ninfo => (ninfo.(nid), trie_ftable ninfo.(ntries))) ninfos).
 
-(* the internal table: the externally chosen next hops become [DestEdge]s, and the node-local tries
-   reading [R] -- whose ids only this compiler knows -- are added as [DestTrie]s. *)
 Definition compute_forwarding_table (ftables : internode_forwarding_tables)
     (ninfos : list node_info) : node_ftable_map :=
-  fold_left (fun acc n => map.put acc n (forwarding_table_of_node ftables ninfos n))
-    (list_union eqb (map.keys ftables) (List.map nid ninfos))
-    map.empty.
+  union_with (union_with (@app _)) (edge_ftables ftables) (trie_ftables ninfos).
 
 Definition compile (layout : layout_map)
   (external_producers_of external_consumers_of : fact_locations)
