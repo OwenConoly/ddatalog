@@ -60,12 +60,16 @@ Definition grid_equiv :=
     (SortedListNat.map (list destination))
     (GridTopology.node_id_map (list (lowered_rule))) (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map (SortedListNat.map (list destination)))
+    (SortedListNat.map (list node_id))
+    (GridTopology.node_id_map (SortedListNat.map (list node_id)))
     (SortedListNat.map (list node_id)) (SortedListNat.ok _)
     (GridTopology.node_id_map (list rel_id))
     (GridTopology.node_id_map_ok _)
     (SortedListNat.ok _)
     (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map_ok _)
+    (GridTopology.node_id_map_ok _)
+    (SortedListNat.ok _)
     (GridTopology.node_id_map_ok _)
     string _ _.
 
@@ -90,6 +94,7 @@ Definition FPS     := all_io_locations P idx_layout topo.
 Definition G       := GridTopology.make_topo_graph topo.
 Definition NLAYOUT := nattify_layout (rel_ids P) (make_layout_map P idx_layout).
 Definition NFPS    := nattify_fact_locs (rel_ids P) FPS.
+Definition FT      := flood_ftables (List.map (rel_ids P) (rel_table (List.flat_map Datalog.all_rels P) P)) topo.
 
 (* The compiler runs and SUCCEEDS (cheap head-constructor check). *)
 Definition compiled_J := Eval vm_compute in compile_program P idx_layout FPS FPS topo.
@@ -123,7 +128,7 @@ Theorem end_to_end_equiv
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
   intros Hc Hscope Hedb Houtrel.
-  apply (grid_equiv P NLAYOUT NFPS NFPS G ninfos Qsrc fsrc Hc);
+  apply (grid_equiv P NLAYOUT NFPS NFPS FT G ninfos Qsrc fsrc Hc);
     [ vm_compute; reflexivity
     | apply layout_distributes_programb_spec; vm_compute; reflexivity
     | exact Hscope
@@ -153,6 +158,7 @@ Definition FPS_r     := all_io_locations Preach idx_layout_r topo_r.
 Definition G_r       := GridTopology.make_topo_graph topo_r.
 Definition NLAYOUT_r := nattify_layout (rel_ids Preach) (make_layout_map Preach idx_layout_r).
 Definition NFPS_r    := nattify_fact_locs (rel_ids Preach) FPS_r.
+Definition FT_r      := flood_ftables (List.map (rel_ids Preach) (rel_table (List.flat_map Datalog.all_rels Preach) Preach)) topo_r.
 
 Definition compiled_R := Eval vm_compute in compile_program Preach idx_layout_r FPS_r FPS_r topo_r.
 Example compiled_R_ok : match compiled_R with Success _ => True | _ => False end := I.
@@ -177,7 +183,7 @@ Theorem end_to_end_equiv_reach
   <-> Datalog.prog_impl Preach Qsrc fsrc.
 Proof.
   intros Hc Hscope Hedb Houtrel.
-  apply (grid_equiv Preach NLAYOUT_r NFPS_r NFPS_r G_r ninfos Qsrc fsrc Hc);
+  apply (grid_equiv Preach NLAYOUT_r NFPS_r NFPS_r FT_r G_r ninfos Qsrc fsrc Hc);
     [ vm_compute; reflexivity
     | apply layout_distributes_programb_spec; vm_compute; reflexivity
     | exact Hscope
