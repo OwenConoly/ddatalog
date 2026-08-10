@@ -1,7 +1,18 @@
 From coqutil Require Import Map.Interface Eqb.
-From Stdlib Require Import List Lia PeanoNat.
+From Stdlib Require Import List Sorting.Sorted.
 From DatalogRocq Require Import Topologies.Graph.
 Import ListNotations.
+
+Hint Constructors LocallySorted : core.
+Lemma LocallySorted_impl {A : Type} (R Q : A -> A -> Prop) (l : list A) :
+  LocallySorted R l ->
+  (forall x y, R x y -> Q x y) ->
+  LocallySorted Q l.
+Proof. intros H ?. induction H; eauto. Qed.
+
+Lemma LocallySorted_snoc {A : Type} (R : A -> A -> Prop) (l : list A) (d x : A) :
+  LocallySorted R l -> R (last l d) x -> LocallySorted R (l ++ [x]).
+Proof. induction 1; simpl; eauto. Qed.
 
 Section ComputableGraph.
 Context {Node : Type}.
@@ -184,31 +195,20 @@ Definition get_path (g : ComputableGraph) (nstart nend : Node) : option (list No
 Definition cg_edge (g : ComputableGraph) (n1 n2 : Node) : Prop :=
   check_edge_exists n1 n2 g.(edges) = true.
 
-(* [l] is a walk: every adjacent pair is an edge *)
-Definition edge_walk (g : ComputableGraph) (l : list Node) : Prop :=
-  forall i a b, nth_error l i = Some a -> nth_error l (S i) = Some b -> cg_edge g a b.
-
 (* [path] is a real path from [s] to [e] (head = s, last = e, all adjacent pairs edges) *)
-Definition is_path (g : ComputableGraph) (s e : Node) (path : list Node) : Prop :=
-  path <> [] /\ nth_error path 0 = Some s /\
-  nth_error path (pred (length path)) = Some e /\ edge_walk g path.
+Definition is_path (g : ComputableGraph) (s e : Node) (path : list Node) :=
+  LocallySorted (cg_edge g) path /\ hd_error path = Some s /\ last path s = e.
 
-Lemma edge_walk_snoc (g : ComputableGraph) (l : list Node) (x : Node) :
-  edge_walk g l ->
-  (forall a, nth_error l (pred (length l)) = Some a -> cg_edge g a x) ->
-  edge_walk g (l ++ [x]).
+Lemma is_path_cons (g : ComputableGraph) (s e : Node) (path : list Node) :
+  is_path g s e path ->
+  exists mid, path = s :: mid /\
+              LocallySorted (cg_edge g) (s :: mid) /\
+              last (s :: mid) s = e.
 Proof.
-  intros Hw Hlast i a b Hi HSi.
-  assert (HSb : nth_error (l ++ [x]) (S i) <> None) by congruence.
-  apply nth_error_Some in HSb. rewrite length_app in HSb. cbn [length] in HSb.
-  destruct (Nat.eqb_spec (S i) (length l)) as [HSeq | HSne].
-  - rewrite nth_error_app1 in Hi by lia.
-    assert (Hi' : nth_error l (pred (length l)) = Some a) by (rewrite <- HSeq; cbn; exact Hi).
-    rewrite HSeq, nth_error_app2 in HSi by lia.
-    rewrite Nat.sub_diag in HSi. cbn in HSi. injection HSi as <-.
-    apply Hlast. exact Hi'.
-  - rewrite nth_error_app1 in Hi by lia. rewrite nth_error_app1 in HSi by lia.
-    exact (Hw i a b Hi HSi).
+  intros [Hwalk [Hhd Hlast]].
+  destruct path as [|x mid]; [discriminate Hhd|].
+  cbn in Hhd. injection Hhd as Hx. subst x.
+  exists mid. split; [reflexivity | split; assumption].
 Qed.
 
 (* a neighbor key really is an edge target *)
@@ -255,22 +255,18 @@ Definition good_entry (g : ComputableGraph) (s : Node) (e : Node * list Node) : 
 Lemma good_entry_initial (g : ComputableGraph) (s : Node) :
   good_entry g s (s, [s]).
 Proof.
-  unfold good_entry, is_path. cbn. repeat split; try discriminate.
-  intros i a b Hi Hib. destruct i; cbn in *; [discriminate | destruct i; discriminate].
+  unfold good_entry, is_path. cbn. split; [constructor | split; reflexivity].
 Qed.
 
 (* extending a real path [s -> node] by an edge [node -> n] gives a real path [s -> n] *)
 Lemma is_path_snoc (g : ComputableGraph) (s node n : Node) (p : list Node) :
   is_path g s node p -> cg_edge g node n -> is_path g s n (p ++ [n]).
 Proof.
-  intros [Hne [Hhd [Hlast Hwalk]]] Hedge. unfold is_path. repeat split.
-  - intro Hc. apply app_eq_nil in Hc. destruct Hc; discriminate.
-  - rewrite nth_error_app1; [exact Hhd|]. destruct p; [contradiction | cbn; lia].
-  - rewrite length_app. cbn [length].
-    replace (pred (length p + 1)) with (length p) by lia.
-    rewrite nth_error_app2 by lia. rewrite Nat.sub_diag. reflexivity.
-  - apply edge_walk_snoc; [exact Hwalk|]. intros a Ha. rewrite Hlast in Ha.
-    injection Ha as <-. exact Hedge.
+  intros [Hwalk [Hhd Hlast]] Hedge. unfold is_path. split; [|split].
+  - apply (LocallySorted_snoc (cg_edge g) p s n); [exact Hwalk|].
+    rewrite Hlast. exact Hedge.
+  - destruct p as [|a p']; [discriminate Hhd|]. cbn in Hhd |- *. exact Hhd.
+  - apply last_last.
 Qed.
 
 (* one BFS step preserves the invariant on the queue, and any returned path is a real path *)
