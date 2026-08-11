@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
 From Datalog Require Import Datalog Interpreter List Map Default.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
-From GraphSearch Require Import GraphInterface.
+From GraphSearch Require Import GraphInterface Trees.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
@@ -496,6 +496,21 @@ Definition compile (layout : layout_map)
   check_layout_routable ftables external_consumers_of internal_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
   Success (attach_forwarding_tables ninfos ftables).
+
+Definition dumb_ftables_at (g : node_id_graph) (R : rel_id) (orig_src : node_id) : node_ftable_map :=
+  let g := graph_of (tree_of g orig_src) in
+  map.of_list (List.map (fun src => (src, map.put map.empty (R, orig_src) (graph.edges g src))) (graph.sources g)).
+
+Definition dumb_ftables g layout external_producers_of :=
+  let internal_producers_of := get_internal_producers_of layout in
+  let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
+  let all_ftables := flat_map (fun '(R, producers) => List.map (dumb_ftables_at g R) producers) (map.tuples all_producers_of) in
+  fold_left (union_with (union_with (list_union eqb))) all_ftables map.empty.
+
+Definition compile_with_dumb_ftables (layout : layout_map)
+  (external_producers_of external_consumers_of : fact_locations)
+  (g : node_graph) : result (list node_info) :=
+  compile layout external_producers_of external_consumers_of (dumb_ftables g.(edges) layout external_producers_of) g.
 End DistributedDatalogToHardwareCompiler.
 
 Existing Instance SortedListNat.map.
