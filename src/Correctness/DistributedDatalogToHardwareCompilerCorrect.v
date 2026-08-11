@@ -2845,6 +2845,7 @@ Proof.
   eapply map.get_forallb in Hfed; [| exact Hico].
   unfold DistributedDatalogToHardwareCompiler.all_rules_fed_for_relation in Hfed.
   rewrite forallb_forall in Hfed. specialize (Hfed np Hnp).
+  apply andb_prop in Hfed. destruct Hfed as [_ Hfed].
   apply get_reachable_nodes_spec.
   exact (proj1 (inclb_incl _ _) Hfed nc Hncics).
 Qed.

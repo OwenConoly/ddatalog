@@ -389,9 +389,15 @@ Definition graph_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (origina
     graph.empty ftables.
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
+(*also checks that internal rule_consumers only receive a given message once---
+ by checking that we have trees*)
+(*note that the treeness is currently unnecessary for the correctness proof,
+  but it will be necessary once we incorporate aggregation*)
 Definition all_rules_fed_for_relation (gof : node_id -> node_id_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
-  forallb (fun p => inclb internal_consumers (get_reachable_nodes (gof p) p))
+  forallb (fun p =>
+             check_locally_tree (gof p) p &&
+             inclb internal_consumers (get_reachable_nodes (gof p) p))
     all_producers.
 
 Definition all_rules_fed ftables
