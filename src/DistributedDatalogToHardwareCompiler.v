@@ -2,6 +2,7 @@ From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
 From Datalog Require Import Datalog Interpreter List Map Default.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
+From GraphSearch Require Import GraphInterface.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
@@ -35,17 +36,15 @@ Record node_context := {
 (*---- var_graph as ComputableGraph over var ----*)
 Context {var_node_set : map.map var unit}.
 Context {var_node_set_ok : map.ok var_node_set}.
-Context {var_edge_set : map.map var var_node_set}.
-Context {var_edge_set_ok : map.ok var_edge_set}.
+Context {var_graph_impl : graph.graph var} {var_graph_impl_ok : graph.ok var_graph_impl}.
 
-Definition var_graph := @ComputableGraph var var_node_set var_edge_set.
+Definition var_graph := @ComputableGraph var var_node_set var_graph_impl.
 
 (*---- node_graph as ComputableGraph over node_id ----*)
 Context {node_id_set_ok : map.ok node_id_set}.
-Context {node_id_edge_set : map.map node_id node_id_set}.
-Context {node_id_edge_set_ok : map.ok node_id_edge_set}.
+Context {node_id_graph : graph.graph node_id} {node_id_graph_ok : graph.ok node_id_graph}.
 
-Definition node_graph := @ComputableGraph node_id node_id_set node_id_edge_set.
+Definition node_graph := @ComputableGraph node_id node_id_set node_id_graph.
 
 (*----The program a layout represents, and a checker that a layout distributes a given program----*)
 
@@ -77,19 +76,17 @@ Definition hyp_var_order (hyps : list lowered_fact) : list var :=
 
 (*----Variable ordering----*)
 
-Definition vg_neighbors (g : var_graph) (v : var) : var_node_set :=
-  get_or_default g.(edges) v.
+Definition vg_neighbors (g : var_graph) (v : var) : list var :=
+  graph.edges g.(edges) v.
 
 Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_node_set) : var_graph :=
   match arg with
   | var_expr v =>
-    let new_neighbors := map.putmany (vg_neighbors g v) clause_vars in
     let g' := {| nodes := map.put g.(nodes) v tt;
-                 edges := map.put g.(edges) v new_neighbors |} in
+                 edges := graph.put_edges g.(edges) v (map.keys clause_vars) |} in
     (* Add reverse edges: for each u in clause_vars, add edge u -> v *)
     map.fold (fun acc u _ =>
-      {| nodes := acc.(nodes);
-         edges := map.put acc.(edges) u (map.put (vg_neighbors acc u) v tt) |})
+      {| nodes := acc.(nodes); edges := graph.put acc.(edges) u v |})
       g' clause_vars
   | fun_expr _ args =>
     fold_left (fun acc arg => add_arg_edges arg acc clause_vars) args g
@@ -111,20 +108,20 @@ Definition add_hyp_edges (hyp : lowered_fact) (g : var_graph) : var_graph :=
   add_args_edges hyp.(clause_args) g map.empty.
 
 Definition empty_var_graph : var_graph :=
-  {| nodes := map.empty; edges := map.empty |}.
+  {| nodes := map.empty; edges := graph.empty |}.
 
 Definition create_dependency_graph (hyps : list lowered_fact) : var_graph :=
   fold_left (fun acc hyp => add_hyp_edges hyp acc) hyps empty_var_graph.
 
 Definition compute_degree (g : var_graph) (v : var) : nat :=
-  map.fold (fun acc _ _ => S acc) 0 (vg_neighbors g v).
+  length (vg_neighbors g v).
 
 Definition compute_degree_to_visited_set (g : var_graph) (visited : var_node_set) (v : var) : nat :=
-  map.fold (fun acc neighbor _ =>
+  fold_left (fun acc neighbor =>
     match map.get visited neighbor with
     | Some _ => S acc
     | None => acc
-    end) 0 (vg_neighbors g v).
+    end) (vg_neighbors g v) 0.
 
 Definition compute_max_degree_var_to_visited_set (g : var_graph) (visited : var_node_set)
     : option (var * nat) :=
@@ -176,11 +173,10 @@ Definition compute_max_degree_var_ordered
 
 Definition remove_edge_from_graph (g : var_graph) (v1 v2 : var) : var_graph :=
   {| nodes := g.(nodes);
-     edges := map.put (map.put g.(edges) v1 (map.remove (vg_neighbors g v1) v2))
-                                           v2 (map.remove (vg_neighbors g v2) v1) |}.
+     edges := graph.remove (graph.remove g.(edges) v1 v2) v2 v1 |}.
 
 Definition remove_edges_touching_var (g : var_graph) (v : var) : var_graph :=
-  map.fold (fun acc neighbor _ => remove_edge_from_graph acc v neighbor) g (vg_neighbors g v).
+  fold_left (fun acc neighbor => remove_edge_from_graph acc v neighbor) (vg_neighbors g v) g.
 
 Record ordering_context := {
   dep_graph : var_graph;
@@ -389,26 +385,18 @@ Definition get_internal_consumers_of (layout : layout_map) :=
 Definition node_set_of_list (ns : list node_id) : node_id_set :=
   map.of_list (List.map (fun n => (n, tt)) ns).
 
-Definition edges_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (original_source : node_id)
-  : node_id_edge_set :=
-  map.map_values (fun ft => node_set_of_list (get_or_default ft (R, original_source))) ftables.
-
-(*TODO use a different representation of grpahs so i don't have to deal with this*)
-Definition nodes_of_edges (es : node_id_edge_set) : node_id_set :=
-  map.fold (fun ns n hops => map.putmany (map.put ns n tt) hops) map.empty es.
-
+(* the routing graph for [R] tagged [original_source]: only searched, so no node set. *)
 Definition graph_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (original_source : node_id)
-  : node_graph :=
-  let es := edges_of_ftables_at ftables R original_source in
-  {| nodes := nodes_of_edges es; edges := es |}.
+  : node_id_graph :=
+  map.fold (fun g n ft => graph.put_edges g n (get_or_default ft (R, original_source)))
+    graph.empty ftables.
 
-Definition path_exists (g : node_graph) (source dest : node_id) :=
-  is_Some (get_path g source dest).
+
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
-Definition all_rules_fed_for_relation (gof : node_id -> node_graph)
+Definition all_rules_fed_for_relation (gof : node_id -> node_id_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
-  forallb (fun '(p, ic) => path_exists (gof p) p ic) (list_prod all_producers internal_consumers).
+  forallb (fun '(p, ic) => reachableb (gof p) p ic) (list_prod all_producers internal_consumers).
 
 Definition all_rules_fed ftables
   (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
@@ -418,10 +406,10 @@ Definition all_rules_fed ftables
     internal_consumers_of.
 
 (*all rule_producers(R) -> some external rule_consumer(R)*)
-Definition producers_go_out_for_relation (gof : node_id -> node_graph)
+Definition producers_go_out_for_relation (gof : node_id -> node_id_graph)
   (all_producers : list node_id) (external_consumers : list node_id) :=
   forallb
-    (fun producer => existsb (path_exists (gof producer) producer) external_consumers)
+    (fun producer => existsb (reachableb (gof producer) producer) external_consumers)
     all_producers.
 
 (*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)

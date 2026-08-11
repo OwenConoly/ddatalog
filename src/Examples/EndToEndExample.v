@@ -52,19 +52,16 @@ Definition grid_equiv :=
     (SortedListString.map string) (SortedListString.ok string)
     StringDatalog.var_idx_map  (SortedListString.ok nat)
     StringDatalog.var_node_set (SortedListString.ok unit)
-    StringDatalog.var_edge_set
+    StringDatalog.var_graph_impl
     node_id _ _
     (GridTopology.node_id_map unit)
-    (GridTopology.node_id_map (GridTopology.node_id_map unit))
+    GridTopology.node_id_graph GridTopology.node_id_graph_ok
     ftable_map
     (GridTopology.node_id_map (list (lowered_rule))) (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map ftable_map)
     (SortedListNat.map (list node_id)) (SortedListNat.ok _)
-    (GridTopology.node_id_map (list rel_id))
-    (GridTopology.node_id_map_ok _)
+    (GridTopology.node_id_map (list rel_id)) (GridTopology.node_id_map_ok _)
     StringGridCompiler.ftable_map_ok
-    (GridTopology.node_id_map_ok _)
-    (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map_ok _)
     string _ _.
 

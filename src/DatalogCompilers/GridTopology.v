@@ -10,7 +10,8 @@
 
 From Stdlib Require Import List ZArith.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridGraph SortedListList SortedListNat ComputableGraph.
-From coqutil Require Import Map.Interface.
+From coqutil Require Import Map.Interface Eqb Decidable Datatypes.List.
+From GraphSearch Require Import GraphInterface GraphImpl.
 Import ListNotations.
 
 #[global] Instance node_id_map T : map.map Node T := @SortedListList.map nat Nat.ltb SortedListNat.Nat_strict_order T.
@@ -26,19 +27,35 @@ Definition build_topo_node_set (dims : GridGraph.Dimensions) : node_id_map unit 
     (GridGraph.all_nodes_h dims)
     map.empty.
 
-Definition build_topo_edge_set (dims : GridGraph.Dimensions)
-    : node_id_map (node_id_map unit) :=
+#[global] Instance node_id_eqb : Eqb Node := list_eqb Nat.eqb.
+
+Lemma nat_eqb_dec : EqDecider Nat.eqb.
+Proof. intros x y. destruct (Nat.eqb_spec x y); constructor; assumption. Qed.
+
+#[global] Instance node_id_eqb_ok : Eqb_ok node_id_eqb.
+Proof.
+  intros a b. unfold eqb, node_id_eqb.
+  destruct (@list_eqb_spec nat Nat.eqb nat_eqb_dec a b); assumption.
+Qed.
+
+#[global] Instance node_id_graph : graph.graph Node :=
+  @GraphImpl.graph_map Node node_id_eqb node_id_eqb_ok
+    (node_id_map unit) (node_id_map_ok unit)
+    (node_id_map (node_id_map unit)) (node_id_map_ok _).
+
+#[global] Instance node_id_graph_ok : graph.ok node_id_graph.
+Proof. exact (@GraphImpl.graph_map_ok Node node_id_eqb node_id_eqb_ok
+                (node_id_map unit) (node_id_map_ok unit)
+                (node_id_map (node_id_map unit)) (node_id_map_ok _)). Qed.
+
+Definition build_topo_edges (dims : GridGraph.Dimensions) : node_id_graph :=
   let nodes := GridGraph.all_nodes_h dims in
   List.fold_left
     (fun acc n =>
-      let neighbors :=
-        List.filter (fun n2 => GridGraph.is_neighbor dims n n2) nodes in
-      let neighbor_map :=
-        List.fold_left (fun m nb => map.put m nb tt) neighbors map.empty in
-      map.put acc n neighbor_map)
-    nodes map.empty.
+      graph.put_edges acc n (List.filter (fun n2 => GridGraph.is_neighbor dims n n2) nodes))
+    nodes graph.empty.
 
 Definition make_topo_graph (dims : GridGraph.Dimensions)
-    : @ComputableGraph Node (node_id_map unit) (node_id_map (node_id_map unit)) :=
-  {| nodes := build_topo_node_set dims;
-     edges := build_topo_edge_set dims |}.
+    : @ComputableGraph Node (node_id_map unit) node_id_graph :=
+  {| ComputableGraph.nodes := build_topo_node_set dims;
+     ComputableGraph.edges := build_topo_edges dims |}.
