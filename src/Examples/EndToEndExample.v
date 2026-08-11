@@ -86,7 +86,7 @@ Definition FPS     := all_io_locations P idx_layout topo.
 Definition G       := GridTopology.make_topo_graph topo.
 Definition NLAYOUT := nattify_layout (rel_ids P) (make_layout_map P idx_layout).
 Definition NFPS    := nattify_fact_locs (rel_ids P) FPS.
-Definition FT      := flood_ftables (List.map (rel_ids P) (rel_table (List.flat_map Datalog.all_rels P) P)) topo.
+Definition FT      := dumb_ftables G.(ComputableGraph.edges) NLAYOUT NFPS.
 
 (* The compiler runs and SUCCEEDS (cheap head-constructor check). *)
 Definition compiled_J := Eval vm_compute in compile_program P idx_layout FPS FPS topo.
@@ -150,7 +150,7 @@ Definition FPS_r     := all_io_locations Preach idx_layout_r topo_r.
 Definition G_r       := GridTopology.make_topo_graph topo_r.
 Definition NLAYOUT_r := nattify_layout (rel_ids Preach) (make_layout_map Preach idx_layout_r).
 Definition NFPS_r    := nattify_fact_locs (rel_ids Preach) FPS_r.
-Definition FT_r      := flood_ftables (List.map (rel_ids Preach) (rel_table (List.flat_map Datalog.all_rels Preach) Preach)) topo_r.
+Definition FT_r      := dumb_ftables G_r.(ComputableGraph.edges) NLAYOUT_r NFPS_r.
 
 Definition compiled_R := Eval vm_compute in compile_program Preach idx_layout_r FPS_r FPS_r topo_r.
 Example compiled_R_ok : match compiled_R with Success _ => True | _ => False end := I.

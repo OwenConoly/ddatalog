@@ -17,14 +17,14 @@ Notation node_id_map := GridTopology.node_id_map.
 
 
 (* the compiled forwarding table is keyed on (relation, original source) *)
-Notation ftable_map :=
+#[global] Instance ftable_map : map.map (rel_id * node_id) (list node_id) :=
   (@SortedListPair.map rel_id node_id
      Nat.ltb SortedListNat.Nat_strict_order
      (@SortedListList.list_order nat Nat.ltb)
      (@SortedListList.list_strict_order nat Nat.ltb SortedListNat.Nat_strict_order)
      (list node_id)).
 
-Lemma ftable_map_ok : map.ok ftable_map.
+#[global] Instance ftable_map_ok : map.ok ftable_map.
 Proof. apply SortedListPair.ok. Qed.
 
 (* concrete fact-location tables: [rel]/[rel_id]-keyed maps to node lists. *)
@@ -57,22 +57,6 @@ Definition nattify_layout (enc : string -> rel_id)
 Definition nattify_fact_locs (enc : string -> rel_id) (fl : rel_locs_map) : relid_locs_map :=
   map.fold (fun acc R locs => map.put acc (enc R) locs) map.empty fl.
 
-(* UNTRUSTED stand-in for the external forwarding-table generator: flood every relation along
-   every grid edge.  [compile] re-checks whatever it is given ([ftables_in_graphb] for the hops,
-   [check_layout_routable] for producer->consumer reachability), so nothing here is trusted.
-   TODO: replace with the table the external router actually produces. *)
-Definition flood_ftables (rels : list rel_id) (topo_dims : GridGraph.Dimensions)
-    : node_id_map ftable_map :=
-  let nodes := GridGraph.all_nodes_h topo_dims in
-  List.fold_left
-    (fun fts n =>
-      let nbrs := List.filter (fun m => GridGraph.is_neighbor topo_dims n m) nodes in
-      map.put fts n
-        (List.fold_left
-           (fun ft R => List.fold_left (fun ft s => map.put ft (R, s) nbrs) nodes ft)
-           rels map.empty))
-    nodes map.empty.
-
 (* The end-to-end compiler: nattify the string layout / fact-locations, then wire the numbered
    program and the grid topology into the fuel-free [compile] (which computes the routing fuel
    = #grid-nodes itself). *)
@@ -84,11 +68,9 @@ Definition compile_program
     (topo_dims      : GridGraph.Dimensions)
     : _ :=
   let enc := rel_ids program in
-  let rels := List.map enc (rel_table (List.flat_map Datalog.all_rels program) program) in
-  compile
+  compile_with_dumb_ftables
     (nattify_layout enc (make_layout_map program layout))
     (nattify_fact_locs enc fact_producers) (nattify_fact_locs enc fact_consumers)
-    (flood_ftables rels topo_dims)
     (GridTopology.make_topo_graph topo_dims).
 
 (* The rel-name <-> rel-id table the frontend assigns (via [NattifyRel]'s [rel_table] / [encode_rel]),
