@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
 From Datalog Require Import Datalog Interpreter List Map Default.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
-From GraphSearch Require Import GraphInterface Trees.
+From GraphSearch Require Import GraphInterface Trees Examples.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
@@ -391,7 +391,8 @@ Definition graph_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (origina
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 Definition all_rules_fed_for_relation (gof : node_id -> node_id_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
-  forallb (fun '(p, ic) => reachableb (gof p) p ic) (list_prod all_producers internal_consumers).
+  forallb (fun p => inclb internal_consumers (get_reachable_nodes (gof p) p))
+    all_producers.
 
 Definition all_rules_fed ftables
   (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
@@ -404,7 +405,9 @@ Definition all_rules_fed ftables
 Definition producers_go_out_for_relation (gof : node_id -> node_id_graph)
   (all_producers : list node_id) (external_consumers : list node_id) :=
   forallb
-    (fun producer => existsb (reachableb (gof producer) producer) external_consumers)
+    (fun producer =>
+       let reachable := get_reachable_nodes (gof producer) producer in
+       existsb (fun ec => existsb (eqb ec) reachable) external_consumers)
     all_producers.
 
 (*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
