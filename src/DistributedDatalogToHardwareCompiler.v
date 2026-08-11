@@ -382,9 +382,6 @@ Definition get_internal_consumers_of (layout : layout_map) :=
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
 
-Definition node_set_of_list (ns : list node_id) : node_id_set :=
-  map.of_list (List.map (fun n => (n, tt)) ns).
-
 (* the routing graph for [R] tagged [original_source]: only searched, so no node set. *)
 Definition graph_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (original_source : node_id)
   : node_id_graph :=
