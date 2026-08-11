@@ -7,14 +7,25 @@
 From Stdlib Require Import List ZArith String.
 From Datalog Require Import Datalog NattifyRel RelMap.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridTopology StringDatalog StringDatalogParams
-  GridGraph SortedListNat DistributedHardwareProgram.
+  GridGraph SortedListNat SortedListList SortedListPair DistributedHardwareProgram.
 From coqutil Require Import Map.Interface Map.SortedListString Result.
 Import ListNotations.
 Import StringDatalogParams.
 
 Notation node_id     := GridGraph.Node.
 Notation node_id_map := GridTopology.node_id_map.
-Notation destination := (@DistributedHardwareProgram.destination node_id).
+
+
+(* the compiled forwarding table is keyed on (relation, original source) *)
+Notation ftable_map :=
+  (@SortedListPair.map rel_id node_id
+     Nat.ltb SortedListNat.Nat_strict_order
+     (@SortedListList.list_order nat Nat.ltb)
+     (@SortedListList.list_strict_order nat Nat.ltb SortedListNat.Nat_strict_order)
+     (list node_id)).
+
+Lemma ftable_map_ok : map.ok ftable_map.
+Proof. apply SortedListPair.ok. Qed.
 
 (* concrete fact-location tables: [rel]/[rel_id]-keyed maps to node lists. *)
 Notation rel_locs_map   := (SortedListString.map (list node_id)).
@@ -51,12 +62,15 @@ Definition nattify_fact_locs (enc : string -> rel_id) (fl : rel_locs_map) : reli
    [check_layout_routable] for producer->consumer reachability), so nothing here is trusted.
    TODO: replace with the table the external router actually produces. *)
 Definition flood_ftables (rels : list rel_id) (topo_dims : GridGraph.Dimensions)
-    : node_id_map relid_locs_map :=
+    : node_id_map ftable_map :=
   let nodes := GridGraph.all_nodes_h topo_dims in
   List.fold_left
     (fun fts n =>
       let nbrs := List.filter (fun m => GridGraph.is_neighbor topo_dims n m) nodes in
-      map.put fts n (List.fold_left (fun ft R => map.put ft R nbrs) rels map.empty))
+      map.put fts n
+        (List.fold_left
+           (fun ft R => List.fold_left (fun ft s => map.put ft (R, s) nbrs) nodes ft)
+           rels map.empty))
     nodes map.empty.
 
 (* The end-to-end compiler: nattify the string layout / fact-locations, then wire the numbered

@@ -37,7 +37,6 @@ Open Scope string_scope.
      get_nat := fun _ => 0; agg_bop := fun _ x _ => x; agg_id := fun _ => "" |}.
 
 Notation node_id     := GridGraph.Node.
-Notation destination := (@DistributedHardwareProgram.destination node_id).
 
 (*==========================================================================*)
 (*  [grid_equiv]: [nattify_and_compile_correct] with every instance pinned to  *)
@@ -57,19 +56,15 @@ Definition grid_equiv :=
     node_id _ _
     (GridTopology.node_id_map unit)
     (GridTopology.node_id_map (GridTopology.node_id_map unit))
-    (SortedListNat.map (list destination))
+    ftable_map
     (GridTopology.node_id_map (list (lowered_rule))) (GridTopology.node_id_map_ok _)
-    (GridTopology.node_id_map (SortedListNat.map (list destination)))
-    (SortedListNat.map (list node_id))
-    (GridTopology.node_id_map (SortedListNat.map (list node_id)))
+    (GridTopology.node_id_map ftable_map)
     (SortedListNat.map (list node_id)) (SortedListNat.ok _)
     (GridTopology.node_id_map (list rel_id))
     (GridTopology.node_id_map_ok _)
-    (SortedListNat.ok _)
+    StringGridCompiler.ftable_map_ok
     (GridTopology.node_id_map_ok _)
     (GridTopology.node_id_map_ok _)
-    (GridTopology.node_id_map_ok _)
-    (SortedListNat.ok _)
     (GridTopology.node_id_map_ok _)
     string _ _.
 
@@ -114,7 +109,7 @@ Proof. vm_compute; reflexivity. Qed.
 (*==========================================================================*)
 Opaque compile.
 Theorem end_to_end_equiv
-    (ninfos : list (@DistributedHardwareProgram.node_info node_id (SortedListNat.map (list destination))))
+    (ninfos : list (@DistributedHardwareProgram.node_info node_id ftable_map))
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels P)) ->
@@ -169,7 +164,7 @@ Example check_distributes_r : layout_distributes_programb (nattify_rel_prog (pro
 Proof. vm_compute; reflexivity. Qed.
 
 Theorem end_to_end_equiv_reach
-    (ninfos : list (@DistributedHardwareProgram.node_info node_id (SortedListNat.map (list destination))))
+    (ninfos : list (@DistributedHardwareProgram.node_info node_id ftable_map))
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels Preach)) ->
