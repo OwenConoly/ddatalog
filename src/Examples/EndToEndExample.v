@@ -39,33 +39,6 @@ Open Scope string_scope.
 Notation node_id     := GridGraph.Node.
 
 (*==========================================================================*)
-(*  [grid_equiv]: [nattify_and_compile_correct] with every instance pinned to  *)
-(*  the string-datalog / grid-topology backend.  A reusable, instance-free    *)
-(*  statement quantified only over the program / layout / facts.              *)
-(*==========================================================================*)
-
-Definition grid_equiv :=
-  @nattify_and_compile_correct
-    string string unit string
-    _ _ _ _
-    sig_src
-    (SortedListString.map string) (SortedListString.ok string)
-    StringDatalog.var_idx_map  (SortedListString.ok nat)
-    StringDatalog.var_node_set (SortedListString.ok unit)
-    StringDatalog.var_graph_impl
-    node_id _ _
-    (GridTopology.node_id_map unit)
-    GridTopology.node_id_graph GridTopology.node_id_graph_ok
-    ftable_map
-    (GridTopology.node_id_map (list (lowered_rule))) (GridTopology.node_id_map_ok _)
-    (GridTopology.node_id_map ftable_map)
-    (SortedListNat.map (list node_id)) (SortedListNat.ok _)
-    (GridTopology.node_id_map (list rel_id)) (GridTopology.node_id_map_ok _)
-    StringGridCompiler.ftable_map_ok
-    (GridTopology.node_id_map_ok _)
-    string _ _.
-
-(*==========================================================================*)
 (*  The concrete program and indexed layout.                                  *)
 (*==========================================================================*)
 
@@ -106,7 +79,7 @@ Proof. vm_compute; reflexivity. Qed.
 (*==========================================================================*)
 Opaque compile.
 Theorem end_to_end_equiv
-    (ninfos : list (@DistributedHardwareProgram.node_info node_id ftable_map))
+    (ninfos : list (@DistributedHardwareProgram.node_info node_id _))
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels P)) ->
@@ -120,12 +93,9 @@ Theorem end_to_end_equiv
   <-> Datalog.prog_impl P Qsrc fsrc.
 Proof.
   intros Hc Hscope Hedb Houtrel.
-  apply (grid_equiv P NLAYOUT NFPS NFPS FT G ninfos Qsrc fsrc Hc);
-    [ vm_compute; reflexivity
-    | apply layout_distributes_programb_spec; vm_compute; reflexivity
-    | exact Hscope
-    | exact Hedb
-    | exact Houtrel ].
+  eapply nattify_and_compile_correct; try eassumption.
+  - reflexivity.
+  - apply layout_distributes_programb_spec. reflexivity.
 Qed.
 
 (*==========================================================================*)
@@ -161,7 +131,7 @@ Example check_distributes_r : layout_distributes_programb (nattify_rel_prog (pro
 Proof. vm_compute; reflexivity. Qed.
 
 Theorem end_to_end_equiv_reach
-    (ninfos : list (@DistributedHardwareProgram.node_info node_id ftable_map))
+    (ninfos : list (@DistributedHardwareProgram.node_info node_id _))
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
   (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels Preach)) ->
@@ -175,10 +145,7 @@ Theorem end_to_end_equiv_reach
   <-> Datalog.prog_impl Preach Qsrc fsrc.
 Proof.
   intros Hc Hscope Hedb Houtrel.
-  apply (grid_equiv Preach NLAYOUT_r NFPS_r NFPS_r FT_r G_r ninfos Qsrc fsrc Hc);
-    [ vm_compute; reflexivity
-    | apply layout_distributes_programb_spec; vm_compute; reflexivity
-    | exact Hscope
-    | exact Hedb
-    | exact Houtrel ].
+  eapply nattify_and_compile_correct; try eassumption.
+  - reflexivity.
+  - apply layout_distributes_programb_spec. reflexivity.
 Qed.

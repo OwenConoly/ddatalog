@@ -6,7 +6,6 @@ From DatalogRocq Require Import StringDatalogParams GridTopology GridGraph Sorte
 From DatalogRocq Require Import FamilyCompiler BasicProgramCompiler GraphCompiler CsdaCompiler CspaCompiler Po1Compiler Po2Compiler Po3Compiler Po4Compiler Po5Compiler PointstoCompiler RanpoCompiler ReachCompiler TcCompiler TransCompiler TriangleCompiler X9Compiler Unitprop1Compiler.
 
 Notation node_id := GridGraph.Node.
-Notation node_info := (@DistributedHardwareProgram.node_info node_id StringGridCompiler.ftable_map).
 
 Definition nat_to_string (n : nat) : string :=
   NilZero.string_of_uint (Nat.to_uint n).

@@ -173,7 +173,7 @@ Proof. rewrite tries_generated, rule_generated. exact J_in_node_run. Qed.
 (*==========================================================================*)
 
 (* The compiler's whole output -- here a one-element [ninfos] for node (0,0). *)
-Definition ninfos : list (@node_info node_id ftable_map) :=
+Definition ninfos : list (@node_info node_id _) :=
   match jcompiled with Result.Success l => l | _ => [] end.
 
 Definition node00 : node_id := [0; 0]%nat.
@@ -188,13 +188,13 @@ Definition doutput : node_id -> rel_id -> Prop :=
 (* The distributed operational semantics, run on the compiled [ninfos], parks J(7,8) at the
    output node.  Steps: deliver A, deliver B, then the node runs its hardware program. *)
 Example J_run_distributed :
-  @run_ninfos nat node_id _ ftable_map
+  @run_ninfos nat node_id _ _
              ninfos dinput doutput factJ.
 Proof.
   (* the compiled node's tries / trie-join program are exactly our literals *)
-  assert (HTr : @node_tries node_id _ ftable_map
+  assert (HTr : @node_tries node_id _ _
                   ninfos node00 = tries) by (vm_compute; reflexivity).
-  assert (HP  : @node_prog  node_id _ ftable_map
+  assert (HP  : @node_prog  node_id _ _
                   ninfos node00 = hp)    by (vm_compute; reflexivity).
   unfold run_ninfos, hw_run_output.
   (* the answer lives at node (0,0), in the config reached after delivering A,B and running *)

@@ -27,7 +27,6 @@ Section DistributedHardwareSemantics.
 Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context `{sig : signature fn aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
-(* The node-identifier type is a parameter (was the hardcoded [nat*nat]). *)
 Context {node_id : Type}
         {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 

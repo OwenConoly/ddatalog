@@ -522,7 +522,6 @@ Definition compile_with_dumb_ftables (layout : layout_map)
   compile layout external_producers_of external_consumers_of (dumb_ftables g.(edges) layout external_producers_of) g.
 End DistributedDatalogToHardwareCompiler.
 
-Existing Instance SortedListNat.map.
 From coqutil Require Import SortedListString.
 Existing Instance SortedListString.map.
 

@@ -104,3 +104,4 @@ Proof.
 Qed.
 
 End ComputableGraph.
+Arguments ComputableGraph _ {_ _}.
