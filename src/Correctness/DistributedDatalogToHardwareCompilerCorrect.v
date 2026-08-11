@@ -17,7 +17,7 @@
    [generate_query] admits exactly the variable bindings under which the lowered rule fires. *)
 
 From Stdlib Require Import List Bool ZArith Lia Relation_Operators.
-From GraphSearch Require Import GraphInterface List.
+From GraphSearch Require Import GraphInterface List Examples.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Datatypes.Result Eqb.
 From Datalog Require Import Datalog Interpreter List Map Default NattifyRel RelMap.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
@@ -2428,7 +2428,6 @@ Context {node_id_set_ok : map.ok node_id_set}.
 Notation ftable_edges_sound :=
   (@ForwardingCorrect.ftable_edges_sound node_id node_id_set node_id_graph forwarding_table node_ftable_map).
 Notation has_fwd_edge := (@ForwardingCorrect.has_fwd_edge node_id forwarding_table node_ftable_map).
-Notation reachableb := (@ComputableGraph.reachableb node_id node_id_eqb node_id_graph).
 
 (*----Forwarding read off the returned [ninfos]----*)
 
@@ -2781,18 +2780,6 @@ Proof.
   apply in_internal_iff.
 Qed.
 
-(* CORE REACH: a producer/consumer pair the external table's own routing graph for [R] connects
-   is forwarding-reachable in the computed table. *)
-Lemma construction_reach (ftables : node_ftable_map) (ninfos : list node_info)
-    (R : rel_id) (np nc : node_id) :
-  reachableb (graph_of_ftables_at ftables R np) np nc = true ->
-  @DistributedDatalog.forwarding_reachable rel_id node_id
-    (ForwardingCorrect.node_rel_dests ftables) R np np nc.
-Proof.
-  intros Hreach. apply reaches_forwarding_reachable.
-  apply ComputableGraph.reachableb_iff. exact Hreach.
-Qed.
-
 Lemma In_get_or_default (lfp : fact_locations_map) (R : rel_id) (n : node_id) :
   In n (get_or_default lfp R) -> exists locs, map.get lfp R = Some locs /\ In n locs.
 Proof.
@@ -2851,13 +2838,15 @@ Lemma all_rules_fed_reach (ftables : node_ftable_map) (apo ico : fact_locations_
   all_rules_fed ftables apo ico = true ->
   In np (get_or_default apo R) ->
   In nc (get_or_default ico R) ->
-  reachableb (graph_of_ftables_at ftables R np) np nc = true.
+  graph.reaches (graph_of_ftables_at ftables R np) np nc.
 Proof.
   intros Hfed Hnp Hnc.
   destruct (In_get_or_default _ R nc Hnc) as [ics [Hico Hncics]].
   eapply map.get_forallb in Hfed; [| exact Hico].
   unfold DistributedDatalogToHardwareCompiler.all_rules_fed_for_relation in Hfed.
-  rewrite forallb_forall in Hfed. exact (Hfed (np, nc) (in_prod _ _ np nc Hnp Hncics)).
+  rewrite forallb_forall in Hfed. specialize (Hfed np Hnp).
+  apply get_reachable_nodes_spec.
+  exact (proj1 (inclb_incl _ _) Hfed nc Hncics).
 Qed.
 
 (* [producers_go_out]: every producer of a relation with an external sink reaches some external sink. *)
@@ -2866,13 +2855,16 @@ Lemma producers_go_out_reach (ftables : node_ftable_map) (apo eco : fact_locatio
   producers_go_out ftables apo eco = true ->
   map.get eco R = Some ecs ->
   In np (get_or_default apo R) ->
-  exists ec, In ec ecs /\ reachableb (graph_of_ftables_at ftables R np) np ec = true.
+  exists ec, In ec ecs /\ graph.reaches (graph_of_ftables_at ftables R np) np ec.
 Proof.
   intros Hpgo Heco Hnp.
   eapply map.get_forallb in Hpgo; [| exact Heco].
   unfold DistributedDatalogToHardwareCompiler.producers_go_out_for_relation in Hpgo.
-  rewrite forallb_forall in Hpgo. specialize (Hpgo np Hnp).
-  apply existsb_exists in Hpgo. destruct Hpgo as [ec [Hin Hsome]]. exists ec. split; assumption.
+  rewrite forallb_forall in Hpgo. specialize (Hpgo np Hnp). cbn zeta in Hpgo.
+  apply existsb_exists in Hpgo. destruct Hpgo as [ec [Hin Hsome]].
+  exists ec. split; [exact Hin | apply get_reachable_nodes_spec].
+  apply existsb_exists in Hsome. destruct Hsome as [x [Hx Heq]].
+  destruct (eqb_boolspec _ ec x) as [->|]; [exact Hx | discriminate].
 Qed.
 
 (* A node in [all_producers R] is a good source for [R]: [all_rules_fed] routes it to every internal
@@ -2895,7 +2887,7 @@ Proof.
     assert (Hnc_ic : In n_cons (get_or_default (get_internal_consumers_of llayout) R)).
     { apply node_consumes_internal. rewrite Hlay in Hcons. exact Hcons. }
     rewrite Hfwd.
-    apply (construction_reach ftables ninfos R n n_cons
+    apply (reaches_forwarding_reachable ftables R n n n_cons
              (all_rules_fed_reach ftables _ _ R n n_cons Hfed Hn_ap Hnc_ic)).
   - intros [n_out0 Houtex]. rewrite Houtput in Houtex.
     destruct (In_get_or_default ext_cons R n_out0 Houtex) as [ecs [Heco _]].
@@ -2905,7 +2897,7 @@ Proof.
       by (unfold get_or_default, get_or; rewrite Heco; exact Hec_in).
     exists ec. split.
     + rewrite Houtput. exact Hec_ec.
-    + rewrite Hfwd. apply (construction_reach ftables ninfos R n ec Hec_path).
+    + rewrite Hfwd. apply (reaches_forwarding_reachable ftables R n n ec Hec_path).
 Qed.
 
 (* Rule-producers are good sources ([node_produces => In all_producers]). *)

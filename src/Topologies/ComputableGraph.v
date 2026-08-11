@@ -1,7 +1,7 @@
 From coqutil Require Import Map.Interface Eqb.
 From Stdlib Require Import List Sorting.Sorted.
 From DatalogRocq Require Import Topologies.Graph.
-From GraphSearch Require Import GraphInterface Examples.
+From GraphSearch Require Import GraphInterface.
 Import ListNotations.
 
 Hint Constructors LocallySorted : core.
@@ -112,18 +112,6 @@ Proof.
     apply andb_prop in H. exact H.
   - intros H n1 _. rewrite forallb_forall. intros n2 Hedge.
     unfold check_edge_valid. apply andb_true_intro. exact (H n1 n2 Hedge).
-Qed.
-
-(* reachability, decided by the submodule's DFS *)
-Definition reachableb (es : graph) (a b : Node) : bool :=
-  existsb (eqb b) (get_reachable_nodes es a).
-
-Lemma reachableb_iff (es : graph) (a b : Node) :
-  reachableb es a b = true <-> graph.reaches es a b.
-Proof.
-  unfold reachableb. rewrite <- get_reachable_nodes_spec, existsb_exists. split.
-  - intros [x [Hin Hx]]. destruct (eqb_boolspec _ b x) as [->|]; [exact Hin | discriminate].
-  - intros Hin. exists b. split; [exact Hin | destruct (eqb_boolspec _ b b); congruence].
 Qed.
 
 End ComputableGraph.
