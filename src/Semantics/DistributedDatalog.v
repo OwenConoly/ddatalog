@@ -1,4 +1,4 @@
-From Stdlib Require Import List Bool Relation_Operators Sorting.Sorted.
+From Stdlib Require Import List Bool Relation_Operators.
 From Datalog Require Import Datalog Tactics.
 From GraphSearch Require Import List.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
@@ -106,18 +106,6 @@ Definition forwarding_reachable (forward : ForwardingFn) (R : rel) (original_sou
 Lemma last_cons_cons A a b d (l : list A) :
   last (a :: b :: l) d = last (b :: l) d.
 Proof. apply last_cons_nonempty. congruence. Qed.
-
-Lemma forwarding_chain_reachable (forward : ForwardingFn) (R : rel) (original_source : Node)
-    (mid : list Node) (a b d : Node) :
-  LocallySorted (forwards_rel forward R original_source) (a :: mid) ->
-  last (a :: mid) d = b ->
-  forwarding_reachable forward R original_source a b.
-Proof.
-  revert a b. induction mid as [|c mid IH]; intros a b Hwalk Hlast.
-  - cbn in Hlast. subst b. apply rt1n_refl.
-  - invert Hwalk. eapply rt1n_trans; [eassumption|].
-    apply IH; [assumption|]. rewrite last_cons_cons. reflexivity.
-Qed.
 
 (* The forwarding table is good for a relation r if for every producer,
    there is a path to every consumer *)

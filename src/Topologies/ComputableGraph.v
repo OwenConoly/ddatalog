@@ -1,19 +1,8 @@
 From coqutil Require Import Map.Interface Eqb.
-From Stdlib Require Import List Sorting.Sorted.
+From Stdlib Require Import List.
 From DatalogRocq Require Import Topologies.Graph.
 From GraphSearch Require Import GraphInterface.
 Import ListNotations.
-
-Hint Constructors LocallySorted : core.
-Lemma LocallySorted_impl {A : Type} (R Q : A -> A -> Prop) (l : list A) :
-  LocallySorted R l ->
-  (forall x y, R x y -> Q x y) ->
-  LocallySorted Q l.
-Proof. intros H ?. induction H; eauto. Qed.
-
-Lemma LocallySorted_snoc {A : Type} (R : A -> A -> Prop) (l : list A) (d x : A) :
-  LocallySorted R l -> R (last l d) x -> LocallySorted R (l ++ [x]).
-Proof. induction 1; simpl; eauto. Qed.
 
 Section ComputableGraph.
 Context {Node : Type}.
