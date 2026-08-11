@@ -391,8 +391,6 @@ Definition graph_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (origina
   map.fold (fun g n ft => graph.put_edges g n (get_or_default ft (R, original_source)))
     graph.empty ftables.
 
-
-
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 Definition all_rules_fed_for_relation (gof : node_id -> node_id_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
