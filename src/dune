@@ -1,5 +1,7 @@
 (rocq.theory
  (name DatalogRocq)
  (package datalog-rocq)
- (theories Stdlib coqutil GraphSearch Datalog.Util Datalog)
+ (theories Stdlib coqutil GraphSearch Datalog.Util Datalog JSON ExtLib)
  (generate_project_file))
+
+(include_subdirs qualified)

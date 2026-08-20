@@ -1,5 +1,4 @@
 (alias
  (name default)
  (deps
-  (alias_rec datalog/default)
   (alias_rec src/default)))
