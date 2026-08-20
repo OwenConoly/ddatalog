@@ -396,8 +396,8 @@ Definition graph_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (origina
 Definition all_rules_fed_for_relation (gof : node_id -> node_id_graph)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
   forallb (fun p =>
-             check_locally_tree (gof p) p &&
-             inclb internal_consumers (get_reachable_nodes (gof p) p))
+             graph.check_locally_tree (gof p) p &&
+             inclb internal_consumers (graph.get_reachable_nodes (gof p) p))
     all_producers.
 
 Definition all_rules_fed ftables
@@ -412,7 +412,7 @@ Definition producers_go_out_for_relation (gof : node_id -> node_id_graph)
   (all_producers : list node_id) (external_consumers : list node_id) :=
   forallb
     (fun producer =>
-       let reachable := get_reachable_nodes (gof producer) producer in
+       let reachable := graph.get_reachable_nodes (gof producer) producer in
        existsb (fun ec => existsb (eqb ec) reachable) external_consumers)
     all_producers.
 

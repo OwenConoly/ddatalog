@@ -2846,7 +2846,7 @@ Proof.
   unfold DistributedDatalogToHardwareCompiler.all_rules_fed_for_relation in Hfed.
   rewrite forallb_forall in Hfed. specialize (Hfed np Hnp).
   apply andb_prop in Hfed. destruct Hfed as [_ Hfed].
-  apply get_reachable_nodes_spec.
+  apply graph.get_reachable_nodes_spec.
   exact (proj1 (inclb_incl _ _) Hfed nc Hncics).
 Qed.
 
@@ -2863,7 +2863,7 @@ Proof.
   unfold DistributedDatalogToHardwareCompiler.producers_go_out_for_relation in Hpgo.
   rewrite forallb_forall in Hpgo. specialize (Hpgo np Hnp). cbn zeta in Hpgo.
   apply existsb_exists in Hpgo. destruct Hpgo as [ec [Hin Hsome]].
-  exists ec. split; [exact Hin | apply get_reachable_nodes_spec].
+  exists ec. split; [exact Hin | apply graph.get_reachable_nodes_spec].
   apply existsb_exists in Hsome. destruct Hsome as [x [Hx Heq]].
   destruct (eqb_boolspec _ ec x) as [->|]; [exact Hx | discriminate].
 Qed.
