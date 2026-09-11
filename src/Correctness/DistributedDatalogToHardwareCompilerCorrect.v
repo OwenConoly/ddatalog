@@ -18,7 +18,8 @@
 
 From Stdlib Require Import List Bool ZArith Lia.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Datatypes.Result Eqb.
-From Datalog Require Import Datalog Interpreter List Map Default NattifyRel RelMap.
+From Datalog Require Import Datalog Interpreter NattifyRel RelMap.
+From Datalog.Util Require Import List Map Default.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
 From DatalogRocq Require Import ForwardingCorrect.
@@ -2408,6 +2409,44 @@ Proof.
   - rewrite (get_or_default_None _ _ Hget). constructor.
 Qed.
 
+(* [range_restricted_ruleb]: every variable in a rule's CONCLUSION also appears in some
+   hypothesis -- the standard Datalog range-restriction/safety condition. Unlike [bare_ruleb],
+   the compiler never checks this itself; but [compile_rule]'s [get_rule_var_index] lookup
+   (locating each concl variable in the hypothesis-derived [rule_var_order]) can only succeed for
+   rules that satisfy it. It's exactly the extra hypothesis a "the compiler always succeeds"
+   theorem needs alongside [bare_ruleb]. PARAMETRIC over the relation/function types like
+   [bare_ruleb], for the same reason (applies to both the source and lowered layout). *)
+Definition range_restricted_ruleb {Rel Fn} (r : Datalog.rule (rel := Rel) (fn := Fn)) : bool :=
+  match r with
+  | Datalog.normal_rule concls hyps =>
+    let hvars := flat_map Datalog.vars_of_clause hyps in
+    forallb (fun concl => forallb (fun v => existsb (eqb v) hvars) (Datalog.vars_of_clause concl))
+      concls
+  | _ => false
+  end.
+
+Definition range_restricted_layoutb {Rel Fn} {M : map.map node_id (list (Datalog.rule (rel := Rel) (fn := Fn)))}
+    (lay : M) : bool :=
+  map.fold (fun acc _ p => acc && forallb range_restricted_ruleb p) true lay.
+
+(* PENDING: not yet proven -- see the surrounding discussion. States that a bare, range-restricted
+   layout that is routable on a valid topology always compiles successfully; i.e. the converse of
+   [compile_distributed_correct]'s "given [compile ... = Success]" hypothesis. The routability
+   premise is spelled out exactly as [compile] computes it internally (mirroring
+   [get_internal_consumers_of]/[get_internal_producers_of]/[union_with] from its definition),
+   since routability is a genuine property of the (externally-chosen) layout+topology+declared
+   locations together, not something derivable from the program alone. *)
+Theorem compile_succeeds (layout : layout_map) (fps fcs : fact_locations_map) (g : node_graph) :
+  check_graph_valid g = true ->
+  layout_in_graphb g layout = true ->
+  bare_layoutb layout = true ->
+  range_restricted_layoutb layout = true ->
+  check_layout_routable g fcs (get_internal_consumers_of layout)
+    (union_with (list_union eqb) (get_internal_producers_of layout) fps) = Success tt ->
+  exists ninfos, compile layout fps fcs g = Success ninfos.
+Proof.
+Admitted.
+
 (* Build the dataflow network for a lowered layout: take the topology / forwarding / input /
    output from a [base] network and *force* the datalog layout to be the compiled per-node
    program.  This makes conjunct (2) of [distributes] hold by construction. *)
@@ -2927,7 +2966,7 @@ Lemma construction_reach (all_rels : list rel_id) (ninfos : list node_info)
   In R (all_rels) ->
   existsb (eqb np) (get_or_default lfp R) = true ->
   existsb (eqb nc) (get_or_default lfc R) = true ->
-  Datalog.List.is_Some (get_path g np nc) = true ->
+  Datalog.Util.List.is_Some (get_path g np nc) = true ->
   np = nc \/
   @DistributedDatalog.forwarding_reachable rel_id node_id
     (fwd_list (fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty)) R np nc.

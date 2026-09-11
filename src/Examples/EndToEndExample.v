@@ -21,7 +21,8 @@
 
 From Stdlib Require Import List String.
 From coqutil Require Import Map.Interface Map.SortedListString Result.
-From Datalog Require Import Datalog NattifyRel RelMap Map Default.
+From Datalog Require Import Datalog NattifyRel RelMap.
+From Datalog.Util Require Import Map Default.
 From DatalogRocq Require Import
   DistributedDatalogToHardwareCompilerCorrect
   DistributedDatalogToHardwareCompiler

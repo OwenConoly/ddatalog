@@ -6,7 +6,7 @@
 
 From Stdlib Require Import List Bool Lia PeanoNat.
 From coqutil Require Import Map.Interface Map.Properties Datatypes.ListSet Eqb.
-From Datalog Require Import Map Default.
+From Datalog.Util Require Import Map Default.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
 Import ListNotations.
 

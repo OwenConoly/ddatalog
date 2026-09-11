@@ -1,6 +1,7 @@
 From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
-From Datalog Require Import Datalog Interpreter List Map Default.
+From Datalog Require Import Datalog Interpreter.
+From Datalog.Util Require Import List Map Default.
 From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 

@@ -1,0 +1,8 @@
+(rocq.theory
+ (name DatalogRocq)
+ (package datalog-rocq)
+ (theories Stdlib coqutil Datalog.Util Datalog JSON ExtLib)
+ (generate_project_file)
+ (flags :standard -output-directory output))
+
+(include_subdirs qualified)

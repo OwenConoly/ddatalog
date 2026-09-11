@@ -6,12 +6,13 @@
 *.aux
 .*.aux
 .coq-native/
-Makefile.coq
-Makefile.coq.conf
-.Makefile.coq.d
 .lia.cache
 .nia.cache
 output/
 .DS_Store
 **#*
 **~
+
+# dune
+_build/
+src/_RocqProject

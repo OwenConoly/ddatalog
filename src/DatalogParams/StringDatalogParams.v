@@ -1,4 +1,5 @@
-From Datalog Require Export Datalog List.
+From Datalog Require Export Datalog.
+From Datalog.Util Require Export List.
 From Stdlib Require Import String List.
 From coqutil Require Export Eqb.   (* re-export so [string]'s [Eqb] reaches importers *)
 From DatalogRocq Require Import EqbSpec.

@@ -4,7 +4,8 @@
 
 From Stdlib Require Import List Bool.
 From coqutil Require Import Datatypes.List Datatypes.Option Tactics Tactics.fwd Eqb.
-From Datalog Require Import Datalog Interpreter List Eqb.
+From Datalog Require Import Datalog Interpreter.
+From Datalog.Util Require Import List Eqb.
 Import ListNotations.
 
 #[global] Instance unit_eqb : Eqb unit := fun _ _ => true.
