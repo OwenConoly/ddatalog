@@ -29,7 +29,7 @@ Variant virtual_node :=
   (*the part of the node that receives facts*)
   | node_dst (_ : node_id).
 
-
+#[export] Instance virtual_node_eqb : Eqb virtual_node. Admitted.
 
 Context {forwarding_table : map.map (rel_id * virtual_node) (list virtual_node)}.
 Context {layout_map : map.map node_id lowered_program}.
@@ -426,31 +426,33 @@ Definition all_rules_fed_for_relation (g : graph virtual_node)
     all_producers.
 
 Definition all_rules_fed ftables
-  (all_producers_of : partial_map rel_id (list node_id)) (internal_consumers_of : partial_map rel_id (list node_id)) :=
+  (all_producers_of : partial_map rel_id (list node_id))
+  (internal_consumers_of : partial_map rel_id (list node_id)) :=
   map.forallb (fun R internal_consumers =>
                  let all_producers := get_or_default all_producers_of R in
                  all_rules_fed_for_relation (graph_of_ftables_at ftables R) all_producers internal_consumers)
     internal_consumers_of.
 
 (*all rule_producers(R) -> some external rule_consumer(R)*)
-Definition producers_go_out_for_relation (gof : node_id -> node_id_graph)
+Definition producers_go_out_for_relation (g : graph virtual_node)
   (all_producers : list node_id) (external_consumers : list node_id) :=
   forallb
-    (fun producer =>
-       let reachable := graph.get_reachable_nodes (gof producer) producer in
-       existsb (fun ec => existsb (eqb ec) reachable) external_consumers)
+    (fun (producer : node_id) =>
+       let reachable := graph.get_reachable_nodes g (node_src producer) in
+       existsb (fun ec => inb (node_dst ec) reachable) external_consumers)
     all_producers.
 
 (*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
 Definition producers_go_out ftables
-  (all_producers_of : fact_locations) (external_consumers_of : fact_locations) :=
+  (all_producers_of : partial_map rel_id (list node_id))
+  (external_consumers_of : partial_map rel_id (list node_id)) :=
   map.forallb (fun R external_consumers =>
                  let all_producers := get_or_default all_producers_of R in
                  producers_go_out_for_relation (graph_of_ftables_at ftables R) all_producers external_consumers)
     external_consumers_of.
 
 Definition check_layout_routable ftables
-  (external_consumers_of internal_consumers_of all_producers_of : fact_locations) : result unit :=
+  (external_consumers_of internal_consumers_of all_producers_of : partial_map rel_id (list node_id)) : result unit :=
   (if all_rules_fed ftables all_producers_of internal_consumers_of
    then Success tt
    else error:("compile: bad layout/forwarding table---some producer cannot reach some internal consumer")) ;;
