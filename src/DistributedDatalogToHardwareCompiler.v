@@ -22,14 +22,18 @@ Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 Context {node_id_set : map.map node_id unit}.
 
 Variant virtual_node :=
-  (*the node*)
-  | real_node (_ : node_id)
+  (*the part of the node that sends facts*)
+  | node_src (_ : node_id)
   (*some copies of it, for forwarding-table purposes*)
-  | fwd_node (_ : node_id) (src_id : node_id) (src_channel : nat).
+  | fwd_node (_ : node_id) (src_id : node_id) (src_channel : nat)
+  (*the part of the node that receives facts*)
+  | node_dst (_ : node_id).
+
+
 
 Context {forwarding_table : map.map (rel_id * virtual_node) (list virtual_node)}.
 Context {layout_map : map.map node_id lowered_program}.
-Context {fact_locations : map.map rel_id (list node_id)}.
+Context {TODO_name_me71 : map.map rel_id (list node_id)}.
 
 (* [node_info] now lives in [DistributedHardwareProgram] (the distributed AST); this is the
    compiler's view of it, with the topology's [node_id] and forwarding-table map fixed. *)
@@ -397,42 +401,32 @@ Definition get_internal_consumers_of (layout : layout_map) :=
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
 
-Definition graph_of_ftables_at_rel (ftables : partial_map node_id forwarding_table) (R : rel_id) : graph virtual_node :=
-  fold_left graph.union
-    (List.map
+Definition graph_of_ftables_at (ftables : partial_map node_id forwarding_table) (R : rel_id) : graph virtual_node :=
+  graph.of_edges
+    (flat_map
        (fun '(n, ft) =>
-          graph.union
-            (graph.of_edges
-               (flat_map
-                  (fun '((R', src, src_ch), dsts_chs) =>
-                     if eqb R R' then
-                       List.map
-                         (fun '(dst, dst_ch) => (fwd_node n src src_ch, fwd_node src dst dst_ch))
-                         dsts_chs
-                     else [])
-                  (map.tuples ft)))
-            ())
-       (map.tuples ftables))
-    graph.empty.
-
-Definition graph_of_ftables_at_rel (ftables : partial_map node_id forwarding_table) (R : rel_id) : graph virtual_node :=
-  map.fold (fun g n ft => graph.put_edges g n (get_or_default ft (R, original_source)))
-    graph.empty ftables.
+          flat_map
+            (fun '((R', src), dsts) =>
+               if eqb R R' then
+                 List.map (pair src) dsts
+               else [])
+            (map.tuples ft))
+       (map.tuples ftables)).
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 (*also checks that internal rule_consumers only receive a given message once---
  by checking that we have trees*)
 (*note that the treeness is currently unnecessary for the correctness proof,
   but it will be necessary once we incorporate aggregation*)
-Definition all_rules_fed_for_relation (gof : node_id -> node_id_graph)
+Definition all_rules_fed_for_relation (g : graph virtual_node)
   (all_producers : list node_id) (internal_consumers : list node_id) :=
-  forallb (fun p =>
-             graph.check_locally_tree (gof p) p &&
-             inclb internal_consumers (graph.get_reachable_nodes (gof p) p))
+  forallb (fun (p : node_id) =>
+             graph.check_locally_tree g (node_src p) &&
+             inclb (List.map node_dst internal_consumers) (graph.get_reachable_nodes g (node_src p)))
     all_producers.
 
 Definition all_rules_fed ftables
-  (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
+  (all_producers_of : partial_map rel_id (list node_id)) (internal_consumers_of : partial_map rel_id (list node_id)) :=
   map.forallb (fun R internal_consumers =>
                  let all_producers := get_or_default all_producers_of R in
                  all_rules_fed_for_relation (graph_of_ftables_at ftables R) all_producers internal_consumers)
