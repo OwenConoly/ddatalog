@@ -20,7 +20,14 @@ Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 #[local] Existing Instance rel_id.
 
 Context {node_id_set : map.map node_id unit}.
-Context {forwarding_table : map.map (rel_id * node_id) (list node_id)}.
+
+Variant virtual_node :=
+  (*the node*)
+  | real_node (_ : node_id)
+  (*some copies of it, for forwarding-table purposes*)
+  | fwd_node (_ : node_id) (src_id : node_id) (src_channel : nat).
+
+Context {forwarding_table : map.map (rel_id * virtual_node) (list virtual_node)}.
 Context {layout_map : map.map node_id lowered_program}.
 Context {fact_locations : map.map rel_id (list node_id)}.
 
@@ -33,27 +40,36 @@ Record node_context := {
   last_trie_id : trie_id;
 }.
 
-(*---- var_graph as ComputableGraph over var ----*)
+Context {TODO_name_me : graph.graph virtual_node}.
+
 Context {var_node_set : map.map var unit}.
 Context {var_node_set_ok : map.ok var_node_set}.
 Context {var_graph_impl : graph.graph var} {var_graph_impl_ok : graph.ok var_graph_impl}.
 
-Definition var_graph := @ComputableGraph var var_node_set var_graph_impl.
+Definition var_graph := ComputableGraph var.
 
-(*---- node_graph as ComputableGraph over node_id ----*)
 Context {node_id_set_ok : map.ok node_id_set}.
 Context {node_id_graph : graph.graph node_id} {node_id_graph_ok : graph.ok node_id_graph}.
 
-Definition node_graph := @ComputableGraph node_id node_id_set node_id_graph.
+Definition node_graph := ComputableGraph node_id.
 
-(*----The program a layout represents, and a checker that a layout distributes a given program----*)
+(*TODO put there where they belong*)
+Definition graph T {impl : graph.graph T} := @graph.rep T _.
+Definition partial_map k v {impl : map.map k v} := @map.rep k v _.
+Fixpoint filter_map {A B} (f : A -> option B) (l : list A) : list B :=
+  match l with
+  | [] => []
+  | x :: l =>
+      match f x with
+      | Some y => y :: filter_map f l
+      | None => filter_map f l
+      end
+  end.
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
 Definition source_program (layout : layout_map) : program :=
   concat (values layout).
 
-(* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([prog_impl] of a
-   bare program depends only on its rule set, so the compiled network then implements [P].) *)
 Definition layout_distributes_program (P : program) (layout : layout_map) : Prop :=
   incl (source_program layout) P /\ incl P (source_program layout).
 
@@ -66,7 +82,7 @@ Lemma layout_distributes_programb_spec (P : program) (layout : layout_map) :
 Proof.
   unfold layout_distributes_programb, layout_distributes_program. intros H.
   apply andb_true_iff in H. destruct H as [H1 H2].
-  split; [exact (proj1 (inclb_incl _ _) H1) | exact (proj1 (inclb_incl _ _) H2)].
+  split; apply inclb_incl; assumption.
 Qed.
 
 (*----Stuff to keep default ordering (if desired) ----*)
@@ -364,9 +380,8 @@ Definition compile_rule (rule : lowered_rule)
 
 (*----Forwarding Tables----*)
 
-Context {node_ftable_map : map.map node_id forwarding_table}.
-
-Context {rels_at_node : map.map node_id (list rel_id)}.
+Context {TODO_name_me1 : map.map node_id forwarding_table}.
+Context {TODO_name_me2 : map.map node_id (list rel_id)}.
 
 Definition get_internal_producers_of (layout : layout_map) :=
   let internally_produced_at_node :=
@@ -382,9 +397,25 @@ Definition get_internal_consumers_of (layout : layout_map) :=
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
 
-(* the routing graph for [R] tagged [original_source]: only searched, so no node set. *)
-Definition graph_of_ftables_at (ftables : node_ftable_map) (R : rel_id) (original_source : node_id)
-  : node_id_graph :=
+Definition graph_of_ftables_at_rel (ftables : partial_map node_id forwarding_table) (R : rel_id) : graph virtual_node :=
+  fold_left graph.union
+    (List.map
+       (fun '(n, ft) =>
+          graph.union
+            (graph.of_edges
+               (flat_map
+                  (fun '((R', src, src_ch), dsts_chs) =>
+                     if eqb R R' then
+                       List.map
+                         (fun '(dst, dst_ch) => (fwd_node n src src_ch, fwd_node src dst dst_ch))
+                         dsts_chs
+                     else [])
+                  (map.tuples ft)))
+            ())
+       (map.tuples ftables))
+    graph.empty.
+
+Definition graph_of_ftables_at_rel (ftables : partial_map node_id forwarding_table) (R : rel_id) : graph virtual_node :=
   map.fold (fun g n ft => graph.put_edges g n (get_or_default ft (R, original_source)))
     graph.empty ftables.
 
