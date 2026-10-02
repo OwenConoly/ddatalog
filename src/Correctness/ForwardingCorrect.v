@@ -7,13 +7,13 @@
 From Stdlib Require Import List Bool Lia PeanoNat.
 From coqutil Require Import Map.Interface Map.Properties Datatypes.ListSet Eqb Tactics.destr.
 From Datalog Require Import Map Default.
-From DatalogRocq Require Import DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
+From DatalogRocq Require Import Topologies.Graph DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
 From GraphSearch Require Import GraphInterface.
 Import ListNotations.
 
 Section ForwardingCorrect.
 
-Context {node_id : Type}.
+Context {node_id : node_idT}.
 Context {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 Context {node_id_set : map.map node_id unit} {node_id_set_ok : map.ok node_id_set}.
 Context {node_id_graph : graph.graph node_id} {node_id_graph_ok : graph.ok node_id_graph}.

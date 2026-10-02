@@ -1,7 +1,7 @@
 From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
 From Datalog Require Import Datalog Interpreter List Map Default.
-From DatalogRocq Require Import DependencyGenerator SortedListNat ComputableGraph.
+From DatalogRocq Require Import Topologies.Graph DependencyGenerator SortedListNat ComputableGraph.
 From GraphSearch Require Import GraphInterface Trees Examples.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
@@ -15,21 +15,11 @@ Section DistributedDatalogToHardwareCompiler.
 
 Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 Context {var_eqb : Eqb var} {fn_eqb : Eqb fn}.
-Context {node_id : Type} {node_id_eqb : Eqb node_id}.
+Context {node_id : node_idT} {node_id_eqb : Eqb node_id}.
 
 #[local] Existing Instance rel_id.
 
 Context {node_id_set : map.map node_id unit}.
-
-Variant virtual_node :=
-  (*the part of the node that sends facts*)
-  | node_src (_ : node_id)
-  (*some copies of it, for forwarding-table purposes*)
-  | fwd_node (_ : node_id) (src_id : node_id) (src_channel : nat)
-  (*the part of the node that receives facts*)
-  | node_dst (_ : node_id).
-
-#[export] Instance virtual_node_eqb : Eqb virtual_node. Admitted.
 
 Context {forwarding_table : map.map (rel_id * virtual_node) (list virtual_node)}.
 Context {layout_map : map.map node_id lowered_program}.
@@ -59,7 +49,6 @@ Definition node_graph := ComputableGraph node_id.
 
 (*TODO put there where they belong*)
 Definition graph T {impl : graph.graph T} := @graph.rep T _.
-Definition partial_map k v {impl : map.map k v} := @map.rep k v _.
 Fixpoint filter_map {A B} (f : A -> option B) (l : list A) : list B :=
   match l with
   | [] => []
