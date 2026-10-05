@@ -175,33 +175,4 @@ Qed.
 
 End Adequacy.
 
-(* The run depends on the forwarding function only POINTWISE: equal forwarding tables give equal runs.
-   (Used to bridge the operational [forward_from_ninfos] to the correctness layer's [forward_of_ninfos],
-   which are pointwise-equal but not syntactically identical -- keeps the top theorem funext-free.) *)
-Lemma dreach_forward_ext (prog : node_id -> hardware_program) (tries : node_id -> list trie)
-      (fwd1 fwd2 : node_id -> rel_id -> list node_id) (input : node_id -> dl_fact -> Prop) (c : config) :
-  (forall n r, fwd1 n r = fwd2 n r) ->
-  dreach prog tries fwd1 input c -> dreach prog tries fwd2 input c.
-Proof.
-  intros Hext Hr. induction Hr as [| c0 c0' Hr0 IH Hstep].
-  - apply dreach0.
-  - eapply dreachS; [exact IH |].
-    inversion Hstep as [n f Hi | n f Hru | n n' f Hcnf Hfwd]; subst c0'.
-    + apply dstep_input; exact Hi.
-    + apply dstep_run; exact Hru.
-    + eapply dstep_forward; [exact Hcnf | rewrite <- (Hext n (fact.rel f)); exact Hfwd].
-Qed.
-
-Lemma hw_run_output_forward_ext (prog : node_id -> hardware_program) (tries : node_id -> list trie)
-      (fwd1 fwd2 : node_id -> rel_id -> list node_id)
-      (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop) (f : dl_fact) :
-  (forall n r, fwd1 n r = fwd2 n r) ->
-  hw_run_output prog tries fwd1 input output f <-> hw_run_output prog tries fwd2 input output f.
-Proof.
-  intros Hext. split; intros [n [c [Hr [Hcf Ho]]]]; exists n, c;
-    (split; [| split; [exact Hcf | exact Ho]]).
-  - exact (dreach_forward_ext prog tries fwd1 fwd2 input c Hext Hr).
-  - exact (dreach_forward_ext prog tries fwd2 fwd1 input c (fun n r => eq_sym (Hext n r)) Hr).
-Qed.
-
 End DistributedHardwareSemantics.
