@@ -15,7 +15,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -25,19 +25,19 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* Y(a, b) :- X(a, b). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "Y"; clause_args := [(var_expr "a"); (var_expr "b")] |}
+rule.impl ([
+      {| clause.rel := "Y"; clause.args := [(expr.var "a"); (expr.var "b")] |}
     ]) ([
-      {| clause_rel := "X"; clause_args := [(var_expr "a"); (var_expr "b")] |}
+      {| clause.rel := "X"; clause.args := [(expr.var "a"); (expr.var "b")] |}
     ]).
 
 (* Y(a, c) :- Y(a, b), Y(b, c). *)
 Definition rule_1 : rule :=
-normal_rule ([
-      {| clause_rel := "Y"; clause_args := [(var_expr "a"); (var_expr "c")] |}
+rule.impl ([
+      {| clause.rel := "Y"; clause.args := [(expr.var "a"); (expr.var "c")] |}
     ]) ([
-      {| clause_rel := "Y"; clause_args := [(var_expr "a"); (var_expr "b")] |};
-      {| clause_rel := "Y"; clause_args := [(var_expr "b"); (var_expr "c")] |}
+      {| clause.rel := "Y"; clause.args := [(expr.var "a"); (expr.var "b")] |};
+      {| clause.rel := "Y"; clause.args := [(expr.var "b"); (expr.var "c")] |}
     ]).
 
 Definition program : list rule :=

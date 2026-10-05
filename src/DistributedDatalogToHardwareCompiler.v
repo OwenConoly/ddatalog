@@ -19,7 +19,7 @@ Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 
 #[local] Existing Instance rel_id.
 
-Notation destination := (@DistributedHardwareProgram.destination node_id).
+Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 
 Context {node_id_set : map.map node_id unit}.
 Context {forwarding_table : map.map rel_id (list destination)}.
@@ -28,7 +28,7 @@ Context {fact_locations : map.map rel_id (list node_id)}.
 
 (* [node_info] now lives in [DistributedHardwareProgram] (the distributed AST); this is the
    compiler's view of it, with the topology's [node_id] and forwarding-table map fixed. *)
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 Record node_context := {
   nctries : list trie;
@@ -53,19 +53,19 @@ Definition node_graph := @ComputableGraph node_id node_id_set node_id_edge_set.
 (*----The program a layout represents, and a checker that a layout distributes a given program----*)
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
-Definition source_program (layout : layout_map) : program :=
+Definition source_program (layout : layout_map) : list rule :=
   concat (values layout).
 
-(* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([prog_impl] of a
+(* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([program.interp] of a
    bare program depends only on its rule set, so the compiled network then implements [P].) *)
-Definition layout_distributes_program (P : program) (layout : layout_map) : Prop :=
+Definition layout_distributes_program (P : list rule) (layout : layout_map) : Prop :=
   incl (source_program layout) P /\ incl P (source_program layout).
 
 Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Definition layout_distributes_programb
-    (P : program) (layout : layout_map) : bool :=
+    (P : list rule) (layout : layout_map) : bool :=
   inclb (source_program layout) P && inclb P (source_program layout).
-Lemma layout_distributes_programb_spec (P : program) (layout : layout_map) :
+Lemma layout_distributes_programb_spec (P : list rule) (layout : layout_map) :
   layout_distributes_programb P layout = true -> layout_distributes_program P layout.
 Proof.
   unfold layout_distributes_programb, layout_distributes_program. intros H.
@@ -76,7 +76,7 @@ Qed.
 (*----Stuff to keep default ordering (if desired) ----*)
 
 Definition hyp_var_order (hyps : list lowered_fact) : list var :=
-  dedup (flat_map vars_of_clause hyps).
+  dedup (flat_map clause.vars hyps).
 
 (*----Variable ordering----*)
 
@@ -85,7 +85,7 @@ Definition vg_neighbors (g : var_graph) (v : var) : var_node_set :=
 
 Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_node_set) : var_graph :=
   match arg with
-  | var_expr v =>
+  | expr.var v =>
     let new_neighbors := map.putmany (vg_neighbors g v) clause_vars in
     let g' := {| nodes := map.put g.(nodes) v tt;
                  edges := map.put g.(edges) v new_neighbors |} in
@@ -94,7 +94,7 @@ Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_n
       {| nodes := acc.(nodes);
          edges := map.put acc.(edges) u (map.put (vg_neighbors acc u) v tt) |})
       g' clause_vars
-  | fun_expr _ args =>
+  | expr.app _ args =>
     fold_left (fun acc arg => add_arg_edges arg acc clause_vars) args g
   end.
 
@@ -104,14 +104,14 @@ Fixpoint add_args_edges (args : list lowered_expr) (g : var_graph) (seen : var_n
   | arg :: rest =>
     let g' := add_arg_edges arg g seen in
     let seen' := match arg with
-                 | var_expr v => map.put seen v tt
-                 | fun_expr _ _ => seen
+                 | expr.var v => map.put seen v tt
+                 | expr.app _ _ => seen
                  end in
     add_args_edges rest g' seen'
   end.
 
 Definition add_hyp_edges (hyp : lowered_fact) (g : var_graph) : var_graph :=
-  add_args_edges hyp.(clause_args) g map.empty.
+  add_args_edges hyp.(clause.args) g map.empty.
 
 Definition empty_var_graph : var_graph :=
   {| nodes := map.empty; edges := map.empty |}.
@@ -251,12 +251,12 @@ Definition compute_variable_ordering_ordered (g : var_graph) (hyps : list lowere
 
 Definition vars_of_arg (arg : lowered_expr) : list var :=
   match arg with
-  | var_expr v => [v]
-  | fun_expr _ _ => []
+  | expr.var v => [v]
+  | expr.app _ _ => []
   end.
 
 Definition compute_var_order (lf : lowered_fact) : list var :=
-  flat_map vars_of_arg lf.(clause_args).
+  flat_map vars_of_arg lf.(clause.args).
 
 Context {var_idx_map : map.map var nat}.
 
@@ -293,7 +293,7 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
     (existing_tries : list trie)
     (ncontext : node_context) : trie * node_context :=
   let perm := compute_permutation (compute_var_order hyp) rule_var_order in
-  let rel_id := hyp.(clause_rel) in
+  let rel_id := hyp.(clause.rel) in
   match find (fun t =>
     eqb t.(trel) rel_id && eqb t.(tperm) perm) existing_tries with
   | Some t => (t, ncontext)
@@ -302,7 +302,7 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
     (new_trie, update_node_context_with_trie new_trie ncontext)
   end.
 
-Definition get_rule_var_index (rule_var_order : list var) (v : var) : result nat :=
+Definition get_rule_var_index (rule_var_order : list var) (v : var) : Result.result nat :=
   match index_of v rule_var_order with
   | Some idx => Success idx
   | None => error:("get_rule_var_index: variable not found in rule_var_order")
@@ -312,7 +312,7 @@ Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lower
   let entries :=
     flat_map (fun '(clause, t, hyp) =>
                 List.map (fun arg_idx => (t.(tid), nth arg_idx t.(tperm) 0, clause))
-                         (indexes_of (var_expr v) hyp.(clause_args)))
+                         (indexes_of (expr.var v) hyp.(clause.args)))
              (combine3 (seq 0 (length hyps)) tries_by_hyp hyps) in
   {| tries := List.map fst3 entries;
      trie_levels := List.map snd3 entries;
@@ -340,32 +340,32 @@ Definition initial_node_context : node_context :=
   {| nctries := []; last_trie_id := 0 |}.
 
 Definition compile_concl (concl : lowered_fact)
-    (rule_var_order : list var) : result join_output :=
+    (rule_var_order : list var) : Result.result join_output :=
   var_indices <- List.all_success (List.map (fun arg =>
     match arg with
-    | var_expr v => get_rule_var_index rule_var_order v
-    | fun_expr _ _ => Success 0
-    end) concl.(clause_args)) ;;
-  Success {| output_rel := concl.(clause_rel);
+    | expr.var v => get_rule_var_index rule_var_order v
+    | expr.app _ _ => Success 0
+    end) concl.(clause.args)) ;;
+  Success {| output_rel := concl.(clause.rel);
              output_var_indices := var_indices |}.
 
 Definition compile_concls (concls : list lowered_fact)
-    (rule_var_order : list var) : result (list join_output) :=
+    (rule_var_order : list var) : Result.result (list join_output) :=
   List.all_success (List.map (fun concl => compile_concl concl rule_var_order) concls).
 
 (* Version that tries to keep original ordering.  Bare fragment: only
-   [normal_rule]s are compiled. *)
+   [rule.impl]s are compiled. *)
 Definition compile_rule (rule : lowered_rule)
-    (ncontext : node_context) : result (hardware_rule * node_context) :=
+    (ncontext : node_context) : Result.result (hardware_rule * node_context) :=
   match rule with
-  | normal_rule rconcls rhyps =>
+  | rule.impl rconcls rhyps =>
     let dep_g := create_dependency_graph rhyps in
     let rule_var_order := compute_variable_ordering_ordered dep_g rhyps in  (* pass hyps for ordering *)
     let '(query, ncontext) :=
       compile_hyps rhyps rule_var_order ncontext.(nctries) ncontext in
     concls <- compile_concls rconcls rule_var_order ;;
     Success ({| hhyps := query; hconcls := concls;
-                hsig := List.map (fun h => (h.(clause_rel), length h.(clause_args))) rhyps |}, ncontext)
+                hsig := List.map (fun h => (h.(clause.rel), length h.(clause.args))) rhyps |}, ncontext)
   | _ => error:("compile_rule: aggregation/meta rules are not supported")
   end.
 
@@ -409,14 +409,14 @@ Context {rels_at_node : map.map node_id (list rel_id)}.
 Definition get_internal_producers_of (layout : layout_map) :=
   let internally_produced_at_node :=
     (*maps node n to set of rels which may be (internally) produced at n*)
-    map.map_values (fun p => dedup (flat_map concl_rels p)) layout in
+    map.map_values (fun p => dedup (flat_map rule.concl_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) produce R*)
   invert internally_produced_at_node.
 
 Definition get_internal_consumers_of (layout : layout_map) :=
   let internally_consumed_at_node :=
     (*maps node n to set of rels which may be (internally) consumed at n*)
-    map.map_values (fun p => dedup (flat_map hyp_rels p)) layout in
+    map.map_values (fun p => dedup (flat_map rule.hyp_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
 
@@ -475,7 +475,7 @@ Definition producers_go_out (g : node_graph)
     external_consumers_of.
 
 Definition check_layout_routable (g : node_graph)
-  (external_consumers_of internal_consumers_of all_producers_of : fact_locations) : result unit :=
+  (external_consumers_of internal_consumers_of all_producers_of : fact_locations) : Result.result unit :=
   (if all_rules_fed g all_producers_of internal_consumers_of
    then Success tt
    else error:("compile: bad layout---some producer cannot reach some internal consumer")) ;;
@@ -485,7 +485,7 @@ Definition check_layout_routable (g : node_graph)
 
 (*----Final Compilation----*)
 
-Definition compile_node (node : node_id) (program : lowered_program) : result node_info :=
+Definition compile_node (node : node_id) (program : lowered_program) : Result.result node_info :=
   '(compiled_rules, ncontext) <-
     fold_left (fun acc rule =>
       '(rules, ncontext) <- acc ;;
@@ -497,7 +497,7 @@ Definition compile_node (node : node_id) (program : lowered_program) : result no
              nforwarding := map.empty;
              ntries := rev ncontext.(nctries) |}.
 
-Definition compile_all_nodes (llayout : layout_map) : result (list node_info) :=
+Definition compile_all_nodes (llayout : layout_map) : Result.result (list node_info) :=
   List.all_success (List.map (fun '(node, program) => compile_node node program) (map.tuples llayout)).
 
 (* Attach the compiled forwarding tables to node_infos -- now for EVERY node that forwards, not
@@ -528,7 +528,7 @@ Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
 
 Definition compile (layout : layout_map)
   (external_producers_of external_consumers_of : fact_locations)
-  (g : node_graph) : result (list node_info) :=
+  (g : node_graph) : Result.result (list node_info) :=
   (if check_graph_valid g
    then Success tt
    else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
@@ -554,5 +554,5 @@ Compute generate_join
   [ {| tid := 0; trel := 0; tperm := [0; 1] |} ;
     {| tid := 1; trel := 0; tperm := [1; 0] |} ]
   1
-  [ {| clause_rel := 0; clause_args := [var_expr 0; var_expr 1] |} ;
-    {| clause_rel := 0; clause_args := [var_expr 1; var_expr 2] |} ].
+  [ {| clause.rel := 0; clause.args := [expr.var 0; expr.var 1] |} ;
+    {| clause.rel := 0; clause.args := [expr.var 1; expr.var 2] |} ].

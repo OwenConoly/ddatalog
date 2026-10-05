@@ -14,7 +14,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -32,46 +32,46 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* Assign(var1, var2) :- PrimitiveAssign(var1, var2). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "Assign"; clause_args := [(var_expr "var1"); (var_expr "var2")] |}
+rule.impl ([
+      {| clause.rel := "Assign"; clause.args := [(expr.var "var1"); (expr.var "var2")] |}
     ]) ([
-      {| clause_rel := "PrimitiveAssign"; clause_args := [(var_expr "var1"); (var_expr "var2")] |}
+      {| clause.rel := "PrimitiveAssign"; clause.args := [(expr.var "var1"); (expr.var "var2")] |}
     ]).
 
 (* Alias(instanceVar, iVar) :- VarPointsTo(instanceVar, instanceHeap), VarPointsTo(iVar, instanceHeap). *)
 Definition rule_1 : rule :=
-normal_rule ([
-      {| clause_rel := "Alias"; clause_args := [(var_expr "instanceVar"); (var_expr "iVar")] |}
+rule.impl ([
+      {| clause.rel := "Alias"; clause.args := [(expr.var "instanceVar"); (expr.var "iVar")] |}
     ]) ([
-      {| clause_rel := "VarPointsTo"; clause_args := [(var_expr "instanceVar"); (var_expr "instanceHeap")] |};
-      {| clause_rel := "VarPointsTo"; clause_args := [(var_expr "iVar"); (var_expr "instanceHeap")] |}
+      {| clause.rel := "VarPointsTo"; clause.args := [(expr.var "instanceVar"); (expr.var "instanceHeap")] |};
+      {| clause.rel := "VarPointsTo"; clause.args := [(expr.var "iVar"); (expr.var "instanceHeap")] |}
     ]).
 
 (* VarPointsTo(var, heap) :- AssignAlloc(var, heap). *)
 Definition rule_2 : rule :=
-normal_rule ([
-      {| clause_rel := "VarPointsTo"; clause_args := [(var_expr "var"); (var_expr "heap")] |}
+rule.impl ([
+      {| clause.rel := "VarPointsTo"; clause.args := [(expr.var "var"); (expr.var "heap")] |}
     ]) ([
-      {| clause_rel := "AssignAlloc"; clause_args := [(var_expr "var"); (var_expr "heap")] |}
+      {| clause.rel := "AssignAlloc"; clause.args := [(expr.var "var"); (expr.var "heap")] |}
     ]).
 
 (* VarPointsTo(var1, heap) :- Assign(var2, var1), VarPointsTo(var2, heap). *)
 Definition rule_3 : rule :=
-normal_rule ([
-      {| clause_rel := "VarPointsTo"; clause_args := [(var_expr "var1"); (var_expr "heap")] |}
+rule.impl ([
+      {| clause.rel := "VarPointsTo"; clause.args := [(expr.var "var1"); (expr.var "heap")] |}
     ]) ([
-      {| clause_rel := "Assign"; clause_args := [(var_expr "var2"); (var_expr "var1")] |};
-      {| clause_rel := "VarPointsTo"; clause_args := [(var_expr "var2"); (var_expr "heap")] |}
+      {| clause.rel := "Assign"; clause.args := [(expr.var "var2"); (expr.var "var1")] |};
+      {| clause.rel := "VarPointsTo"; clause.args := [(expr.var "var2"); (expr.var "heap")] |}
     ]).
 
 (* Assign(var1, var2) :- Store(var1, instanceVar2, field), Alias(instanceVar2, instanceVar1), Load(instanceVar1, var2, field). *)
 Definition rule_4 : rule :=
-normal_rule ([
-      {| clause_rel := "Assign"; clause_args := [(var_expr "var1"); (var_expr "var2")] |}
+rule.impl ([
+      {| clause.rel := "Assign"; clause.args := [(expr.var "var1"); (expr.var "var2")] |}
     ]) ([
-      {| clause_rel := "Store"; clause_args := [(var_expr "var1"); (var_expr "instanceVar2"); (var_expr "field")] |};
-      {| clause_rel := "Alias"; clause_args := [(var_expr "instanceVar2"); (var_expr "instanceVar1")] |};
-      {| clause_rel := "Load"; clause_args := [(var_expr "instanceVar1"); (var_expr "var2"); (var_expr "field")] |}
+      {| clause.rel := "Store"; clause.args := [(expr.var "var1"); (expr.var "instanceVar2"); (expr.var "field")] |};
+      {| clause.rel := "Alias"; clause.args := [(expr.var "instanceVar2"); (expr.var "instanceVar1")] |};
+      {| clause.rel := "Load"; clause.args := [(expr.var "instanceVar1"); (expr.var "var2"); (expr.var "field")] |}
     ]).
 
 Definition program : list rule :=

@@ -15,6 +15,7 @@
    uses to prove adequacy. *)
 
 From Datalog Require Import Datalog.
+From Datalog.Util Require Import Pftree.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
 From DatalogRocq Require Import HardwareProgram DistributedHardwareProgram NodeHardwareSemantics.
@@ -24,15 +25,13 @@ Import ListNotations.
 Section DistributedHardwareSemantics.
 
 (* Relations are numeric ids at this layer; functions, variables, and values are abstract. *)
-Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-Context `{sig : signature fn aggregator T}.
-Context {context : map.map var T} {context_ok : map.ok context}.
+Context `{params : datalog_params (_rel := rel_id)}.
 (* The node-identifier type is a parameter (was the hardcoded [nat*nat]). *)
 Context {node_id : Type}
         {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 
 (* ground/runtime facts at this (numeric-id) layer *)
-Notation dl_fact := (@Datalog.fact rel_id T).
+Abbreviation dl_fact := (Datalog.fact (_rel := rel_id)).
 
 (*============================================================================*)
 (*  OPERATIONAL hardware semantics: a standalone small-step machine that just  *)
@@ -62,7 +61,7 @@ Inductive dstep (c : config) : config -> Prop :=
 | dstep_run n f :
     node_run (tries n) (prog n) (c n) f -> dstep c (cadd c n f)
 | dstep_forward n n' f :
-    c n f -> In n' (forward n (Datalog.rel_of f)) -> dstep c (cadd c n' f).
+    c n f -> In n' (forward n (fact.rel f)) -> dstep c (cadd c n' f).
 
 (* configurations reachable from the empty configuration by stepping. *)
 Inductive dreach : config -> Prop :=
@@ -71,18 +70,18 @@ Inductive dreach : config -> Prop :=
 
 (* a fact is PRODUCED by the run when some reachable configuration holds it at an output node. *)
 Definition hw_run_output (f : dl_fact) : Prop :=
-  exists n c, dreach c /\ c n f /\ output n (Datalog.rel_of f).
+  exists n c, dreach c /\ c n f /\ output n (fact.rel f).
 
 End Run.
 
 (*----Running the compiler's output [ninfos] directly----*)
 
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 (* read a node's compiled data off the returned [ninfos] (empty default if the node is absent). *)
 Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
-  match List.find (fun ni => node_id_eqb ni.(DistributedHardwareProgram.nid) n) ninfos with
+  match List.find (fun ni => eqb ni.(DistributedHardwareProgram.nid) n) ninfos with
   | Some ni => ni
   | None => {| DistributedHardwareProgram.nid := n; DistributedHardwareProgram.nprogram := [];
                DistributedHardwareProgram.nforwarding := map.empty; DistributedHardwareProgram.ntries := [] |}
@@ -117,27 +116,13 @@ Definition run_ninfos (ninfos : list node_info) (input : node_id -> dl_fact -> P
 (*  engine; everything else is two inductions.                                  *)
 (*============================================================================*)
 
-(* [pftree] is monotone in its leaf predicate: more leaves -> more trees. *)
-Lemma pftree_Q_mono {U : Type} (P : U -> list U -> Prop) (Q1 Q2 : U -> Prop) (x : U) :
-  (forall y, Q1 y -> Q2 y) -> pftree P Q1 x -> pftree P Q2 x.
-Proof.
-  intros Hsub. apply (Datalog.pftree_ind P Q1 (fun x => pftree P Q2 x)).
-  - intros x0 HQ. apply pftree_leaf, Hsub, HQ.
-  - intros x0 l HP _ HR. eapply pftree_step; eassumption.
-Qed.
-
-(* [node_run] inherits leaf-monotonicity: a node run on a bigger input set derives at least as much. *)
-Lemma node_run_mono (tries : list trie) (hp : hardware_program) (Q1 Q2 : dl_fact -> Prop) (f : dl_fact) :
-  (forall g, Q1 g -> Q2 g) -> node_run tries hp Q1 f -> node_run tries hp Q2 f.
-Proof. apply pftree_Q_mono. Qed.
-
 Section Adequacy.
 Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
         (forward : node_id -> rel_id -> list node_id)
         (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop).
 
-Notation step  := (dstep prog tries forward input).
-Notation reach := (dreach prog tries forward input).
+Abbreviation step  := (dstep prog tries forward input).
+Abbreviation reach := (dreach prog tries forward input).
 
 (* a fact is operationally PRESENT at a node when some reachable config holds it. *)
 Definition present (n : node_id) (f : dl_fact) : Prop := exists c, reach c /\ c n f.
@@ -151,7 +136,7 @@ Proof.
   intros Hsub Hstep. inversion Hstep as [n f Hin | n f Hrun | n n' f Hcnf Hfwd]; subst;
     [ exists (cadd d n f); split; [apply dstep_input; exact Hin |]
     | exists (cadd d n f); split;
-        [apply dstep_run; exact (node_run_mono (tries n) (prog n) (c n) (d n) f (fun g Hg => Hsub n g Hg) Hrun) |]
+        [apply dstep_run; exact (pftree.weaken_hyp _ _ _ _ Hrun (Hsub n)) |]
     | exists (cadd d n' f); split;
         [apply (dstep_forward prog tries forward input d n n' f (Hsub n f Hcnf) Hfwd) |] ];
     (split; intros n0 f0; unfold cadd; [intros [H|H]; [left; apply Hsub; exact H | right; exact H]
@@ -204,7 +189,7 @@ Proof.
     inversion Hstep as [n f Hi | n f Hru | n n' f Hcnf Hfwd]; subst c0'.
     + apply dstep_input; exact Hi.
     + apply dstep_run; exact Hru.
-    + eapply dstep_forward; [exact Hcnf | rewrite <- (Hext n (Datalog.rel_of f)); exact Hfwd].
+    + eapply dstep_forward; [exact Hcnf | rewrite <- (Hext n (fact.rel f)); exact Hfwd].
 Qed.
 
 Lemma hw_run_output_forward_ext (prog : node_id -> hardware_program) (tries : node_id -> list trie)

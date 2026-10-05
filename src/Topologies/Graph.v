@@ -1,8 +1,6 @@
 Section Graph.
   
   Context {Node : Type}.
-  Context {node_eqb : Node -> Node -> bool}.
-  Context {node_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
 
   Record Graph := {
     nodes : Node -> Prop;

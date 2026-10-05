@@ -1,6 +1,7 @@
 From Datalog Require Export Datalog.
 From Datalog.Util Require Export List.
 From Stdlib Require Import String List.
+From coqutil Require Import Datatypes.List.
 From coqutil Require Export Eqb.   (* re-export so [string]'s [Eqb] reaches importers *)
 From DatalogRocq Require Import EqbSpec.
 Import ListNotations.
@@ -22,8 +23,8 @@ Open Scope string_scope.
    a variable matches anything; two applications match iff same head and compatible args. *)
 Fixpoint expr_compatible (e1 e2 : expr) : bool :=
   match e1, e2 with
-  | var_expr _, _ => true
-  | _, var_expr _ => true
-  | fun_expr f1 args1, fun_expr f2 args2 =>
-      eqb f1 f2 && list_eqb (aeqb := expr_compatible) args1 args2
+  | expr.var _, _ => true
+  | _, expr.var _ => true
+  | expr.app f1 args1, expr.app f2 args2 =>
+      eqb f1 f2 && forallb2 expr_compatible args1 args2
   end.

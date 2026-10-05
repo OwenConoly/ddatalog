@@ -12,13 +12,12 @@ From coqutil Require Import Map.Interface Map.SortedListString Result.
 Import ListNotations.
 Import StringDatalogParams.
 
-Notation node_id     := GridGraph.Node.
-Notation node_id_map := GridTopology.node_id_map.
-Notation destination := (@DistributedHardwareProgram.destination node_id).
+Abbreviation node_id     := GridGraph.Node.
+Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 
 (* concrete fact-location tables: [rel]/[rel_id]-keyed maps to node lists. *)
-Notation rel_locs_map   := (SortedListString.map (list node_id)).
-Notation relid_locs_map  := (SortedListNat.map (list node_id)).
+Abbreviation rel_locs_map   := (SortedListString.map (list node_id)).
+Abbreviation relid_locs_map  := (SortedListNat.map (list node_id)).
 
 (* [make_layout_map program layout] : a [node -> rules] map from an indexed layout
    (a list of [(node_id, rule_index_list)] pairs over the [program]). *)
@@ -28,7 +27,7 @@ Definition make_layout_map
     : node_id_map (list rule) :=
   List.fold_left
     (fun acc '(nid, idxs) =>
-      let empty_rule := normal_rule [] [] in
+      let empty_rule := rule.impl [] [] in
       let rules := List.map (fun i => List.nth i program empty_rule) idxs in
       map.put acc nid rules)
     layout map.empty.
@@ -37,11 +36,12 @@ Definition make_layout_map
    nattified here first (via [NattifyRel.encode_rel] over the program's own relations -- matching
    [nattify_and_compile_correct]'s [input_rels := program_rels p]). *)
 Definition rel_ids (program : list rule) : string -> rel_id :=
-  encode_rel (List.flat_map Datalog.all_rels program) program.
+  encode_rel (List.flat_map rule.all_rels program)
+    {| program.rules := program; program.meta_rules := [] |}.
 
 Definition nattify_layout (enc : string -> rel_id)
     (slayout : node_id_map (list rule)) : node_id_map (list HardwareProgram.lowered_rule) :=
-  map.fold (fun acc nid rules => map.put acc nid (List.map (map_rule_rels enc) rules)) map.empty slayout.
+  map.fold (fun acc nid rules => map.put acc nid (List.map (rule.map_rel enc) rules)) map.empty slayout.
 
 Definition nattify_fact_locs (enc : string -> rel_id) (fl : rel_locs_map) : relid_locs_map :=
   map.fold (fun acc R locs => map.put acc (enc R) locs) map.empty fl.
@@ -67,7 +67,8 @@ Definition compile_program
    numeric [output_rel]/[trel] ids -- e.g. a human-authored/random input-fact workload. *)
 Definition compile_program_rel_ids (program : list rule) : list (string * rel_id) :=
   let enc := rel_ids program in
-  List.map (fun R => (R, enc R)) (rel_table (List.flat_map Datalog.all_rels program) program).
+  List.map (fun R => (R, enc R)) (rel_table (List.flat_map rule.all_rels program)
+                                  {| program.rules := program; program.meta_rules := [] |}).
 
 (* PLACEHOLDER fact-locations: make EVERY grid node an input AND output node for EVERY relation
    appearing in [program].  Useful for examples that have not (yet) designated real input/output
@@ -79,6 +80,6 @@ Definition all_io_locations (program : list rule) (layout : list (node_id * list
   let nodes := GridGraph.all_nodes_h topo_dims in
   (* only relations of the rules the layout actually assigns are in the global context *)
   let assigned := List.flat_map (fun '(_, idxs) =>
-                    List.map (fun i => List.nth i program (Datalog.normal_rule [] [])) idxs) layout in
+                    List.map (fun i => List.nth i program (Datalog.rule.impl [] [])) idxs) layout in
   map.of_list (List.map (fun R => (R, nodes))
-           (List.nodup String.string_dec (List.flat_map Datalog.all_rels assigned))).
+           (List.nodup String.string_dec (List.flat_map rule.all_rels assigned))).

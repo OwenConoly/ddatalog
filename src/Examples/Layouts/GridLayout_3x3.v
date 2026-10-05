@@ -17,7 +17,6 @@ Section SmallExample.
   Context {context : map.map var T}.
   Context {context_ok : map.ok context}.
   Context {sig : signature fn aggregator T}.
-  Context {query_sig : query_signature rel}.
 
   Definition dims : list nat := [3; 3].
 
@@ -76,10 +75,11 @@ Import ListNotations.
 Import StringDatalogParams.
 
 Section FamilyExample.
-  (* The semantics (interpretation) parameters are kept abstract; only T/sig/context
-     are needed (the layout/forwarding facts are structural). *)
+  (* The semantics (interpretation) parameters are kept abstract; only
+     semantics/context/value_set are needed (the layout/forwarding facts are structural). *)
   Context {context : map.map string string} {context_ok : map.ok context}.
-  Context {sig : signature string unit string}.
+  Context {semantics : datalog_semantics string unit string}.
+  Context {value_set : map.map (list string) unit} {value_set_ok : map.ok value_set}.
 
   Definition dims : list nat := [3; 3].
   Definition program : list rule := family_program.
@@ -92,7 +92,7 @@ Section FamilyExample.
   Definition family_3x3 := GridLayout.mk_dataflow_network dims indexed_layout program.
 
   (* The layout passes the checker (should compute to [true]); [rule]'s [Eqb] is inferred. *)
-  Compute GridLayout.check_layout dims
+  Compute DistributedDatalog.good_layoutb (GridGraph.all_nodes_h dims)
             (GridLayout.mk_layout_from_indexed_layout dims indexed_layout program) program.
 
   (* The grid network built from this layout is well-formed. *)
@@ -107,7 +107,7 @@ Section FamilyExample.
   Theorem family_3x3_soundness :
     forall f,
       DistributedDatalog.network_prog_impl_fact family_3x3 f ->
-      DistributedDatalog.prog_impl_fact program (fun _ => False) f.
+      program.interp {| program.rules := program; program.meta_rules := [] |} (fun _ => False) f.
   Proof.
     intros f Hnet.
     destruct family_3x3_good_network as [_ [Hgl _]].

@@ -6,56 +6,56 @@ Open Scope string_scope.
 
 Import StringDatalogParams.
 
-(* Individual rules, written with plain (non-fancy) clause/normal_rule syntax.
-   [ {| clause_rel := R; clause_args := [...] |} ] are the conclusions, then the hypotheses. *)
+(* Individual rules, written with plain (non-fancy) clause/rule.impl syntax.
+   [ {| clause.rel := R; clause.args := [...] |} ] are the conclusions, then the hypotheses. *)
 
 Definition r_ancestor1 : rule :=
-  normal_rule
-    [ {| clause_rel := "ancestor"; clause_args := [var_expr "x"; var_expr "y"] |} ]
-    [ {| clause_rel := "parent";   clause_args := [var_expr "x"; var_expr "y"] |} ].
+  rule.impl
+    [ {| clause.rel := "ancestor"; clause.args := [expr.var "x"; expr.var "y"] |} ]
+    [ {| clause.rel := "parent";   clause.args := [expr.var "x"; expr.var "y"] |} ].
 
 Definition r_ancestor2 : rule :=
-  normal_rule
-    [ {| clause_rel := "ancestor"; clause_args := [var_expr "y"; var_expr "x"] |} ]
-    [ {| clause_rel := "parent";   clause_args := [var_expr "p"; var_expr "x"] |};
-      {| clause_rel := "ancestor"; clause_args := [var_expr "y"; var_expr "p"] |} ].
+  rule.impl
+    [ {| clause.rel := "ancestor"; clause.args := [expr.var "y"; expr.var "x"] |} ]
+    [ {| clause.rel := "parent";   clause.args := [expr.var "p"; expr.var "x"] |};
+      {| clause.rel := "ancestor"; clause.args := [expr.var "y"; expr.var "p"] |} ].
 
 Definition r_sibling : rule :=
-  normal_rule
-    [ {| clause_rel := "sibling"; clause_args := [var_expr "x"; var_expr "y"] |} ]
-    [ {| clause_rel := "parent";  clause_args := [var_expr "p"; var_expr "x"] |};
-      {| clause_rel := "parent";  clause_args := [var_expr "p"; var_expr "y"] |} ].
+  rule.impl
+    [ {| clause.rel := "sibling"; clause.args := [expr.var "x"; expr.var "y"] |} ]
+    [ {| clause.rel := "parent";  clause.args := [expr.var "p"; expr.var "x"] |};
+      {| clause.rel := "parent";  clause.args := [expr.var "p"; expr.var "y"] |} ].
 
 Definition r_aunt: rule :=
-  normal_rule
-    [ {| clause_rel := "aunt"; clause_args := [var_expr "x"; var_expr "y"] |} ]
-    [ {| clause_rel := "sibling"; clause_args := [var_expr "x"; var_expr "p"] |};
-      {| clause_rel := "parent";  clause_args := [var_expr "p"; var_expr "y"] |};
-      {| clause_rel := "female";  clause_args := [var_expr "x"] |} ].
+  rule.impl
+    [ {| clause.rel := "aunt"; clause.args := [expr.var "x"; expr.var "y"] |} ]
+    [ {| clause.rel := "sibling"; clause.args := [expr.var "x"; expr.var "p"] |};
+      {| clause.rel := "parent";  clause.args := [expr.var "p"; expr.var "y"] |};
+      {| clause.rel := "female";  clause.args := [expr.var "x"] |} ].
 
 Definition r_uncle : rule :=
-  normal_rule
-    [ {| clause_rel := "uncle"; clause_args := [var_expr "x"; var_expr "y"] |} ]
-    [ {| clause_rel := "sibling"; clause_args := [var_expr "x"; var_expr "p"] |};
-      {| clause_rel := "parent";  clause_args := [var_expr "p"; var_expr "y"] |};
-      {| clause_rel := "male";    clause_args := [var_expr "x"] |} ].
+  rule.impl
+    [ {| clause.rel := "uncle"; clause.args := [expr.var "x"; expr.var "y"] |} ]
+    [ {| clause.rel := "sibling"; clause.args := [expr.var "x"; expr.var "p"] |};
+      {| clause.rel := "parent";  clause.args := [expr.var "p"; expr.var "y"] |};
+      {| clause.rel := "male";    clause.args := [expr.var "x"] |} ].
 
 Definition r_cousin : rule :=
-  normal_rule
-    [ {| clause_rel := "cousin"; clause_args := [var_expr "x"; var_expr "y"] |} ]
-    [ {| clause_rel := "parent";  clause_args := [var_expr "px"; var_expr "x"] |};
-      {| clause_rel := "parent";  clause_args := [var_expr "py"; var_expr "y"] |};
-      {| clause_rel := "sibling"; clause_args := [var_expr "px"; var_expr "py"] |} ].
+  rule.impl
+    [ {| clause.rel := "cousin"; clause.args := [expr.var "x"; expr.var "y"] |} ]
+    [ {| clause.rel := "parent";  clause.args := [expr.var "px"; expr.var "x"] |};
+      {| clause.rel := "parent";  clause.args := [expr.var "py"; expr.var "y"] |};
+      {| clause.rel := "sibling"; clause.args := [expr.var "px"; expr.var "py"] |} ].
 
 Definition r_related1 : rule :=
-  normal_rule
-    [ {| clause_rel := "related";  clause_args := [var_expr "x"; var_expr "y"] |} ]
-    [ {| clause_rel := "ancestor"; clause_args := [var_expr "x"; var_expr "y"] |} ].
+  rule.impl
+    [ {| clause.rel := "related";  clause.args := [expr.var "x"; expr.var "y"] |} ]
+    [ {| clause.rel := "ancestor"; clause.args := [expr.var "x"; expr.var "y"] |} ].
 
 Definition r_related2 : rule :=
-  normal_rule
-    [ {| clause_rel := "related";  clause_args := [var_expr "x"; var_expr "y"] |} ]
-    [ {| clause_rel := "ancestor"; clause_args := [var_expr "y"; var_expr "x"] |} ].
+  rule.impl
+    [ {| clause.rel := "related";  clause.args := [expr.var "x"; expr.var "y"] |} ]
+    [ {| clause.rel := "ancestor"; clause.args := [expr.var "y"; expr.var "x"] |} ].
 
 (* The full program, referencing the rules directly *)
 Definition family_program : list rule :=

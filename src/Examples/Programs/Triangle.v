@@ -15,7 +15,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -27,12 +27,12 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* Triangle(x, y, z) :- R(x, y), S(y, z), T(z, x). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "Triangle"; clause_args := [(var_expr "x"); (var_expr "y"); (var_expr "z")] |}
+rule.impl ([
+      {| clause.rel := "Triangle"; clause.args := [(expr.var "x"); (expr.var "y"); (expr.var "z")] |}
     ]) ([
-      {| clause_rel := "R"; clause_args := [(var_expr "x"); (var_expr "y")] |};
-      {| clause_rel := "S"; clause_args := [(var_expr "y"); (var_expr "z")] |};
-      {| clause_rel := "T"; clause_args := [(var_expr "z"); (var_expr "x")] |}
+      {| clause.rel := "R"; clause.args := [(expr.var "x"); (expr.var "y")] |};
+      {| clause.rel := "S"; clause.args := [(expr.var "y"); (expr.var "z")] |};
+      {| clause.rel := "T"; clause.args := [(expr.var "z"); (expr.var "x")] |}
     ]).
 
 Definition program : list rule :=

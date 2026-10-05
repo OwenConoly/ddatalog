@@ -19,9 +19,11 @@
 From Stdlib Require Import List String.
 From Datalog Require Import Datalog.
 From coqutil Require Import Result.
+From Datalog.Util Require Import Pftree.
+From coqutil Require Import Map.Interface.
 From DatalogRocq Require Import HardwareProgram NodeHardwareSemantics DistributedHardwareProgram
   DistributedHardwareSemantics StringDatalogParams StringGridCompiler DistributedDatalogToHardwareCompiler
-  GridGraph GridTopology SortedListNat.
+  GridGraph GridTopology SortedListNat SortedListList.
 Import ListNotations.
 
 (*==========================================================================*)
@@ -32,10 +34,10 @@ Open Scope string_scope.
 
 (* J(x, y) :- A(x, y), B(y, x).  Head first, then the two body clauses. *)
 Definition ruleJ : @Datalog.rule string string string unit :=
-  Datalog.normal_rule
-    [ {| Datalog.clause_rel := "J"; Datalog.clause_args := [Datalog.var_expr "x"; Datalog.var_expr "y"] |} ]
-    [ {| Datalog.clause_rel := "A"; Datalog.clause_args := [Datalog.var_expr "x"; Datalog.var_expr "y"] |} ;
-      {| Datalog.clause_rel := "B"; Datalog.clause_args := [Datalog.var_expr "y"; Datalog.var_expr "x"] |} ].
+  Datalog.rule.impl
+    [ {| Datalog.clause.rel := "J"; Datalog.clause.args := [Datalog.expr.var "x"; Datalog.expr.var "y"] |} ]
+    [ {| Datalog.clause.rel := "A"; Datalog.clause.args := [Datalog.expr.var "x"; Datalog.expr.var "y"] |} ;
+      {| Datalog.clause.rel := "B"; Datalog.clause.args := [Datalog.expr.var "y"; Datalog.expr.var "x"] |} ].
 
 Definition jprog   : list (@Datalog.rule string string string unit) := [ruleJ].
 Definition jlayout : list (node_id * list nat)      := [ ([0; 0]%nat, [0]%nat) ].  (* rule 0 -> node (0,0) *)
@@ -82,10 +84,17 @@ Proof. vm_compute. reflexivity. Qed.
 (*  type), so we instantiate the run with [nat] values for readability.       *)
 (*==========================================================================*)
 
-Definition factA : @Datalog.fact rel_id nat := Datalog.normal_fact 1 [7; 8].  (* A(7,8) *)
-Definition factB : @Datalog.fact rel_id nat := Datalog.normal_fact 2 [8; 7].  (* B(8,7) *)
-Definition hyps' : list (@Datalog.fact rel_id nat) := [factA; factB].
-Definition factJ : @Datalog.fact rel_id nat := Datalog.normal_fact 0 [7; 8].  (* J(7,8) *)
+#[local] Instance nat_value_set : map.map (list nat) unit :=
+  @SortedListList.map nat Nat.ltb SortedListNat.Nat_strict_order unit.
+
+Abbreviation nat_fact := (Datalog.fact (_rel := rel_id) (_value := nat)).
+
+Definition factA : nat_fact := fact.normal {| normal_fact.rel := 1; normal_fact.args := [7; 8] |}.  (* A(7,8) *)
+Definition factB : nat_fact := fact.normal {| normal_fact.rel := 2; normal_fact.args := [8; 7] |}.  (* B(8,7) *)
+Definition hyps' : list nat_fact := [factA; factB].
+Definition nfJ : normal_fact (relt := rel_id) (value := nat) :=
+  {| normal_fact.rel := 0; normal_fact.args := [7; 8] |}.  (* J(7,8) *)
+Definition factJ : nat_fact := fact.normal nfJ.
 
 (*==========================================================================*)
 (*  Layer 1: the permutation reads ([inv_perm_index] / [trie_read]).          *)
@@ -95,25 +104,25 @@ Definition factJ : @Datalog.fact rel_id nat := Datalog.normal_fact 0 [7; 8].  (*
 Example ex_inv_perm : inv_perm_index [1; 0] 0 = Some 1 := eq_refl.
 
 (* Reading A's stored tuple [7;8] (= (x,y)) under ordering (y,x): level 0 recovers y = 8, level 1 recovers x = 7. *)
-Example ex_read_Ay : trie_read (T := nat) [1; 0] [7; 8] 0 = Some 8 := eq_refl.
-Example ex_read_Ax : trie_read (T := nat) [1; 0] [7; 8] 1 = Some 7 := eq_refl.
+Example ex_read_Ay : trie_read (_value := nat) [1; 0] [7; 8] 0 = Some 8 := eq_refl.
+Example ex_read_Ax : trie_read (_value := nat) [1; 0] [7; 8] 1 = Some 7 := eq_refl.
 
 (* Reading B's stored tuple [8;7] (= (y,x)) with the identity permutation. *)
-Example ex_read_By : trie_read (T := nat) [0; 1] [8; 7] 0 = Some 8 := eq_refl.
-Example ex_read_Bx : trie_read (T := nat) [0; 1] [8; 7] 1 = Some 7 := eq_refl.
+Example ex_read_By : trie_read (_value := nat) [0; 1] [8; 7] 0 = Some 8 := eq_refl.
+Example ex_read_Bx : trie_read (_value := nat) [0; 1] [8; 7] 1 = Some 7 := eq_refl.
 
 (*==========================================================================*)
 (*  Layer 2: projecting the conclusion ([join_output_fact]).                  *)
 (*==========================================================================*)
 
 (* Binding [y;x] = [8;7] projected through output indices [1;0] gives J(7,8). *)
-Example ex_project : join_output_fact (T := nat) [8; 7] concl = Some factJ := eq_refl.
+Example ex_project : join_output_fact (_value := nat) [8; 7] concl = Some nfJ := eq_refl.
 
 (*==========================================================================*)
 (*  Layer 3: the rule fires ([hw_rule_impl] derives J(7,8) from A(7,8),B(8,7)).*)
 (*==========================================================================*)
 
-Example J_fires : hw_rule_impl tries hrJ factJ hyps'.
+Example J_fires : hw_rule_impl tries hrJ nfJ hyps'.
 Proof.
   unfold hw_rule_impl. cbn [hrJ hhyps hconcls hsig]. split.
   - (* shape gate: each hypothesis fact matches its (relation, arity) signature *)
@@ -144,20 +153,20 @@ Qed.
 (*==========================================================================*)
 
 (* The single rule fires from any fact set that holds A(7,8) and B(8,7) as leaves. *)
-Lemma node_run_from (Q : @Datalog.fact rel_id nat -> Prop) :
+Lemma node_run_from (Q : nat_fact -> Prop) :
   Q factA -> Q factB -> node_run tries hp Q factJ.
 Proof.
-  intros HA HB. eapply pftree_step.
+  intros HA HB. eapply pftree.step.
   - (* the single rule [hrJ] fires, producing J(7,8) ... *)
-    apply Exists_cons_hd. exact J_fires.
+    constructor. apply Exists_cons_hd. exact J_fires.
   - (* ... and its two hypotheses are leaves of [Q]. *)
     apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]].
-    + apply pftree_leaf. exact HA.
-    + apply pftree_leaf. exact HB.
+    + apply pftree.leaf. exact HA.
+    + apply pftree.leaf. exact HB.
 Qed.
 
 (* The base facts delivered to this node. *)
-Definition inputs : @Datalog.fact rel_id nat -> Prop := fun f => f = factA \/ f = factB.
+Definition inputs : nat_fact -> Prop := fun f => f = factA \/ f = factB.
 
 Example J_in_node_run : node_run tries hp inputs factJ.
 Proof. apply node_run_from; [left | right]; reflexivity. Qed.
@@ -180,7 +189,7 @@ Definition node00 : node_id := [0; 0]%nat.
 
 (* The runtime EDB: deliver A(7,8) and B(8,7) at node (0,0).  The output sink: node (0,0)
    answers for J (relation id 0). *)
-Definition dinput : node_id -> @Datalog.fact rel_id nat -> Prop :=
+Definition dinput : node_id -> nat_fact -> Prop :=
   fun n f => n = node00 /\ (f = factA \/ f = factB).
 Definition doutput : node_id -> rel_id -> Prop :=
   fun n r => n = node00 /\ r = 0.
@@ -188,7 +197,7 @@ Definition doutput : node_id -> rel_id -> Prop :=
 (* The distributed operational semantics, run on the compiled [ninfos], parks J(7,8) at the
    output node.  Steps: deliver A, deliver B, then the node runs its hardware program. *)
 Example J_run_distributed :
-  @run_ninfos nat node_id _ (SortedListNat.map (list destination))
+  @run_ninfos nat _ _ node_id _ (SortedListNat.map (list destination))
              ninfos dinput doutput factJ.
 Proof.
   (* the compiled node's tries / trie-join program are exactly our literals *)

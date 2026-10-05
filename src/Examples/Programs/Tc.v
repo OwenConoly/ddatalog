@@ -15,7 +15,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -27,53 +27,53 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* tcl(X, Y) :- base(X, Y). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "tcl"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "tcl"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "base"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+      {| clause.rel := "base"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]).
 
 (* tcl(X, Y) :- tcl(X, Z), base(Z, Y). *)
 Definition rule_1 : rule :=
-normal_rule ([
-      {| clause_rel := "tcl"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "tcl"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "tcl"; clause_args := [(var_expr "X"); (var_expr "Z")] |};
-      {| clause_rel := "base"; clause_args := [(var_expr "Z"); (var_expr "Y")] |}
+      {| clause.rel := "tcl"; clause.args := [(expr.var "X"); (expr.var "Z")] |};
+      {| clause.rel := "base"; clause.args := [(expr.var "Z"); (expr.var "Y")] |}
     ]).
 
 (* tcr(X, Y) :- base(X, Y). *)
 Definition rule_2 : rule :=
-normal_rule ([
-      {| clause_rel := "tcr"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "tcr"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "base"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+      {| clause.rel := "base"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]).
 
 (* tcr(X, Y) :- base(X, Z), tcr(Z, Y). *)
 Definition rule_3 : rule :=
-normal_rule ([
-      {| clause_rel := "tcr"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "tcr"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "base"; clause_args := [(var_expr "X"); (var_expr "Z")] |};
-      {| clause_rel := "tcr"; clause_args := [(var_expr "Z"); (var_expr "Y")] |}
+      {| clause.rel := "base"; clause.args := [(expr.var "X"); (expr.var "Z")] |};
+      {| clause.rel := "tcr"; clause.args := [(expr.var "Z"); (expr.var "Y")] |}
     ]).
 
 (* tc(X, Y) :- base(X, Y). *)
 Definition rule_4 : rule :=
-normal_rule ([
-      {| clause_rel := "tc"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "tc"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "base"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+      {| clause.rel := "base"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]).
 
 (* tc(X, Y) :- tc(X, Z), tc(Z, Y). *)
 Definition rule_5 : rule :=
-normal_rule ([
-      {| clause_rel := "tc"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "tc"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "tc"; clause_args := [(var_expr "X"); (var_expr "Z")] |};
-      {| clause_rel := "tc"; clause_args := [(var_expr "Z"); (var_expr "Y")] |}
+      {| clause.rel := "tc"; clause.args := [(expr.var "X"); (expr.var "Z")] |};
+      {| clause.rel := "tc"; clause.args := [(expr.var "Z"); (expr.var "Y")] |}
     ]).
 
 Definition program : list rule :=
