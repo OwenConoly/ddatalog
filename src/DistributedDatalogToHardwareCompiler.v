@@ -545,7 +545,6 @@ Definition compile (layout : layout_map)
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
 
-Existing Instance SortedListNat.map.
 From coqutil Require Import SortedListString.
 Existing Instance SortedListString.map.
 

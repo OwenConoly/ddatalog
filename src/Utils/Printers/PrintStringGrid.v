@@ -7,7 +7,6 @@ From DatalogRocq Require Import FamilyCompiler BasicProgramCompiler GraphCompile
 
 Abbreviation node_id := GridGraph.Node.
 Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
-Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id (SortedListNat.map (list destination))).
 
 Definition nat_to_string (n : nat) : string :=
   NilZero.string_of_uint (Nat.to_uint n).
