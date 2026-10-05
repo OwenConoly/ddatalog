@@ -1,7 +1,8 @@
 From Stdlib Require Import List Bool Lia.
 From Datalog Require Import Datalog.
+From Datalog.Util Require Import List.
 From DatalogRocq Require Import DistributedDatalog Topologies.Graph GridGraph.
-From coqutil Require Import Map.Interface Eqb.
+From coqutil Require Import Map.Interface Eqb Tactics.fwd.
 Import ListNotations.
 
 Section GridLayout.
@@ -56,6 +57,35 @@ Section GridLayout.
     destruct (check_node_in_bounds dims n) eqn:Hbounds; try discriminate.
     - apply GridGraph.check_node_in_bounds_h_correct; eauto.
     - contradiction.
+  Qed.
+
+  (*----------------------------------------------------------------------------*)
+  (* Decidable [good_layout] check, over a plain node enumeration [all_nodes]    *)
+  (* (no topology record): (1) every rule placed on an enumerated node is a      *)
+  (* program rule, and (2) every program rule is placed on some enumerated node. *)
+  (*----------------------------------------------------------------------------*)
+  Definition node_rules_okb (layout : Node -> list rule) (program : list rule) (n : Node) : bool :=
+    forallb (fun r => inb r program) (layout n).
+  Definition rule_in_layoutb (all_nodes : list Node) (layout : Node -> list rule) (r : rule) : bool :=
+    existsb (fun n => inb r (layout n)) all_nodes.
+  Definition good_layoutb (all_nodes : list Node) (layout : Node -> list rule) (program : list rule) : bool :=
+    forallb (node_rules_okb layout program) all_nodes &&
+    forallb (rule_in_layoutb all_nodes layout) program.
+
+  Lemma good_layoutb_sound (all_nodes : list Node) (nodes : Node -> Prop) (layout : Node -> list rule)
+      (program : list rule) :
+    (forall n, In n all_nodes <-> nodes n) ->
+    (forall n r, In r (layout n) -> nodes n) ->
+    good_layoutb all_nodes layout program = true ->
+    good_layout layout nodes program.
+  Proof.
+    intros Hspec Hvalid Hcheck. unfold good_layoutb in Hcheck. fwd.
+    rewrite Forall_forall in Hcheckp0, Hcheckp1. split.
+    - apply Forall_forall. intros r Hr. apply Hcheckp1 in Hr. cbv [rule_in_layoutb] in Hr. fwd.
+      eexists. split; [apply Hspec |]; eassumption.
+    - intros n r Hr. pose proof (Hvalid n r Hr) as Hn. split; [exact Hn |].
+      apply Hspec, Hcheckp0 in Hn. cbv [node_rules_okb] in Hn. fwd.
+      rewrite Forall_forall in Hn. apply Hn in Hr. fwd. assumption.
   Qed.
 
 Theorem good_layout :

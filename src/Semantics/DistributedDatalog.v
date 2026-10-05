@@ -1,7 +1,7 @@
 From Stdlib Require Import List Bool.
 From Datalog Require Import Datalog.
-From Datalog.Util Require Import Pftree List.
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Eqb.
+From Datalog.Util Require Import Pftree.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
 From DatalogRocq Require Import Topologies.Graph.
 
 Import ListNotations.
@@ -176,37 +176,6 @@ Definition good_source (net : DataflowNetwork) (n : Node) (R : rel) : Prop :=
   ((exists n_out, net.(output) n_out R) ->
    exists n_out, net.(output) n_out R /\
      (n = n_out \/ forwarding_reachable net.(forward) R n n_out)).
-
-(*----------------------------------------------------------------------------*)
-(* Decidable [good_layout] check, over a plain node enumeration [all_nodes]    *)
-(* (no topology record): (1) every rule placed on an enumerated node is a      *)
-(* program rule, and (2) every program rule is placed on some enumerated node. *)
-(*----------------------------------------------------------------------------*)
-Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
-
-Definition node_rules_okb (layout : Layout) (program : list rule) (n : Node) : bool :=
-  forallb (fun r => inb r program) (layout n).
-Definition rule_in_layoutb (all_nodes : list Node) (layout : Layout) (r : rule) : bool :=
-  existsb (fun n => inb r (layout n)) all_nodes.
-Definition good_layoutb (all_nodes : list Node) (layout : Layout) (program : list rule) : bool :=
-  forallb (node_rules_okb layout program) all_nodes &&
-  forallb (rule_in_layoutb all_nodes layout) program.
-
-Lemma good_layoutb_sound (all_nodes : list Node) (nodes : Node -> Prop) (layout : Layout)
-    (program : list rule) :
-  (forall n, In n all_nodes <-> nodes n) ->
-  (forall n r, In r (layout n) -> nodes n) ->
-  good_layoutb all_nodes layout program = true ->
-  good_layout layout nodes program.
-Proof.
-  intros Hspec Hvalid Hcheck. unfold good_layoutb in Hcheck. fwd.
-  rewrite Forall_forall in Hcheckp0, Hcheckp1. split.
-  - apply Forall_forall. intros r Hr. apply Hcheckp1 in Hr. cbv [rule_in_layoutb] in Hr. fwd.
-    eexists. split; [apply Hspec |]; eassumption.
-  - intros n r Hr. pose proof (Hvalid n r Hr) as Hn. split; [exact Hn |].
-    apply Hspec, Hcheckp0 in Hn. cbv [node_rules_okb] in Hn. fwd.
-    rewrite Forall_forall in Hn. apply Hn in Hr. fwd. assumption.
-Qed.
 
 (* Streaming input: the network's input facts are *exactly* the base facts [Q], and each base
    fact is injected at an input node that is a good source for its relation (so it forwards to
