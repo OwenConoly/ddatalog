@@ -17,11 +17,6 @@ Section DistributedDatalog.
      (meta-rules live separately, in [program.meta_rules]); a ground/runtime fact is a
      [fact] ([fact.normal nf] or [fact.meta mf]). *)
 
-  (* One-step firing in the non-meta fragment (normal rules AND aggregation rules):
-     rule [r] produces the normal fact [f] from hypothesis facts [hyps]. *)
-  Definition fires (r : rule) (f : fact) (hyps : list fact) : Prop :=
-    exists nf, f = fact.normal nf /\ rule.interp r nf hyps.
-
   Definition ForwardingTable := rel -> list Node.
   Definition ForwardingFn := Node -> ForwardingTable.
   Definition InputFn := Node -> fact -> Prop.
@@ -51,11 +46,11 @@ Inductive network_step (net : DataflowNetwork) : network_prop -> list (network_p
   | Input n f :
       net.(input) n f ->
       network_step net (FactOnNode n f) []
-  | RuleApp n f r hyps :
+  | RuleApp n nf r hyps :
       In r (net.(layout) n) ->
       Forall (fun n' => n' = n) (map fst (get_facts_on_node hyps)) ->
-      fires r f (map snd (get_facts_on_node hyps)) ->
-      network_step net (FactOnNode n f) (hyps)
+      rule.interp r nf (map snd (get_facts_on_node hyps)) ->
+      network_step net (FactOnNode n (fact.normal nf)) (hyps)
   | Forward n n' f :
       In n' (net.(forward) n (fact.rel f)) ->
       network_step net (FactOnNode n' f) [FactOnNode n f]
@@ -68,20 +63,6 @@ Definition network_pftree (net : DataflowNetwork) : network_prop -> Prop :=
 
 Definition network_prog_impl_fact (net : DataflowNetwork) : fact -> Prop :=
   fun f => exists n, network_pftree net (Output n f).
-
-(* The reference semantics of a rule list [p] is [program.interp] of the program with rules [p] and
-   no meta-rules; there, one derivation step is exactly one rule [fires]. *)
-Lemma interp_step_iff_fires (p : list rule) f hyps :
-  program.interp_step {| program.rules := p; program.meta_rules := [] |} f hyps <->
-  Exists (fun r => fires r f hyps) p.
-Proof.
-  split.
-  - intros H. inversion H as [nf hyps' Hex | mf mhyps Hex]; subst.
-    + eapply Exists_impl; [|exact Hex]. intros r Hr. exists nf. split; [reflexivity | exact Hr].
-    + inversion Hex.
-  - intros Hex. apply Exists_exists in Hex. destruct Hex as [r [Hr [nf [-> Hnf]]]].
-    constructor. apply Exists_exists. eauto.
-Qed.
 
 (* A good layout has every program rule on a node somewhere AND only assigns rules from
    the program to nodes *)
@@ -217,7 +198,7 @@ Definition good_forwarding (forward : ForwardingFn) (net : DataflowNetwork): Pro
 
 Definition good_input (input : InputFn) (program : list rule) : Prop :=
   forall n f, input n f ->
-    exists r, In r program /\ fires r f [].
+    program.interp_step {| program.rules := program; program.meta_rules := [] |} f [].
 
 Definition good_output (net : DataflowNetwork) : Prop :=
   forall (n : Node) (f : fact),
@@ -417,8 +398,8 @@ Proof.
       match goal with Hl : In ?r (net.(layout) ?n) |- _ =>
         destruct (Hls n r Hl) as [Hnode Hrin] end.
       eapply pftree.step with (l := map snd (get_facts_on_node l)).
-      * apply interp_step_iff_fires. apply Exists_exists. exists r. split; [exact Hrin |
-          match goal with Hf : fires ?r ?f _ |- _ => exact Hf end].
+      * constructor. apply Exists_exists. exists r. split; [exact Hrin |
+          match goal with Hr : rule.interp r _ _ |- _ => exact Hr end].
       * (* every hyp fact is program-derivable, from IH on the FactOnNode premises *)
         apply Forall_forall. intros f' Hf'in.
         apply in_map_iff in Hf'in. destruct Hf'in as [[n' f''] [Heq Hin]]. simpl in Heq. subst f''.
@@ -501,53 +482,29 @@ Proof.
       exists a. split; [right; assumption | assumption].
 Qed.
 
-(* clause.interp exposes the relation: an interpreted clause is a normal fact whose
-   relation is the clause's relation. *)
-Lemma interp_clause_rel ctx (c : clause) (nf : normal_fact) :
-  clause.interp ctx c nf -> nf.(normal_fact.rel) = c.(clause.rel).
-Proof. intros [<- _]. reflexivity. Qed.
 
-(* If a rule fires producing f, [fact.rel f] is one of the rule's conclusion relations. *)
-Lemma fires_produces_rel :
-  forall (r : rule) (f : fact) (hyps : list fact),
-    fires r f hyps ->
-    In (fact.rel f) (rule.concl_rels r).
-Proof.
-  intros r f hyps [nf [-> Hnm]]. exact (rule.interp_concl_relname_in _ _ _ Hnm).
-Qed.
-
-(* If a rule fires consuming f', [fact.rel f'] is one of the rule's hypothesis relations. *)
-Lemma fires_consumes_rel :
-  forall (r : rule) (f : fact) (hyps : list fact) (f' : fact),
-    fires r f hyps ->
-    In f' hyps ->
-    In (fact.rel f') (rule.hyp_rels r).
-Proof.
-  intros r f hyps f' [nf [-> Hnm]] Hin.
-  apply rule.interp_hyp_relname_in in Hnm. rewrite Forall_forall in Hnm. auto.
-Qed.
-
-(* If a rule fires producing f at node n, n is a producer of [fact.rel f] *)
-Lemma fires_node_produces :
-  forall (r : rule) (f : fact) (hyps : list fact) (n : Node) (net : DataflowNetwork),
-    fires r f hyps ->
+(* If rule [r] at node [n] derives [nf], then [n] is a producer of [nf]'s relation. *)
+Lemma interp_node_produces :
+  forall (r : rule) (nf : normal_fact) (hyps : list fact) (n : Node) (net : DataflowNetwork),
+    rule.interp r nf hyps ->
     In r (layout net n) ->
-    node_produces (layout net) n (fact.rel f).
+    node_produces (layout net) n nf.(normal_fact.rel).
 Proof.
-  intros r f hyps n net Hfires Hin_layout.
-  exists r. split; [exact Hin_layout |]. eapply fires_produces_rel; eauto.
+  intros r nf hyps n net Hr Hin_layout.
+  exists r. split; [exact Hin_layout | exact (rule.interp_concl_relname_in _ _ _ Hr)].
 Qed.
 
-(* If a rule fires consuming f' at node n, n is a consumer of [fact.rel f'] *)
-Lemma fires_node_consumes :
-  forall (r : rule) (f : fact) (hyps : list fact) (f' : fact) (n : Node) (net : DataflowNetwork),
-    fires r f hyps ->
+(* If rule [r] at node [n] consumes [f'], then [n] is a consumer of [f']'s relation. *)
+Lemma interp_node_consumes :
+  forall (r : rule) (nf : normal_fact) (hyps : list fact) (f' : fact) (n : Node) (net : DataflowNetwork),
+    rule.interp r nf hyps ->
     In f' hyps ->
     In r (layout net n) ->
     node_consumes (layout net) n (fact.rel f').
 Proof.
-  intros r f hyps f' n net Hfires Hf'in Hin_layout.
-  exists r. split; [exact Hin_layout |]. eapply fires_consumes_rel; eauto.
+  intros r nf hyps f' n net Hr Hf'in Hin_layout.
+  exists r. split; [exact Hin_layout |].
+  apply rule.interp_hyp_relname_in in Hr. rewrite Forall_forall in Hr. auto.
 Qed.
 
 (* If a fact is at a producer, it can be forwarded to any consumer *)
@@ -585,19 +542,20 @@ Proof.
     exists n. split; [|exact Hsrc].
     eapply pftree.step with (l := []); [apply Input; exact Hin | constructor].
   - (* step: a rule fires; the producing node is a good source *)
-    intros f l Hexists _ IH.
-    apply interp_step_iff_fires, Exists_exists in Hexists. destruct Hexists as [r [Hr_in Hfires]].
+    intros f l Hstep _ IH.
+    destruct Hstep as [nf l Hexists | mf mhyps Hexists]; [|inversion Hexists].
+    apply Exists_exists in Hexists. destruct Hexists as [r [Hr_in Hr]].
     destruct (Hlc r Hr_in) as [n_r [Hn_r_node Hn_r_layout]].
-    assert (Hprod : node_produces (layout net) n_r (fact.rel f))
-      by (eapply fires_node_produces; eauto).
-    assert (Hsrc : good_source net n_r (fact.rel f)) by (apply Hprodsrc; exact Hprod).
+    assert (Hprod : node_produces (layout net) n_r nf.(normal_fact.rel))
+      by (eapply interp_node_produces; eauto).
+    assert (Hsrc : good_source net n_r nf.(normal_fact.rel)) by (apply Hprodsrc; exact Hprod).
     exists n_r. split; [|exact Hsrc].
     (* every hypothesis is available at [n_r] (forwarded from its own source to this consumer) *)
     assert (Hlifted : Forall (fun f' => network_pftree net (FactOnNode n_r f')) l).
     { rewrite Forall_forall in IH |- *. intros f' Hf'in.
       destruct (IH f' Hf'in) as [n' [Hpf' Hsrc']].
       assert (Hcons : node_consumes (layout net) n_r (fact.rel f'))
-        by (eapply fires_node_consumes; eauto).
+        by (eapply interp_node_consumes; eauto).
       eapply fact_at_source_consumer; eauto. }
     eapply pftree.step with (l := List.map (FactOnNode n_r) l).
     + apply RuleApp with (r := r).
@@ -606,7 +564,7 @@ Proof.
         apply Forall_forall. intros n' Hin.
         apply in_map_iff in Hin. destruct Hin as [? [? ?]]. auto.
       * rewrite get_facts_on_node_map_FactOnNode.
-        rewrite map_map. simpl. rewrite map_id. exact Hfires.
+        rewrite map_map. simpl. rewrite map_id. exact Hr.
     + apply Forall_map.
       rewrite Forall_forall in Hlifted |- *. intros f' Hf'in. apply Hlifted. exact Hf'in.
 Qed.

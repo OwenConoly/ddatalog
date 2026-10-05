@@ -92,7 +92,9 @@ Abbreviation nat_fact := (Datalog.fact (_rel := rel_id) (_value := nat)).
 Definition factA : nat_fact := fact.normal {| normal_fact.rel := 1; normal_fact.args := [7; 8] |}.  (* A(7,8) *)
 Definition factB : nat_fact := fact.normal {| normal_fact.rel := 2; normal_fact.args := [8; 7] |}.  (* B(8,7) *)
 Definition hyps' : list nat_fact := [factA; factB].
-Definition factJ : nat_fact := fact.normal {| normal_fact.rel := 0; normal_fact.args := [7; 8] |}.  (* J(7,8) *)
+Definition nfJ : normal_fact (relt := rel_id) (value := nat) :=
+  {| normal_fact.rel := 0; normal_fact.args := [7; 8] |}.  (* J(7,8) *)
+Definition factJ : nat_fact := fact.normal nfJ.
 
 (*==========================================================================*)
 (*  Layer 1: the permutation reads ([inv_perm_index] / [trie_read]).          *)
@@ -114,13 +116,13 @@ Example ex_read_Bx : trie_read (_value := nat) [0; 1] [8; 7] 1 = Some 7 := eq_re
 (*==========================================================================*)
 
 (* Binding [y;x] = [8;7] projected through output indices [1;0] gives J(7,8). *)
-Example ex_project : join_output_fact (_value := nat) [8; 7] concl = Some factJ := eq_refl.
+Example ex_project : join_output_fact (_value := nat) [8; 7] concl = Some nfJ := eq_refl.
 
 (*==========================================================================*)
 (*  Layer 3: the rule fires ([hw_rule_impl] derives J(7,8) from A(7,8),B(8,7)).*)
 (*==========================================================================*)
 
-Example J_fires : hw_rule_impl tries hrJ factJ hyps'.
+Example J_fires : hw_rule_impl tries hrJ nfJ hyps'.
 Proof.
   unfold hw_rule_impl. cbn [hrJ hhyps hconcls hsig]. split.
   - (* shape gate: each hypothesis fact matches its (relation, arity) signature *)
@@ -156,7 +158,7 @@ Lemma node_run_from (Q : nat_fact -> Prop) :
 Proof.
   intros HA HB. eapply pftree.step.
   - (* the single rule [hrJ] fires, producing J(7,8) ... *)
-    apply Exists_cons_hd. exact J_fires.
+    constructor. apply Exists_cons_hd. exact J_fires.
   - (* ... and its two hypotheses are leaves of [Q]. *)
     apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]].
     + apply pftree.leaf. exact HA.

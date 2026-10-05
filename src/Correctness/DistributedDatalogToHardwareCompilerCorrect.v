@@ -107,25 +107,20 @@ Proof.
   eapply clause.interp_agree_on; [|exact Hag]. split; [reflexivity | exact HF].
 Qed.
 
-(* A [rule.impl] fires exactly when some context interprets all its hypothesis clauses to
-   [hyps'] and one conclusion clause to [f]. *)
+(* A [rule.impl] derives [nf] exactly when some context interprets all its hypothesis clauses to
+   [hyps'] and one conclusion clause to [nf]. *)
 Lemma lrule_impl_iff (concls hyps : list lowered_fact)
-    (f : Datalog.fact (_rel := rel_id)) (hyps' : list (Datalog.fact (_rel := rel_id))) :
-  DistributedDatalog.fires (Datalog.rule.impl concls hyps) f hyps' <->
-  exists R args ctx,
-    f = nfact R args /\
+    (nf : normal_fact) (hyps' : list (Datalog.fact (_rel := rel_id))) :
+  rule.interp (Datalog.rule.impl concls hyps) nf hyps' <->
+  exists ctx,
     Forall2 (interp_fact ctx) hyps hyps' /\
-    Exists (fun c => interp_fact ctx c (nfact R args)) concls.
+    Exists (fun c => clause.interp ctx c nf) concls.
 Proof.
   split.
-  - intros [[R args] [-> H]]. inversion H; subst.
-    exists R, args, ctx. split; [reflexivity|]. split.
-    + apply Forall2_interp_fact. eauto.
-    + eapply Exists_impl; [|eassumption]. intros c Hc. apply interp_fact_normal. exact Hc.
-  - intros [R [args [ctx [-> [Hfa Hex]]]]].
+  - intros H. inversion H; subst. exists ctx. split; [apply Forall2_interp_fact; eauto | assumption].
+  - intros [ctx [Hfa Hex]].
     apply Forall2_interp_fact in Hfa. destruct Hfa as [nhyps [-> Hfa]].
-    eexists. split; [reflexivity|]. apply rule.interp_impl with (ctx := ctx); [|exact Hfa].
-    eapply Exists_impl; [|exact Hex]. intros c Hc. apply interp_fact_normal. exact Hc.
+    apply rule.interp_impl with (ctx := ctx); assumption.
 Qed.
 
 (*----The bare-variable fragment----*)
@@ -218,9 +213,9 @@ Proof.
 Qed.
 
 (* Hence the whole [join_output_fact] in terms of the projected tuple. *)
-Lemma join_output_fact_spec (vals : list value) (jo : join_output) (f : Datalog.fact (_rel := rel_id)) :
-  join_output_fact vals jo = Some f
-  <-> exists out, f = nfact jo.(output_rel) out /\
+Lemma join_output_fact_spec (vals : list value) (jo : join_output) (nf : normal_fact) :
+  join_output_fact vals jo = Some nf
+  <-> exists out, nf = {| normal_fact.rel := jo.(output_rel); normal_fact.args := out |} /\
                   Forall2 (fun idx v => nth_error vals idx = Some v)
                           jo.(output_var_indices) out.
 Proof.
@@ -234,7 +229,7 @@ Proof.
     intros [out' [Hf Hfa]]. apply project_vals_ok in Hfa. rewrite Hfa in E. discriminate.
 Qed.
 
-(*----Conclusion projection: join_output_fact <-> interp_fact (bare concls)----*)
+(*----Conclusion projection: join_output_fact <-> clause.interp (bare concls)----*)
 
 Lemma interp_var_iff (ctx : context) (v : exprvar) (x : value) :
   expr.interp ctx (expr.var v : Datalog.expr (_fn := fn)) x <-> map.get ctx v = Some x.
@@ -287,19 +282,18 @@ Qed.
    [compile_concl] establishes for bare conclusions (each output index is the ordering
    index of the corresponding variable). *)
 Lemma join_output_fact_interp (concl : lowered_fact) (ord : list exprvar) (vals : list value)
-    (ctx : context) (jo : join_output) (f : Datalog.fact (_rel := rel_id)) :
+    (ctx : context) (jo : join_output) (nf : normal_fact) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   jo.(output_rel) = concl.(Datalog.clause.rel) ->
   Forall2 (fun e idx => exists v, e = expr.var v /\ nth_error ord idx = Some v)
           concl.(Datalog.clause.args) jo.(output_var_indices) ->
-  ( join_output_fact vals jo = Some f <-> interp_fact ctx concl f ).
+  ( join_output_fact vals jo = Some nf <-> clause.interp ctx concl nf ).
 Proof.
   intros Hnd Hlen Hctx Hrel Hcorr. rewrite join_output_fact_spec. split.
-  - intros [out [Hf Hfa]]. exists out. split.
-    + apply (corr_bridge ord vals ctx Hnd Hlen Hctx _ _ _ Hcorr). exact Hfa.
-    + subst f. rewrite Hrel. reflexivity.
-  - intros [args' [Hfa Heq]]. exists args'. split.
-    + subst f. rewrite Hrel. reflexivity.
+  - intros [out [-> Hfa]]. split; [symmetry; exact Hrel|].
+    apply (corr_bridge ord vals ctx Hnd Hlen Hctx _ _ _ Hcorr). exact Hfa.
+  - intros [Hr Hfa]. exists nf.(normal_fact.args). split.
+    + destruct nf as [R args]. simpl in *. congruence.
     + apply (corr_bridge ord vals ctx Hnd Hlen Hctx _ _ _ Hcorr). exact Hfa.
 Qed.
 
@@ -916,16 +910,16 @@ Definition concl_corr (ord : list exprvar) (c : lowered_fact) (jo : join_output)
 (* Lifting [join_output_fact_interp] over the whole conclusion list: under the induced context,
    the trie-join's conclusion outputs are exactly the lowered rule's conclusion facts. *)
 Lemma concl_exists_iff (ord : list exprvar) (vals : list value) (ctx : context)
-    (concls : list lowered_fact) (jos : list join_output) (f : Datalog.fact (_rel := rel_id)) :
+    (concls : list lowered_fact) (jos : list join_output) (nf : normal_fact) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   Forall2 (concl_corr ord) concls jos ->
-  ( Exists (fun jo => join_output_fact vals jo = Some f) jos <->
-    Exists (fun c => interp_fact ctx (c) f) concls ).
+  ( Exists (fun jo => join_output_fact vals jo = Some nf) jos <->
+    Exists (fun c => clause.interp ctx c nf) concls ).
 Proof.
   intros Hnd Hlen Hctx HF. induction HF as [| c jo concls jos [Hrel Hcorr] HF IH].
   - simpl. split; intros HE; inversion HE.
   - rewrite !Exists_cons, IH,
-      (join_output_fact_interp c ord vals ctx jo f Hnd Hlen Hctx Hrel Hcorr).
+      (join_output_fact_interp c ord vals ctx jo nf Hnd Hlen Hctx Hrel Hcorr).
     reflexivity.
 Qed.
 
@@ -942,19 +936,19 @@ Proof.
     + apply IH; exact Hin.
 Qed.
 
-(* Transport an [Exists interp_fact] over the conclusion list across two contexts that agree on
+(* Transport an [Exists clause.interp] over the conclusion list across two contexts that agree on
    the ordering (the conclusion variables, by [concl_corr], are all in the ordering). *)
 Lemma exists_interp_transport (concls : list lowered_fact) (jos : list join_output)
-    (ord : list exprvar) (ctx ctx' : context) (f : Datalog.fact (_rel := rel_id)) :
+    (ord : list exprvar) (ctx ctx' : context) (nf : normal_fact) :
   Forall2 (concl_corr ord) concls jos ->
   (forall v, In v ord -> map.get ctx v = map.get ctx' v) ->
-  Exists (fun c => interp_fact ctx (c) f) concls ->
-  Exists (fun c => interp_fact ctx' (c) f) concls.
+  Exists (fun c => clause.interp ctx c nf) concls ->
+  Exists (fun c => clause.interp ctx' c nf) concls.
 Proof.
   intros HF Hag Hex. induction HF as [|c jo concls jos [Hrel Hcorr] HF IH].
   - inversion Hex.
   - rewrite Exists_cons in Hex. rewrite Exists_cons. destruct Hex as [Hc | Hrest].
-    + left. eapply interp_fact_agree_on; [exact Hc|].
+    + left. eapply clause.interp_agree_on; [exact Hc|].
       apply Forall_forall. intros v Hvin. red. apply Hag.
       eapply (corr_args_vars_in_ord ord c.(Datalog.clause.args) jo.(output_var_indices) v Hcorr). exact Hvin.
     + right. apply IH; exact Hrest.
@@ -1079,7 +1073,7 @@ Theorem hw_rule_correct
   hw_rule_matches tries (Datalog.rule.impl concls hyps) hr.
 Proof.
   intros Hnd Hbareh Hbarec Htbl Hcov Hord_sub Hhhyps Hhsig Hconcl Htrie.
-  intros f hyps'. unfold hw_rule_impl. split.
+  intros nf hyps'. unfold hw_rule_impl. split.
   - (* hardware derivation -> datalog derivation *)
     intros [Hsig [vals [Hqs [jo [Hin Hjo]]]]].
     rewrite Hhsig in Hsig.
@@ -1101,18 +1095,14 @@ Proof.
     apply (proj1 (generate_query_correct ord hyps tb tries vals hyps' dt dh
                     Hnd Hbareh Htbl Hlenh Hvl Hcov Hstruct)) in Hqs.
     destruct Hqs as [ctx [Hctx Hfa]].
-    (* the produced fact comes from a conclusion clause, hence is a normal fact *)
-    assert (Hexf : Exists (fun c => interp_fact ctx c f) concls).
-    { apply (proj1 (concl_exists_iff ord vals ctx concls hr.(hconcls) f
-                      Hnd (eq_sym Hvl) Hctx Hconcl)).
-      apply Exists_exists. exists jo. split; [exact Hin | exact Hjo]. }
-    apply Exists_exists in Hexf. destruct Hexf as [c [Hcin [nf_args [Hcargs Hfeq]]]].
-    apply (proj2 (lrule_impl_iff concls hyps f hyps')).
-    exists (c.(Datalog.clause.rel)), nf_args, ctx. split; [exact Hfeq|]. split; [exact Hfa|].
-    rewrite <- Hfeq. apply Exists_exists. exists c. split; [exact Hcin|]. exists nf_args. auto.
+    apply (proj2 (lrule_impl_iff concls hyps nf hyps')).
+    exists ctx. split; [exact Hfa|].
+    apply (proj1 (concl_exists_iff ord vals ctx concls hr.(hconcls) nf
+                    Hnd (eq_sym Hvl) Hctx Hconcl)).
+    apply Exists_exists. exists jo. split; [exact Hin | exact Hjo].
   - (* datalog derivation -> hardware derivation *)
     intros Hri. apply lrule_impl_iff in Hri.
-    destruct Hri as [R [args [ctx [-> [Hfa Hex]]]]].
+    destruct Hri as [ctx [Hfa Hex]].
     (* the context is defined on every ordering variable (= hypothesis variable) *)
     assert (Hdom : forall v, In v ord -> exists t, map.get ctx v = Some t).
     { intros v Hv. apply Hord_sub in Hv. apply in_flat_map in Hv.
@@ -1170,10 +1160,10 @@ Proof.
         apply (proj2 (generate_query_correct ord hyps tb tries vals hyps' dt dh
                         Hnd Hbareh Htbl Hlenh (eq_sym Hlenov) Hcov Hstruct)).
         exists ctx'. split; [exact Hctx' | exact Hfa'].
-      * assert (Hex' : Exists (fun c => interp_fact ctx' (c) (nfact R args)) concls).
+      * assert (Hex' : Exists (fun c => clause.interp ctx' c nf) concls).
         { eapply exists_interp_transport; [exact Hconcl | | exact Hex].
           intros v Hv. symmetry. apply Hagree; exact Hv. }
-        apply (proj2 (concl_exists_iff ord vals ctx' concls hr.(hconcls) (nfact R args)
+        apply (proj2 (concl_exists_iff ord vals ctx' concls hr.(hconcls) nf
                         Hnd Hlenov Hctx' Hconcl)) in Hex'.
         apply Exists_exists in Hex'. destruct Hex' as [jo [Hin Hjo]].
         exists jo. split; [exact Hin | exact Hjo].
@@ -3161,9 +3151,9 @@ Local Abbreviation Outp := (net.(DistributedDatalog.output)).
 Local Abbreviation present := (DistributedHardwareSemantics.present prog tries Fwd Inp).
 
 (* per-node firing bridge: a node's hardware rules fire iff its matching datalog rules fire *)
-Lemma node_fires_iff (n : node_id) (f : Datalog.fact (_rel := rel_id)) (hyps' : list (Datalog.fact (_rel := rel_id))) :
-  Exists (fun hr => hw_rule_impl (tries n) hr f hyps') (prog n)
-  <-> Exists (fun r => DistributedDatalog.fires r f hyps') (net.(DistributedDatalog.layout) n).
+Lemma node_fires_iff (n : node_id) (nf : normal_fact) (hyps' : list (Datalog.fact (_rel := rel_id))) :
+  Exists (fun hr => hw_rule_impl (tries n) hr nf hyps') (prog n)
+  <-> Exists (fun r => rule.interp r nf hyps') (net.(DistributedDatalog.layout) n).
 Proof. apply matches_step. exact (Hmatch n). Qed.
 
 (* a single node's [node_run] re-plays as a network proof tree of [FactOnNode]s *)
@@ -3173,16 +3163,13 @@ Lemma node_run_to_netpft (c : DistributedHardwareSemantics.config) (n : node_id)
   network_pftree net (FactOnNode n f).
 Proof.
   intros Hleaf. unfold node_run. revert f.
-  apply (pftree.ind
-           (fun f hyps' => Exists (fun hr => hw_rule_impl (tries n) hr f hyps') (prog n))
-           (c n)
-           (fun f => network_pftree net (FactOnNode n f))).
+  apply (pftree.ind (hw_step (tries n) (prog n)) (c n) (fun f => network_pftree net (FactOnNode n f))).
   - intros f0 HQ. apply Hleaf, HQ.
-  - intros f0 hyps' Hex _ HR.
-    apply node_fires_iff in Hex. apply Exists_exists in Hex. destruct Hex as [r [Hin Hfires]].
-    unfold network_pftree. eapply pftree.step with (l := map (FactOnNode n) hyps').
+  - intros f0 hyps' [nf hyps'' Hex] _ HR.
+    apply node_fires_iff in Hex. apply Exists_exists in Hex. destruct Hex as [r [Hin Hr]].
+    unfold network_pftree. eapply pftree.step with (l := map (FactOnNode n) hyps'').
     + eapply DistributedDatalog.RuleApp;
-        [ exact Hin | apply facts_on_node_map_fst | rewrite facts_on_node_map_snd; exact Hfires ].
+        [ exact Hin | apply facts_on_node_map_fst | rewrite facts_on_node_map_snd; exact Hr ].
     + apply Forall_forall. intros p Hp. apply in_map_iff in Hp.
       destruct Hp as [g [<- Hg]]. rewrite Forall_forall in HR. apply HR, Hg.
 Qed.
@@ -3233,7 +3220,7 @@ Proof.
                      end)).
   - intros x [].
   - intros x l Hstep _ HR.
-    destruct Hstep as [n f Hi | n f r hyps Hin Hfst Hfires | n n' f Hfwd | n f Hout].
+    destruct Hstep as [n f Hi | n nf r hyps Hin Hfst Hr | n n' f Hfwd | n f Hout].
     + exists (DistributedHardwareSemantics.cadd (fun _ _ => False) n f). split.
       * eapply DistributedHardwareSemantics.dreachS;
           [apply DistributedHardwareSemantics.dreach0 | apply DistributedHardwareSemantics.dstep_input; exact Hi].
@@ -3248,12 +3235,12 @@ Proof.
         rewrite Forall_forall in HR. exact (HR _ HinFact). }
       destruct (DistributedHardwareSemantics.present_list prog tries Fwd Inp n _ Hpres)
         as [c [Hrc Hcfacts]].
-      assert (Hnr : node_run (tries n) (prog n) (c n) f).
+      assert (Hnr : node_run (tries n) (prog n) (c n) (fact.normal nf)).
       { unfold node_run. eapply pftree.step with (l := map snd (get_facts_on_node hyps)).
-        - apply node_fires_iff. apply Exists_exists. exists r. split; [exact Hin | exact Hfires].
+        - constructor. apply node_fires_iff. apply Exists_exists. exists r. split; [exact Hin | exact Hr].
         - apply Forall_forall. intros g Hg. apply pftree.leaf.
           rewrite Forall_forall in Hcfacts. apply Hcfacts, Hg. }
-      exists (DistributedHardwareSemantics.cadd c n f). split.
+      exists (DistributedHardwareSemantics.cadd c n (fact.normal nf)). split.
       * eapply DistributedHardwareSemantics.dreachS;
           [exact Hrc | apply DistributedHardwareSemantics.dstep_run; exact Hnr].
       * right; split; reflexivity.

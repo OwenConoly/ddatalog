@@ -26,7 +26,6 @@ From Datalog.Util Require Import Pftree.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
 From DatalogRocq Require Import HardwareProgram.
-From DatalogRocq Require DistributedDatalog.
 
 Import ListNotations.
 
@@ -153,26 +152,27 @@ Definition query_sat (tries : list trie) (q : query)
          (combine (seq 0 (length q)) q).
 
 (* A conclusion projects the binding [vals] through [output_var_indices]. *)
-Definition join_output_fact (vals : list value) (jo : join_output) : option dl_fact :=
+Definition join_output_fact (vals : list value) (jo : join_output)
+  : option (normal_fact (relt := rel_id)) :=
   match fold_right (fun idx acc =>
           match acc, nth_error vals idx with
           | Some vs, Some v => Some (v :: vs)
           | _, _ => None
           end) (Some []) jo.(output_var_indices) with
-  | Some out => Some (fact.normal {| normal_fact.rel := jo.(output_rel); normal_fact.args := out |})
+  | Some out => Some {| normal_fact.rel := jo.(output_rel); normal_fact.args := out |}
   | None => None
   end.
 
-(* The single-rule semantics, in the same shape as [DistributedDatalog.fires]: hardware rule
-   [hr] (with trie table [tries]) produces conclusion fact [f] from hypothesis facts
-   [hyps'] (one per clause/hypothesis, in clause order).
+(* The single-rule semantics, in the same shape as [rule.interp]: hardware rule [hr] (with trie
+   table [tries]) produces the normal conclusion fact [nf] from hypothesis facts [hyps'] (one per
+   clause/hypothesis, in clause order).
 
    The rule fires only when the hypothesis facts have the shape [hr] expects: one fact per
    clause, each tuple with the clause's arity ([hr.(hsig)]).  This makes the hardware as
    strict as [rule.interp] (whose [Forall2] forces exactly this), so that no spurious
    facts are derived from over-long or extra hypothesis facts. *)
 Definition hw_rule_impl (tries : list trie) (hr : hardware_rule)
-    (f : dl_fact) (hyps' : list dl_fact) : Prop :=
+    (nf : normal_fact (relt := rel_id)) (hyps' : list dl_fact) : Prop :=
   Forall2 (fun sg fct => match fct with
                          | fact.normal {| normal_fact.rel := R; normal_fact.args := args |} =>
                              R = fst sg /\ length args = snd sg
@@ -180,7 +180,14 @@ Definition hw_rule_impl (tries : list trie) (hr : hardware_rule)
                          end) hr.(hsig) hyps' /\
   exists vals,
     query_sat tries hr.(hhyps) vals hyps' /\
-    exists jo, In jo hr.(hconcls) /\ join_output_fact vals jo = Some f.
+    exists jo, In jo hr.(hconcls) /\ join_output_fact vals jo = Some nf.
+
+(* One hardware derivation step at the fact level, mirroring [program.interp_step]: some rule of
+   [hp] concludes the normal fact [nf] from [hyps']. *)
+Variant hw_step (tries : list trie) (hp : hardware_program) : dl_fact -> list dl_fact -> Prop :=
+  | hw_rule_step nf hyps' :
+    Exists (fun hr => hw_rule_impl tries hr nf hyps') hp ->
+    hw_step tries hp (fact.normal nf) hyps'.
 
 (* THE SINGLE-NODE RUN: from a set of input/base facts [inputs] delivered to this node, the hardware
    program [hp] (with trie table [tries]) derives more facts -- the proof-tree closure where every
@@ -188,7 +195,7 @@ Definition hw_rule_impl (tries : list trie) (hr : hardware_rule)
    on its inputs."  This is the per-node building block of the distributed operational semantics. *)
 Definition node_run (tries : list trie) (hp : hardware_program) (inputs : dl_fact -> Prop)
   : dl_fact -> Prop :=
-  pftree (fun f hyps' => Exists (fun hr => hw_rule_impl tries hr f hyps') hp) inputs.
+  pftree (hw_step tries hp) inputs.
 
 (* The proof-tree closure, mirroring [program.interp] with an empty EDB
    ([Q := fun _ => False]): a fact is hardware-derivable iff it is the root of a
@@ -214,17 +221,17 @@ Definition node_implements (tries : list trie) (hp : hardware_program) (P : dl_p
    reduces to this; [DistributedDatalogToHardwareCompilerCorrect] discharges it for compiled rules
    via the trie-join argument. *)
 Definition hw_rule_matches (tries : list trie) (r : dl_rule) (hr : hardware_rule) : Prop :=
-  forall f hyps', hw_rule_impl tries hr f hyps' <-> DistributedDatalog.fires r f hyps'.
+  forall nf hyps', hw_rule_impl tries hr nf hyps' <-> rule.interp r nf hyps'.
 
 (* Pointwise, the two one-step relations agree once every rule matches. *)
-Lemma matches_step (tries : list trie) (P : dl_program) (hp : hardware_program) f hyps' :
+Lemma matches_step (tries : list trie) (P : dl_program) (hp : hardware_program) nf hyps' :
   Forall2 (hw_rule_matches tries) P hp ->
-  (Exists (fun hr => hw_rule_impl tries hr f hyps') hp
-   <-> Exists (fun r => DistributedDatalog.fires r f hyps') P).
+  (Exists (fun hr => hw_rule_impl tries hr nf hyps') hp
+   <-> Exists (fun r => rule.interp r nf hyps') P).
 Proof.
   intros HF. induction HF as [| r hr P' hp' Hmatch HF IH]; simpl.
   - split; intros HE; inversion HE.
-  - rewrite !Exists_cons. rewrite IH, (Hmatch f hyps'). reflexivity.
+  - rewrite !Exists_cons. rewrite IH, (Hmatch nf hyps'). reflexivity.
 Qed.
 
 (* MODULAR CORRECTNESS (fully proved): if every hardware rule matches its datalog rule, the
@@ -235,8 +242,11 @@ Theorem hw_node_correct (tries : list trie) (P : dl_program) (hp : hardware_prog
   node_implements tries hp P.
 Proof.
   intros HF f. cbv [node_implements hw_prog_impl_fact node_run].
-  apply pftree.step_ext. intros. rewrite DistributedDatalog.interp_step_iff_fires.
-  apply matches_step. exact HF.
+  apply pftree.step_ext. intros f' hyps'. split.
+  - intros [nf hyps'' Hex]. constructor. apply (matches_step tries P hp nf hyps'' HF). exact Hex.
+  - intros H. inversion H as [nf ? Hex | mf mhyps Hex]; subst.
+    + constructor. apply (matches_step tries P hp nf _ HF). exact Hex.
+    + inversion Hex.
 Qed.
 
 End NodeHardwareSemantics.
