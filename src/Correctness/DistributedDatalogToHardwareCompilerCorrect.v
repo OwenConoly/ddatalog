@@ -19,7 +19,7 @@
 From Stdlib Require Import List Bool ZArith Lia.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Datatypes.Result Eqb.
 From Datalog Require Import Datalog NattifyRel RelMap.
-From Datalog.Util Require Import List Map Default Pftree.
+From Datalog.Util Require Import List Map Default Pftree Eqb.
 From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
 From DatalogRocq Require Import ForwardingCorrect.
@@ -27,23 +27,6 @@ From DatalogRocq Require Import ForwardingCorrect.
 Import ListNotations.
 
 Local Abbreviation nfact R args := (fact.normal {| normal_fact.rel := R; normal_fact.args := args |}).
-
-(* Helper: recover the [BoolSpec] form of variable equality from the new core's [Eqb] typeclass.
-   Replaces the old [var_eqb_spec] section hypothesis; every [destruct (var_eqb_spec ...)] site
-   below resolves [var]/[var_eqb]/[var_eqb_ok] implicitly from its section context. *)
-Lemma var_eqb_spec {var : exprvarT} {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}
-  (x y : var) : BoolSpec (x = y) (x <> y) (var_eqb x y).
-Proof.
-  pose proof (eqb_spec x y) as H. cbv [eqb] in H.
-  destruct (var_eqb x y); [apply BoolSpecT | apply BoolSpecF]; exact H.
-Qed.
-
-Lemma rel_eqb_spec {rel : relT} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}
-  (x y : rel) : BoolSpec (x = y) (x <> y) (rel_eqb x y).
-Proof.
-  pose proof (eqb_spec x y) as H. cbv [eqb] in H.
-  destruct (rel_eqb x y); [apply BoolSpecT | apply BoolSpecF]; exact H.
-Qed.
 
 Section DistributedDatalogToHardwareCompilerCorrect.
 
@@ -187,7 +170,7 @@ Lemma ctx_of_get (ord : list exprvar) (vals : list value) (ctx : context) (i : n
 Proof.
   intros Hnd Hctx Hi Hv. unfold ctx_of, map.of_list_zip in Hctx.
   eapply (map.putmany_of_list_zip_get_newval
-            (key_eqb := var_eqb) (key_eq_dec := var_eqb_spec)); eauto.
+            (key_eqb := var_eqb) (key_eq_dec := Eqb_ok_BoolSpec)); eauto.
 Qed.
 
 (*----join_output_fact: projection characterization (proved)----*)
@@ -309,7 +292,7 @@ Definition mget0 (m : var_idx_map) (v : exprvar) : nat :=
   match map.get m v with Some n => n | None => 0 end.
 
 Lemma var_eqb_refl (v : exprvar) : var_eqb v v = true.
-Proof. destruct (var_eqb_spec v v); congruence. Qed.
+Proof. destruct (Eqb_ok_BoolSpec v v); congruence. Qed.
 
 (*----count_occ / firstn helpers----*)
 
@@ -407,7 +390,7 @@ Proof.
   - cbn [nth]. rewrite (IH (map.put om v (mget0 om v + 1)) i' d) by lia.
     change (firstn (S i') (v :: vs)) with (v :: firstn i' vs).
     rewrite (count_occ_cons (nth i' vs d) v (firstn i' vs)).
-    destruct (var_eqb_spec v (nth i' vs d)) as [Heq|Hne].
+    destruct (Eqb_ok_BoolSpec v (nth i' vs d)) as [Heq|Hne].
     + change (if true then 1 else 0) with 1. rewrite Heq, mget0_put_same. lia.
     + change (if false then 1 else 0) with 0.
       rewrite (mget0_put_diff om v (nth i' vs d) (mget0 om v + 1) Hne). lia.
@@ -452,7 +435,7 @@ Proof.
   revert offset m. induction desired as [|w ws IH]; intros offset m Hnd Hin;
     simpl in Hin; [contradiction|].
   rewrite bbm_cons. inversion Hnd as [|x l Hwnin Hnd' Heqd]; subst.
-  cbn [base_fn]. destruct (var_eqb_spec w v) as [Heq|Hne].
+  cbn [base_fn]. destruct (Eqb_ok_BoolSpec w v) as [Heq|Hne].
   - subst w. rewrite build_base_map_get_notin by exact Hwnin.
     rewrite map.get_put_same. reflexivity.
   - destruct Hin as [Hwv|Hin']; [congruence|]. apply IH; assumption.
@@ -469,7 +452,7 @@ Proof.
     simpl in Hv, Hw; [contradiction|].
   inversion Hnd as [|x l Hunin Hnd' Heqd]; subst.
   cbn [base_fn].
-  destruct (var_eqb_spec u v) as [Huv|Huv]; destruct (var_eqb_spec u w) as [Huw|Huw].
+  destruct (Eqb_ok_BoolSpec u v) as [Huv|Huv]; destruct (Eqb_ok_BoolSpec u w) as [Huw|Huw].
   - congruence.
   - subst u. destruct Hw as [Hwv|Hwin]; [congruence|].
     left. pose proof (base_fn_ge us original (offset + count_occ v original) w). lia.
@@ -521,7 +504,7 @@ Proof.
   rewrite Hbi, Hbj.
   pose proof (occ_lt_count vi original i d Hi eq_refl) as Hoi.
   pose proof (occ_lt_count vj original j d Hj eq_refl) as Hoj.
-  destruct (var_eqb_spec vi vj) as [Hvv|Hvv].
+  destruct (Eqb_ok_BoolSpec vi vj) as [Hvv|Hvv].
   - (* same variable: strict growth of occurrence count *)
     rewrite <- Hvv.
     pose proof (count_firstn_strict vi original i j d Hij eq_refl Hi) as Hgrow. lia.
@@ -1670,7 +1653,7 @@ Proof.
       * intros w Hw. rewrite visit_order, visit_nodes.
         destruct (Hk w Hw) as [Ho | Hne].
         -- left; right; exact Ho.
-        -- destruct (var_eqb_spec w v) as [->|Hwv].
+        -- destruct (Eqb_ok_BoolSpec w v) as [->|Hwv].
            ++ left; left; reflexivity.
            ++ right. rewrite (map.get_remove_diff _ w v Hwv). exact Hne.
       * rewrite visit_nodes.
@@ -1712,7 +1695,7 @@ Proof.
   inversion Hb as [|x l [u ->] Hb']; subst.
   apply (IH (DistributedDatalogToHardwareCompiler.add_arg_edges (expr.var u) g seen) (map.put seen u tt) w Hb').
   rewrite add_arg_edges_LVar_nodes.
-  destruct (var_eqb_spec u w) as [->|Hne].
+  destruct (Eqb_ok_BoolSpec u w) as [->|Hne].
   - rewrite map.get_put_same. discriminate.
   - rewrite (map.get_put_diff g.(nodes) w tt u (not_eq_sym Hne)). exact Hg.
 Qed.
@@ -2198,13 +2181,6 @@ Proof.
   exists ninfo. split; [exact Hcn | exact Hin].
 Qed.
 
-(* The per-node info read off the returned [ninfos] (empty default if the node is absent). *)
-Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
-  match List.find (fun ni => eqb ni.(nid) n) ninfos with
-  | Some ni => ni
-  | None => {| nid := n; nprogram := []; nforwarding := map.empty; ntries := [] |}
-  end.
-
 (* Each entry of the (all-node) attached list is either a layout node (same id/tries/program as its
    [compile_all_nodes] info) or a forwarding-only node (empty program/tries, id not in [ninfos0]). *)
 Lemma attach_in_data (ninfos0 : list node_info) (ft : node_ftable_map) (x : node_info) :
@@ -2687,40 +2663,15 @@ Abbreviation cg2g := (@ComputableGraph.computable_graph_to_graph node_id node_id
 
 (*============================================================================*)
 (*  FULLY DECIDABLE top theorem: every side condition is a [bool] checker.      *)
-(*  The reference program is the [canonical_program] (the union of every node's *)
+(*  The reference program is the [source_program] (the union of every node's    *)
 (*  placed rules), for which [good_layout] holds structurally; [good_graph] is  *)
 (*  discharged by [check_graph_valid] and bareness by [bare_layoutb].           *)
 (*============================================================================*)
 
-(* The single reference program a layout induces: every rule placed on any node. *)
-Definition canonical_program (llayout : layout_map)
-  : list (Datalog.rule (_rel := rel_id) (_fn := fn)) :=
-  map.fold (fun acc _ p => acc ++ p) [] llayout.
-
-Lemma canonical_program_in (llayout : layout_map)
-    (r : Datalog.rule (_rel := rel_id) (_fn := fn)) :
-  In r (canonical_program llayout) <->
-  exists n p, map.get llayout n = Some p /\ In r p.
-Proof.
-  unfold canonical_program.
-  apply (map.fold_spec
-    (fun (m : layout_map) (acc : list (Datalog.rule (_rel := rel_id) (_fn := fn))) =>
-       In r acc <-> exists n p, map.get m n = Some p /\ In r p)).
-  - split.
-    + intros [].
-    + intros [n [p [Hget _]]]. rewrite map.get_empty in Hget. discriminate.
-  - intros k v m acc Hgmk IH. rewrite in_app_iff. split.
-    + intros [Hacc | Hv].
-      * apply IH in Hacc. destruct Hacc as [n [p [Hget Hin]]].
-        exists n, p. split; [|exact Hin].
-        rewrite map.get_put_diff; [exact Hget|].
-        intros ->. rewrite Hgmk in Hget. discriminate.
-      * exists k, v. split; [apply map.get_put_same | exact Hv].
-    + intros [n [p [Hget Hin]]].
-      destruct (eqb_boolspec _ n k) as [->|Hne].
-      * rewrite map.get_put_same in Hget. injection Hget as <-. right. exact Hin.
-      * rewrite map.get_put_diff in Hget by congruence. left. apply IH. exists n, p. auto.
-Qed.
+Lemma source_program_in (layout : layout_map) (r : Datalog.rule (_rel := rel_id) (_fn := fn)) :
+  In r (source_program layout) <->
+  exists n p, map.get layout n = Some p /\ In r p.
+Proof. unfold source_program. apply In_concat_values. Qed.
 
 (* [layout_in_graphb] (a GATE inside [compile_lowered]) is the decidable check that every node a
    layout assigns rules to is a real graph node. *)
@@ -2737,15 +2688,15 @@ Lemma cg2g_node (g : node_graph) (n : node_id) :
   check_node_valid n (ComputableGraph.nodes g) = true -> Graph.nodes (cg2g g) n.
 Proof. intros H. exact H. Qed.
 
-(* The canonical program is placed exactly by [llayout] over real graph nodes. *)
-Lemma canonical_good_layout (g : node_graph) (llayout : layout_map) :
+(* The source program is placed exactly by [llayout] over real graph nodes. *)
+Lemma source_good_layout (g : node_graph) (llayout : layout_map) :
   layout_in_graphb g llayout = true ->
   DistributedDatalog.good_layout (fun n => get_or_default llayout n)
-    (Graph.nodes (cg2g g)) (canonical_program llayout).
+    (Graph.nodes (cg2g g)) (source_program llayout).
 Proof.
   intros Hkeys. unfold DistributedDatalog.good_layout. split.
   - apply Forall_forall. intros r Hr.
-    apply canonical_program_in in Hr. destruct Hr as [n [p [Hget Hin]]].
+    apply source_program_in in Hr. destruct Hr as [n [p [Hget Hin]]].
     exists n. split.
     + apply cg2g_node. apply (layout_in_graphb_entry g llayout Hkeys n p Hget).
     + rewrite (get_or_default_Some _ _ _ Hget). exact Hin.
@@ -2754,18 +2705,8 @@ Proof.
     + rewrite (get_or_default_Some _ _ _ Hget) in Hin.
       split.
       * apply cg2g_node. apply (layout_in_graphb_entry g llayout Hkeys n p Hget).
-      * apply canonical_program_in. exists n, p. auto.
+      * apply source_program_in. exists n, p. auto.
     + rewrite (get_or_default_None _ _ Hget) in Hin. destruct Hin.
-Qed.
-
-(* Every rule of the canonical program is bare when the whole layout is bare. *)
-Lemma canonical_bare (llayout : layout_map) :
-  bare_layoutb llayout = true -> Forall bare_rule (canonical_program llayout).
-Proof.
-  intros Hbare. apply Forall_forall. intros r Hr.
-  apply canonical_program_in in Hr. destruct Hr as [n [p [Hget Hin]]].
-  pose proof (bare_layoutb_entry llayout Hbare n p Hget) as Hp.
-  rewrite forallb_forall in Hp. apply bare_ruleb_spec. apply Hp. exact Hin.
 Qed.
 
 (*============================================================================*)
@@ -3121,25 +3062,6 @@ Definition dnet_of_ninfos (ninfos : list node_info) (base : DNet) : DNet :=
 (*  [DistributedDatalog.network_prog_impl_fact] -- there is no [hw_net_step].       *)
 (*============================================================================*)
 
-(* [get_facts_on_node] shape lemmas. *)
-Lemma get_facts_on_node_in (l : list (@DistributedDatalog.network_prop rel_id value value_eqb value_set node_id))
-      (n : node_id) (g : Datalog.fact (_rel := rel_id)) :
-  In (n, g) (get_facts_on_node l) -> In (FactOnNode n g) l.
-Proof.
-  induction l as [| p l IH]; cbn; [intros []|].
-  destruct p as [n0 g0 | n0 g0].
-  - intros [Heq | Hin]; [injection Heq as -> ->; left; reflexivity | right; apply IH, Hin].
-  - intros Hin; right; apply IH, Hin.
-Qed.
-
-Lemma facts_on_node_map_fst (n : node_id) (l : list (Datalog.fact (_rel := rel_id))) :
-  Forall (fun n' => n' = n) (map fst (get_facts_on_node (map (FactOnNode n) l))).
-Proof. induction l as [|a l IH]; cbn; [constructor | constructor; [reflexivity | exact IH]]. Qed.
-
-Lemma facts_on_node_map_snd (n : node_id) (l : list (Datalog.fact (_rel := rel_id))) :
-  map snd (get_facts_on_node (map (FactOnNode n) l)) = l.
-Proof. induction l as [|a l IH]; cbn; [reflexivity | rewrite IH; reflexivity]. Qed.
-
 Section OperationalNetworkAdequacy.
 Context (net : DNet) (prog : node_id -> hardware_program) (tries : node_id -> list trie).
 Context (Hmatch : forall n, Forall2 (hw_rule_matches (tries n))
@@ -3149,12 +3071,6 @@ Local Abbreviation Fwd := (net.(DistributedDatalog.forward)).
 Local Abbreviation Inp := (net.(DistributedDatalog.input)).
 Local Abbreviation Outp := (net.(DistributedDatalog.output)).
 Local Abbreviation present := (DistributedHardwareSemantics.present prog tries Fwd Inp).
-
-(* per-node firing bridge: a node's hardware rules fire iff its matching datalog rules fire *)
-Lemma node_fires_iff (n : node_id) (nf : normal_fact) (hyps' : list (Datalog.fact (_rel := rel_id))) :
-  Exists (fun hr => hw_rule_impl (tries n) hr nf hyps') (prog n)
-  <-> Exists (fun r => rule.interp r nf hyps') (net.(DistributedDatalog.layout) n).
-Proof. apply matches_step. exact (Hmatch n). Qed.
 
 (* a single node's [node_run] re-plays as a network proof tree of [FactOnNode]s *)
 Lemma node_run_to_netpft (c : DistributedHardwareSemantics.config) (n : node_id) (f : Datalog.fact (_rel := rel_id)) :
@@ -3166,7 +3082,7 @@ Proof.
   apply (pftree.ind (hw_step (tries n) (prog n)) (c n) (fun f => network_pftree net (FactOnNode n f))).
   - intros f0 HQ. apply Hleaf, HQ.
   - intros f0 hyps' [nf hyps'' Hex] _ HR.
-    apply node_fires_iff in Hex. apply Exists_exists in Hex. destruct Hex as [r [Hin Hr]].
+    apply (matches_step _ _ _ _ _ (Hmatch n)) in Hex. apply Exists_exists in Hex. destruct Hex as [r [Hin Hr]].
     unfold network_pftree. eapply pftree.step with (l := map (FactOnNode n) hyps'').
     + eapply DistributedDatalog.RuleApp;
         [ exact Hin | apply facts_on_node_map_fst | rewrite facts_on_node_map_snd; exact Hr ].
@@ -3204,7 +3120,7 @@ Proof.
 Qed.
 
 (* COMPLETENESS of the operational run: the [RuleApp] case merges the present hypotheses
-   ([present_list]) and fires a matching hardware rule ([node_fires_iff] + [dstep_run]). *)
+   ([present_list]) and fires a matching hardware rule ([matches_step] + [dstep_run]). *)
 Lemma netpft_present (x : @DistributedDatalog.network_prop rel_id value value_eqb value_set node_id) :
   network_pftree net x ->
   match x with
@@ -3237,7 +3153,7 @@ Proof.
         as [c [Hrc Hcfacts]].
       assert (Hnr : node_run (tries n) (prog n) (c n) (fact.normal nf)).
       { unfold node_run. eapply pftree.step with (l := map snd (get_facts_on_node hyps)).
-        - constructor. apply node_fires_iff. apply Exists_exists. exists r. split; [exact Hin | exact Hr].
+        - constructor. apply (matches_step _ _ _ _ _ (Hmatch n)). apply Exists_exists. exists r. split; [exact Hin | exact Hr].
         - apply Forall_forall. intros g Hg. apply pftree.leaf.
           rewrite Forall_forall in Hcfacts. apply Hcfacts, Hg. }
       exists (DistributedHardwareSemantics.cadd c n (fact.normal nf)). split.
@@ -3341,7 +3257,7 @@ Proof.
     exact (completeness (dnet_of_ninfos (attach_forwarding_tables ninfos0 ft) base) p Q Hgood' f Hprog Houtrel).
 Qed.
 
-(* THE TOP THEOREM: with the layout's [canonical_program] as reference and base facts [Q] entering at
+(* THE TOP THEOREM: with the layout's [source_program] as reference and base facts [Q] entering at
    the declared fact-producer locations, a SUCCESSFUL compile (plus a bareness check and a node-validity
    check on the renamed layout, and that [Q] is the declared EDB) makes the hardware network read
    DIRECTLY off the compiler's returned [ninfos] (per-node tries/programs and per-node forwarding all
@@ -3362,7 +3278,7 @@ Theorem compile_distributed_correct
       (fun n f0 => Q f0 /\ In n (get_or_default fps (fact.rel f0)))
       (fun n R => In n (get_or_default fcs R))
       f
-    <-> program.interp {| program.rules := canonical_program layout; program.meta_rules := [] |} Q f.
+    <-> program.interp {| program.rules := source_program layout; program.meta_rules := [] |} Q f.
 Proof.
   intros Hcomp Hbare HQ f Houtrel.
   destruct (compile_success_extract layout fps fcs g ninfos Hcomp)
@@ -3378,21 +3294,14 @@ Proof.
               (generate_forwarding_table g ninfos0 (all_producers layout fps) (all_consumers layout fcs))
               (dnet_of_llayout layout
                  (compiled_base_edb g (generate_forwarding_table g ninfos0 (all_producers layout fps) (all_consumers layout fcs)) fps fcs Q))
-              (canonical_program layout) Q Hcan Hbare
+              (source_program layout) Q Hcan Hbare
               eq_refl eq_refl
               (compiled_good_network_streaming_edb g ninfos0 layout fps fcs
-                 (canonical_program layout) Q
+                 (source_program layout) Q
                  (proj1 (check_graph_correct g) Hgraph)
-                 (canonical_good_layout g layout Hkeys)
+                 (source_good_layout g layout Hkeys)
                  Hfed Hpgo HQ)
               f Houtrel).
-Qed.
-
-Lemma source_program_in (layout : layout_map) (r : Datalog.rule (_rel := rel_id) (_fn := fn)) :
-  In r (DistributedDatalogToHardwareCompiler.source_program layout) <->
-  exists n p, map.get layout n = Some p /\ In r p.
-Proof.
-  unfold DistributedDatalogToHardwareCompiler.source_program. apply In_concat_values.
 Qed.
 
 Context {rel : relT} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
@@ -3427,17 +3336,12 @@ Theorem nattify_and_compile_correct
     <-> program.interp (rules_only p) Qsrc fsrc ).
 Proof.
   intros Hcomp Hbare Hdist Hscope Hedb Houtrel.
-  (* the compiled canonical program and the nattified source program are the same rule set *)
-  assert (Hset : same_set (canonical_program layout)
+  (* the layout's rules and the nattified source program are the same rule set *)
+  assert (Hset : same_set (source_program layout)
                    (NattifyRel.nattify_rel_prog (program_rels p) (rules_only p)).(program.rules)).
-  { intros r. unfold DistributedDatalogToHardwareCompiler.layout_distributes_program in Hdist.
-    destruct Hdist as [Hsub1 Hsub2]. split; intro H.
-    - apply Hsub1. apply (proj2 (source_program_in layout r)).
-      apply (proj1 (canonical_program_in layout r)). exact H.
-    - apply (proj2 (canonical_program_in layout r)).
-      apply (proj1 (source_program_in layout r)). apply Hsub2. exact H. }
+  { destruct Hdist as [Hsub1 Hsub2]. intros r. split; [apply Hsub1 | apply Hsub2]. }
   (* [program.interp] over the compiled program and over the nattified program agree (same rule set) *)
-  assert (HB : program.interp (rules_only (canonical_program layout))
+  assert (HB : program.interp (rules_only (source_program layout))
                  (relabel_Q (encode_rel (program_rels p) (rules_only p)) Qsrc)
                  (nattify_rel_fact (program_rels p) (rules_only p) fsrc)
                <-> program.interp (NattifyRel.nattify_rel_prog (program_rels p) (rules_only p))
@@ -3447,7 +3351,7 @@ Proof.
     - eapply program.interp_same_set; [| | exact H']; [exact Hset | intros x; reflexivity].
     - eapply program.interp_same_set; [| | exact H'];
         [exact (fun r => iff_sym (Hset r)) | intros x; reflexivity]. }
-  (* numeric core; swap canonical -> nattified by [HB]; undo the nattification *)
+  (* numeric core; swap the layout's rules for the nattified program by [HB]; undo the nattification *)
   eapply iff_trans;
     [ exact (compile_distributed_correct layout fps fcs g ninfos
                (relabel_Q (encode_rel (program_rels p) (rules_only p)) Qsrc)

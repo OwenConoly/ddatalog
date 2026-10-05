@@ -53,19 +53,19 @@ Definition node_graph := @ComputableGraph node_id node_id_set node_id_edge_set.
 (*----The program a layout represents, and a checker that a layout distributes a given program----*)
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
-Definition source_program (layout : layout_map) : program :=
+Definition source_program (layout : layout_map) : list rule :=
   concat (values layout).
 
 (* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([program.interp] of a
    bare program depends only on its rule set, so the compiled network then implements [P].) *)
-Definition layout_distributes_program (P : program) (layout : layout_map) : Prop :=
+Definition layout_distributes_program (P : list rule) (layout : layout_map) : Prop :=
   incl (source_program layout) P /\ incl P (source_program layout).
 
 Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Definition layout_distributes_programb
-    (P : program) (layout : layout_map) : bool :=
+    (P : list rule) (layout : layout_map) : bool :=
   inclb (source_program layout) P && inclb P (source_program layout).
-Lemma layout_distributes_programb_spec (P : program) (layout : layout_map) :
+Lemma layout_distributes_programb_spec (P : list rule) (layout : layout_map) :
   layout_distributes_programb P layout = true -> layout_distributes_program P layout.
 Proof.
   unfold layout_distributes_programb, layout_distributes_program. intros H.

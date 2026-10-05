@@ -6,16 +6,7 @@ Import ListNotations.
 
 Section GridLayout.
   Context `{params : datalog_params}.
-  Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
-  Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
-  Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-  Context {aggregator_eqb : Eqb aggregator} {aggregator_eqb_ok : Eqb_ok aggregator_eqb}.
-
-  Definition rule := @Datalog.rule rel exprvar fn aggregator.
-
-  Context {rule_eqb : rule -> rule -> bool}.
-  Context {rule_eqb_spec : forall r1 r2 : rule,
-                            BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2)}.
+  Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 
   Definition mk_grid_graph (dims : list nat) : Graph := GridGraph dims.
 
@@ -55,18 +46,6 @@ Section GridLayout.
       DistributedDatalog.output := mk_all_output_fn
     |}.
 
-  Definition rule_in_layout (r : rule) (layout : Node -> list rule) (dims : list nat): bool :=
-    existsb (fun n => existsb (rule_eqb r) (layout n))
-            (all_nodes_h dims).
-
-  Definition node_rules_ok (n : Node) (layout : Node -> list rule) (program : list rule): bool :=
-    forallb (fun r => existsb (rule_eqb r) program)
-            (layout n).
-
-  Definition check_layout (dims : list nat) (layout : Node -> list rule) (program : list rule) : bool :=
-    forallb (fun n => node_rules_ok n layout program) (all_nodes_h dims) &&
-    forallb (fun r => rule_in_layout r layout dims) program.
-
   Lemma layout_nonempty_only_valid_nodes :
     forall n r dims indexed_layout program,
       In r (mk_layout_from_indexed_layout dims indexed_layout program n) ->
@@ -81,43 +60,13 @@ Section GridLayout.
 
 Theorem good_layout :
     forall dims indexed_layout program,
-    check_layout dims (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
+    good_layoutb (all_nodes_h dims) (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
     DistributedDatalog.good_layout (mk_layout_from_indexed_layout dims indexed_layout program) (GridGraph dims).(nodes) program.
 Proof.
-    unfold check_layout.
-    unfold DistributedDatalog.good_layout.
-    intros.
-    split.
-    - apply Forall_forall. intros. apply andb_true_iff in H. destruct H as [H_nodes_ok H_rule_in_layout].
-      rewrite forallb_forall in H_rule_in_layout.
-      apply H_rule_in_layout in H0 as H_layout.
-      unfold rule_in_layout in H_layout. rewrite existsb_exists in H_layout.
-      destruct H_layout as [n [H_n_in_nodes H_r_in_layout]].
-      rewrite existsb_exists in H_r_in_layout.
-      destruct H_r_in_layout as [r H_r_eq].
-      exists n. destruct H_r_eq as [Hin H_r_eq]. 
-      destruct (rule_eqb_spec x r).
-      + subst. split; auto. apply all_nodes_correct. apply H_n_in_nodes.
-      + discriminate H_r_eq.
-    - intros.
-      apply andb_true_iff in H. destruct H as [H_nodes_ok H_rule_in_layout].
-      rewrite forallb_forall in H_nodes_ok.
-      rewrite forallb_forall in H_rule_in_layout.
-      split.
-      + apply layout_nonempty_only_valid_nodes in H0 as H_layout_nonempty.
-        auto.
-      + apply layout_nonempty_only_valid_nodes in H0 as H_layout_nonempty.
-        apply all_nodes_correct in H_layout_nonempty.
-        specialize (H_nodes_ok n H_layout_nonempty).
-        unfold node_rules_ok in H_nodes_ok.
-        rewrite forallb_forall in H_nodes_ok.
-        specialize (H_nodes_ok r H0).
-        rewrite existsb_exists in H_nodes_ok.
-        destruct H_nodes_ok as [r' H_r'_in_program].
-        destruct H_r'_in_program as [Hin H_r_eq].
-        destruct (rule_eqb_spec r r').
-        * subst. auto.
-        * discriminate H_r_eq.
+  intros dims indexed_layout program H. apply good_layoutb_sound with (all_nodes := all_nodes_h dims).
+  - intros n. symmetry. apply all_nodes_correct.
+  - intros n r Hr. exact (layout_nonempty_only_valid_nodes n r dims indexed_layout program Hr).
+  - exact H.
 Qed.
 
 (* If n2 is a neighbor of n1, then forwarding reaches n2 in one step *)
@@ -176,10 +125,9 @@ Qed.
 
 Lemma good_forwarding_complete_grid :
   forall dims0 indexed_layout program,
-    check_layout dims0 (mk_layout_from_indexed_layout dims0 indexed_layout program) program = true ->
     good_forwarding_complete (mk_dataflow_network dims0 indexed_layout program).
 Proof.
-  intros dims0 indexed_layout program Hcheck.
+  intros dims0 indexed_layout program.
   unfold good_forwarding_complete.
   simpl. intros rel0.
   split.
@@ -199,7 +147,7 @@ Qed.
 
 Lemma good_network :
   forall dims indexed_layout program,
-  check_layout dims (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
+  good_layoutb (all_nodes_h dims) (mk_layout_from_indexed_layout dims indexed_layout program) program = true ->
   DistributedDatalog.good_network (mk_dataflow_network dims indexed_layout program) program.
 Proof.
   intros dims indexed_layout program Hcheck.

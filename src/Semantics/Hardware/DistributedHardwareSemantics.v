@@ -81,7 +81,7 @@ Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forward
 
 (* read a node's compiled data off the returned [ninfos] (empty default if the node is absent). *)
 Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
-  match List.find (fun ni => node_id_eqb ni.(DistributedHardwareProgram.nid) n) ninfos with
+  match List.find (fun ni => eqb ni.(DistributedHardwareProgram.nid) n) ninfos with
   | Some ni => ni
   | None => {| DistributedHardwareProgram.nid := n; DistributedHardwareProgram.nprogram := [];
                DistributedHardwareProgram.nforwarding := map.empty; DistributedHardwareProgram.ntries := [] |}
@@ -116,20 +116,6 @@ Definition run_ninfos (ninfos : list node_info) (input : node_id -> dl_fact -> P
 (*  engine; everything else is two inductions.                                  *)
 (*============================================================================*)
 
-(* [pftree] is monotone in its leaf predicate: more leaves -> more trees. *)
-Lemma pftree_Q_mono {U : Type} (P : U -> list U -> Prop) (Q1 Q2 : U -> Prop) (x : U) :
-  (forall y, Q1 y -> Q2 y) -> pftree P Q1 x -> pftree P Q2 x.
-Proof.
-  intros Hsub. apply (pftree.ind P Q1 (fun x => pftree P Q2 x)).
-  - intros x0 HQ. apply pftree.leaf, Hsub, HQ.
-  - intros x0 l HP _ HR. eapply pftree.step; eassumption.
-Qed.
-
-(* [node_run] inherits leaf-monotonicity: a node run on a bigger input set derives at least as much. *)
-Lemma node_run_mono (tries : list trie) (hp : hardware_program) (Q1 Q2 : dl_fact -> Prop) (f : dl_fact) :
-  (forall g, Q1 g -> Q2 g) -> node_run tries hp Q1 f -> node_run tries hp Q2 f.
-Proof. apply pftree_Q_mono. Qed.
-
 Section Adequacy.
 Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
         (forward : node_id -> rel_id -> list node_id)
@@ -150,7 +136,7 @@ Proof.
   intros Hsub Hstep. inversion Hstep as [n f Hin | n f Hrun | n n' f Hcnf Hfwd]; subst;
     [ exists (cadd d n f); split; [apply dstep_input; exact Hin |]
     | exists (cadd d n f); split;
-        [apply dstep_run; exact (node_run_mono (tries n) (prog n) (c n) (d n) f (fun g Hg => Hsub n g Hg) Hrun) |]
+        [apply dstep_run; exact (pftree.weaken_hyp _ _ _ _ Hrun (Hsub n)) |]
     | exists (cadd d n' f); split;
         [apply (dstep_forward prog tries forward input d n n' f (Hsub n f Hcnf) Hfwd) |] ];
     (split; intros n0 f0; unfold cadd; [intros [H|H]; [left; apply Hsub; exact H | right; exact H]

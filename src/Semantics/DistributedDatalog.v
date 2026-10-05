@@ -1,7 +1,7 @@
 From Stdlib Require Import List Bool.
 From Datalog Require Import Datalog.
-From Datalog.Util Require Import Pftree.
-From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
+From Datalog.Util Require Import Pftree List.
+From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List Eqb.
 From DatalogRocq Require Import Topologies.Graph.
 
 Import ListNotations.
@@ -10,8 +10,7 @@ Section DistributedDatalog.
 
   Context `{params : datalog_params}.
   Context {Node Info : Type}.
-  Context {node_eqb : Node -> Node -> bool}.
-  Context {node_eqb_spec : forall x y, BoolSpec (x = y) (x <> y) (node_eqb x y)}.
+  Context {node_eqb : Eqb Node} {node_eqb_ok : Eqb_ok node_eqb}.
 
   (* An atom in a rule is a [clause]; a rule is the [rule.impl | rule.agg] inductive
      (meta-rules live separately, in [program.meta_rules]); a ground/runtime fact is a
@@ -80,10 +79,6 @@ Definition node_produces (layout : Layout) (n : Node) (r : rel) : Prop :=
 Definition node_consumes (layout : Layout) (n : Node) (r : rel) : Prop :=
   exists rule, In rule (layout n) /\ In r (rule.hyp_rels rule).
 
-(* There exists a forwarding path for relation r from n1 to n2 *)
-Definition forwards_rel (forward : ForwardingFn) (n1 n2 : Node) (r : rel) : Prop :=
-  In n2 (forward n1 r).
-
 (* n2 is reachable from n1 via forwarding for relation r in one or more steps *)
 Inductive forwarding_reachable (forward : ForwardingFn) (r : rel) : Node -> Node -> Prop :=
   | fwd_step : forall n1 n2,
@@ -128,15 +123,8 @@ Fixpoint check_fwd_walk (forward : ForwardingFn) (r : rel) (path : list Node) : 
   | [] => true
   | [_] => true
   | x :: ((y :: _) as rest) =>
-      existsb (node_eqb y) (forward x r) && check_fwd_walk forward r rest
+      inb y (forward x r) && check_fwd_walk forward r rest
   end.
-
-Lemma existsb_node_eqb_In (y : Node) (l : list Node) :
-  existsb (node_eqb y) l = true -> In y l.
-Proof.
-  intros H. apply existsb_exists in H. destruct H as [z [Hz Heq]].
-  destruct (node_eqb_spec y z) as [->|]; [exact Hz | discriminate].
-Qed.
 
 Lemma check_fwd_walk_sound (forward : ForwardingFn) (r : rel) :
   forall (path : list Node),
@@ -146,11 +134,9 @@ Proof.
   induction path as [|x [|y rest] IH]; intros Hchk i u v Hu Hv.
   - destruct i; discriminate.
   - destruct i; cbn in Hv; [discriminate | destruct i; discriminate].
-  - cbn in Hchk. apply andb_true_iff in Hchk. destruct Hchk as [Hstep Hrest].
-    destruct i as [|i'].
-    + cbn in Hu, Hv. injection Hu as <-. injection Hv as <-.
-      apply existsb_node_eqb_In. exact Hstep.
-    + apply (IH Hrest i' u v); [exact Hu | exact Hv].
+  - cbn in Hchk. fwd. destruct i as [|i'].
+    + cbn in Hu, Hv. injection Hu as <-. injection Hv as <-. assumption.
+    + apply (IH Hchkp1 i' u v); [exact Hu | exact Hv].
 Qed.
 
 (* the validator certifies reachability: a checked walk's endpoints are reachable (or equal). *)
@@ -249,14 +235,8 @@ Lemma validate_route_sound (forward : ForwardingFn) (R : rel) (n target : Node) 
   validate_route forward R n target path = true ->
   n = target \/ forwarding_reachable forward R n target.
 Proof.
-  unfold validate_route. intros H. apply orb_true_iff in H. destruct H as [Heq | H].
-  - left. destruct (node_eqb_spec n target) as [E|]; [exact E | discriminate].
-  - apply andb_true_iff in H. destruct H as [H Hl]. apply andb_true_iff in H. destruct H as [Hwalk Hh].
-    destruct (nth_error path 0) as [h|] eqn:Eh; [|discriminate].
-    destruct (node_eqb_spec h n) as [->|]; [|discriminate].
-    destruct (nth_error path (pred (length path))) as [l|] eqn:El; [|discriminate].
-    destruct (node_eqb_spec l target) as [->|]; [|discriminate].
-    exact (checked_path_reachable forward R path n target Hwalk Eh El).
+  unfold validate_route. intros H. fwd. destruct H as [-> | H]; [left; reflexivity |].
+  fwd. eapply checked_path_reachable; eassumption.
 Qed.
 
 (* [n] is validated a good source for [R]: a checked route to every (enumerated) consumer, and to
@@ -285,43 +265,30 @@ Qed.
 (* (no topology record): (1) every rule placed on an enumerated node is a      *)
 (* program rule, and (2) every program rule is placed on some enumerated node. *)
 (*----------------------------------------------------------------------------*)
-Definition node_rules_okb (rule_eqb : rule -> rule -> bool)
-    (layout : Layout) (program : list rule) (n : Node) : bool :=
-  forallb (fun r => existsb (rule_eqb r) program) (layout n).
-Definition rule_in_layoutb (rule_eqb : rule -> rule -> bool)
-    (all_nodes : list Node) (layout : Layout) (r : rule) : bool :=
-  existsb (fun n => existsb (rule_eqb r) (layout n)) all_nodes.
-Definition good_layoutb (rule_eqb : rule -> rule -> bool)
-    (all_nodes : list Node) (layout : Layout) (program : list rule) : bool :=
-  forallb (node_rules_okb rule_eqb layout program) all_nodes &&
-  forallb (rule_in_layoutb rule_eqb all_nodes layout) program.
+Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 
-Lemma good_layoutb_sound (rule_eqb : rule -> rule -> bool)
-    (rule_eqb_spec : forall r1 r2, BoolSpec (r1 = r2) (r1 <> r2) (rule_eqb r1 r2))
-    (all_nodes : list Node) (nodes : Node -> Prop) (layout : Layout) (program : list rule) :
+Definition node_rules_okb (layout : Layout) (program : list rule) (n : Node) : bool :=
+  forallb (fun r => inb r program) (layout n).
+Definition rule_in_layoutb (all_nodes : list Node) (layout : Layout) (r : rule) : bool :=
+  existsb (fun n => inb r (layout n)) all_nodes.
+Definition good_layoutb (all_nodes : list Node) (layout : Layout) (program : list rule) : bool :=
+  forallb (node_rules_okb layout program) all_nodes &&
+  forallb (rule_in_layoutb all_nodes layout) program.
+
+Lemma good_layoutb_sound (all_nodes : list Node) (nodes : Node -> Prop) (layout : Layout)
+    (program : list rule) :
   (forall n, In n all_nodes <-> nodes n) ->
   (forall n r, In r (layout n) -> nodes n) ->
-  good_layoutb rule_eqb all_nodes layout program = true ->
+  good_layoutb all_nodes layout program = true ->
   good_layout layout nodes program.
 Proof.
-  intros Hspec Hvalid Hcheck.
-  unfold good_layout. unfold good_layoutb in Hcheck.
-  apply andb_true_iff in Hcheck. destruct Hcheck as [H_nodes_ok H_rule_in].
-  rewrite forallb_forall in H_nodes_ok. rewrite forallb_forall in H_rule_in.
-  split.
-  - apply Forall_forall. intros r Hr.
-    apply H_rule_in in Hr as H_layout. unfold rule_in_layoutb in H_layout.
-    rewrite existsb_exists in H_layout. destruct H_layout as [n [Hn_in Hr_in]].
-    rewrite existsb_exists in Hr_in. destruct Hr_in as [r' [Hin Hr_eq]].
-    exists n. destruct (rule_eqb_spec r r') as [->|]; [|discriminate Hr_eq].
-    split; [apply (proj1 (Hspec n)); exact Hn_in | exact Hin].
-  - intros n r H0. split.
-    + apply (Hvalid n r H0).
-    + pose proof (Hvalid n r H0) as Hgn. apply (proj2 (Hspec n)) in Hgn.
-      specialize (H_nodes_ok n Hgn). unfold node_rules_okb in H_nodes_ok.
-      rewrite forallb_forall in H_nodes_ok. specialize (H_nodes_ok r H0).
-      rewrite existsb_exists in H_nodes_ok. destruct H_nodes_ok as [r' [Hin Hr_eq]].
-      destruct (rule_eqb_spec r r') as [->|]; [exact Hin | discriminate Hr_eq].
+  intros Hspec Hvalid Hcheck. unfold good_layoutb in Hcheck. fwd.
+  rewrite Forall_forall in Hcheckp0, Hcheckp1. split.
+  - apply Forall_forall. intros r Hr. apply Hcheckp1 in Hr. cbv [rule_in_layoutb] in Hr. fwd.
+    eexists. split; [apply Hspec |]; eassumption.
+  - intros n r Hr. pose proof (Hvalid n r Hr) as Hn. split; [exact Hn |].
+    apply Hspec, Hcheckp0 in Hn. cbv [node_rules_okb] in Hn. fwd.
+    rewrite Forall_forall in Hn. apply Hn in Hr. fwd. assumption.
 Qed.
 
 (* Streaming input: the network's input facts are *exactly* the base facts [Q], and each base
@@ -341,37 +308,22 @@ Definition good_network_streaming (net : DataflowNetwork) (program : list rule) 
   (forall n_prod R, node_produces net.(layout) n_prod R -> good_source net n_prod R) /\
   good_input_streaming net Q.
 
-Lemma Forall_get_facts_on_node :
-  forall (l : list network_prop)
-         (P : Node * fact -> Prop)
-         (Q : network_prop -> Prop),
-    (forall n f, Q (FactOnNode n f) -> P (n, f)) ->
-    Forall Q l ->
-    Forall P (get_facts_on_node l).
+Lemma get_facts_on_node_in (l : list network_prop) (n : Node) (g : fact) :
+  In (n, g) (get_facts_on_node l) -> In (FactOnNode n g) l.
 Proof.
-  induction l; intros; simpl; auto.
-  - destruct a; simpl in *; auto.
-    + econstructor.
-      * apply H. inversion H0. assumption.
-      * eapply IHl; inversion H0; eauto.
-    + eapply IHl; inversion H0; eauto.
+  induction l as [| p l IH]; cbn; [intros []|].
+  destruct p as [n0 g0 | n0 g0].
+  - intros [Heq | Hin]; [injection Heq as -> ->; left; reflexivity | right; apply IH, Hin].
+  - intros Hin; right; apply IH, Hin.
 Qed.
 
-Lemma get_facts_on_node_map_FactOnNode :
-  forall n l,
-    get_facts_on_node (List.map (FactOnNode n) l) = List.map (pair n) l.
-Proof.
-  induction l; simpl; auto.
-  rewrite IHl. reflexivity.
-Qed.
+Lemma facts_on_node_map_fst (n : Node) (l : list fact) :
+  Forall (fun n' => n' = n) (map fst (get_facts_on_node (map (FactOnNode n) l))).
+Proof. induction l as [|a l IH]; cbn; [constructor | constructor; [reflexivity | exact IH]]. Qed.
 
-Lemma get_facts_fst_map_FactOnNode :
-  forall n l,
-    map fst (get_facts_on_node (map (FactOnNode n) l)) = map (fun _ => n) l.
-Proof.
-  induction l; simpl; auto.
-  rewrite IHl. reflexivity.
-Qed.
+Lemma facts_on_node_map_snd (n : Node) (l : list fact) :
+  map snd (get_facts_on_node (map (FactOnNode n) l)) = l.
+Proof. induction l as [|a l IH]; cbn; [reflexivity | rewrite IH; reflexivity]. Qed.
 
 (* [pftree] induction predicate for the network: every derivable network proposition's
    carried fact is derivable from the program given the base facts [Q]. *)
@@ -430,11 +382,6 @@ Proof.
   apply (soundness'' net p Q HinQ Hgl (Output n f) Hpf).
 Qed.
 
-Lemma In_singular : forall {A} (x y : A) (l : list A), In x (y :: l) -> x = y \/ In x l.
-Proof.
-  intros. inversion H; auto.
-Qed.
-
 Lemma forwarding_lifts :
   forall net n1 n2 f,
     network_pftree net (FactOnNode n1 f) ->
@@ -453,35 +400,6 @@ Proof.
     + apply Forward. exact H.
     + constructor; [exact Hpf | constructor].
 Qed.
-
-Lemma Forall2_exists_l {A B : Type} (P : A -> B -> Prop) (l1 : list A) (l2 : list B) (a : A) :
-  Forall2 P l1 l2 ->
-  In a l1 ->
-  exists b, In b l2 /\ P a b.
-Proof.
-  intros HF Hin.
-  induction HF.
-  - inversion Hin.
-  - destruct Hin as [-> | Hin].
-    + exists y. split; [left; reflexivity | assumption].
-    + destruct (IHHF Hin) as [b [Hbin Hpab]].
-      exists b. split; [right; assumption | assumption].
-Qed.
-
-Lemma Forall2_exists_r {A B : Type} (P : A -> B -> Prop) (l1 : list A) (l2 : list B) (b : B) :
-  Forall2 P l1 l2 ->
-  In b l2 ->
-  exists a, In a l1 /\ P a b.
-Proof.
-  intros HF Hin.
-  induction HF.
-  - inversion Hin.
-  - destruct Hin as [-> | Hin].
-    + exists x. split; [left; reflexivity | assumption].
-    + destruct (IHHF Hin) as [a [Hain Hpab]].
-      exists a. split; [right; assumption | assumption].
-Qed.
-
 
 (* If rule [r] at node [n] derives [nf], then [n] is a producer of [nf]'s relation. *)
 Lemma interp_node_produces :
@@ -560,11 +478,8 @@ Proof.
     eapply pftree.step with (l := List.map (FactOnNode n_r) l).
     + apply RuleApp with (r := r).
       * exact Hn_r_layout.
-      * rewrite get_facts_fst_map_FactOnNode.
-        apply Forall_forall. intros n' Hin.
-        apply in_map_iff in Hin. destruct Hin as [? [? ?]]. auto.
-      * rewrite get_facts_on_node_map_FactOnNode.
-        rewrite map_map. simpl. rewrite map_id. exact Hr.
+      * apply facts_on_node_map_fst.
+      * rewrite facts_on_node_map_snd. exact Hr.
     + apply Forall_map.
       rewrite Forall_forall in Hlifted |- *. intros f' Hf'in. apply Hlifted. exact Hf'in.
 Qed.
