@@ -99,34 +99,6 @@ Proof.
   - exact H.
 Qed.
 
-(* If n2 is a neighbor of n1, then forwarding reaches n2 in one step *)
-Lemma grid_forward_step :
-  forall dims n1 n2 r,
-    GridGraph.is_graph_node dims n1 ->
-    GridGraph.is_graph_node dims n2 ->
-    GridGraph.is_neighbor dims n1 n2 = true ->
-    forwarding_reachable (mk_always_forward_table dims) r n1 n2.
-Proof.
-  intros. apply fwd_step.
-  unfold mk_always_forward_table.
-  apply filter_In. split.
-  - apply all_nodes_correct. exact H0.
-  - exact H1.
-Qed.
-
-(* forwarding reachable is transitive *)
-Lemma forwarding_reachable_trans :
-  forall (fwd : ForwardingFn) (r : rel) (n1 n2 n3 : Node),
-    forwarding_reachable fwd r n1 n2 ->
-    forwarding_reachable fwd r n2 n3 ->
-    forwarding_reachable fwd r n1 n3.
-Proof.
-  intros fwd r n1 n2 n3 H12 H23.
-  induction H12.
-  - eapply fwd_trans; eauto.
-  - eapply fwd_trans; eauto.
-Qed.
-
 (* In GridLayout section, convert grid_reachable to forwarding_reachable *)
 Lemma grid_reachable_to_forwarding :
   forall dims0 r n1 n2,

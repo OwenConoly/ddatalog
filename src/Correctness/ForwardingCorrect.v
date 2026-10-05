@@ -286,15 +286,6 @@ Proof.
   - exact (Hwalk i node m Hi Hib).
 Qed.
 
-(* adding trie destinations keeps the table edge-sound *)
-Lemma add_trie_pres_sound (g : node_graph) (node0 : node_id) (rel : rel_id) (ninfos : list node_info)
-    (ftables : node_ftable_map) :
-  ftable_edges_sound g ftables ->
-  ftable_edges_sound g (add_trie_dest node0 rel ftables ninfos).
-Proof.
-  intros Hsound node rel0 m H. apply add_trie_edges in H. exact (Hsound node rel0 m H).
-Qed.
-
 (* the compiler assembles a relation's routing as [add_paths_to_forwarding_table] = a [fold_left]
    of [add_path] over the paths [get_path] found; lift the per-path facts to the whole fold. *)
 Lemma add_paths_mono (rel : rel_id) (ninfos : list node_info) (paths : list (list node_id))
@@ -335,21 +326,8 @@ Proof.
   - apply IH. exact Hin.
 Qed.
 
-(* generic combinators that lift a per-step preservation through the two fold shapes the
-   compiler uses to assemble the whole forwarding table: a [map.fold] over producer/consumer
-   node-sets, and a [fold_left] over the relation ids. *)
-Lemma map_fold_pres_sound {K Vv : Type} {M : map.map K Vv} {Mok : map.ok M}
-    (g : node_graph) (f : node_ftable_map -> K -> Vv -> node_ftable_map) (init : node_ftable_map) (mp : M) :
-  ftable_edges_sound g init ->
-  (forall ft k v, ftable_edges_sound g ft -> ftable_edges_sound g (f ft k v)) ->
-  ftable_edges_sound g (map.fold f init mp).
-Proof.
-  intros Hinit Hstep.
-  apply (map.fold_spec (fun _ r => ftable_edges_sound g r)).
-  - exact Hinit.
-  - intros k v m r _ Hr. apply Hstep. exact Hr.
-Qed.
-
+(* lift a per-step preservation through the [fold_left] over the relation ids that assembles the
+   whole forwarding table. *)
 Lemma fold_left_pres_sound {A : Type} (g : node_graph) (f : node_ftable_map -> A -> node_ftable_map)
     (l : list A) (init : node_ftable_map) :
   ftable_edges_sound g init ->
@@ -364,21 +342,8 @@ Qed.
 (*  Phase C2 (completeness engine): a forwarding edge laid down by some step    *)
 (*  of the construction survives to the final table.  Generic over an arbitrary *)
 (*  monotone table-predicate [P] (instantiated with [fun ft => has_fwd_edge     *)
-(*  ft a r b] at the use site), so the same combinators thread both the         *)
-(*  [map.fold] over producer/consumer node-sets and the [fold_left] over rels.  *)
+(*  ft a r b] at the use site), threaded through the [fold_left] over rels.     *)
 (*============================================================================*)
-
-(* a monotone [P] is preserved through a [map.fold] (dual of [map_fold_pres_sound]) *)
-Lemma map_fold_pres {K Vv : Type} {M : map.map K Vv} {Mok : map.ok M}
-    (P : node_ftable_map -> Prop) (f : node_ftable_map -> K -> Vv -> node_ftable_map)
-    (init : node_ftable_map) (mp : M) :
-  P init ->
-  (forall ft k v, P ft -> P (f ft k v)) ->
-  P (map.fold f init mp).
-Proof.
-  intros Hinit Hstep.
-  apply (map.fold_spec (fun _ r => P r)); [exact Hinit | intros k v m r _ Hr; apply Hstep, Hr].
-Qed.
 
 Lemma fold_left_pres {A : Type} (P : node_ftable_map -> Prop) (f : node_ftable_map -> A -> node_ftable_map)
     (l : list A) (init : node_ftable_map) :
@@ -390,29 +355,8 @@ Proof.
   apply IH; [apply Hstep; exact Hinit | exact Hstep].
 Qed.
 
-(* if some key [k0] in [mp] has a step that always establishes [P], and every step is
-   monotone for [P], then the whole [map.fold] establishes [P] (over [node_id] keys, using
-   [node_id_eqb] to locate [k0]). *)
-Lemma nid_fold_adds {Vv : Type} {M : map.map node_id Vv} {Mok : map.ok M}
-    (P : node_ftable_map -> Prop) (f : node_ftable_map -> node_id -> Vv -> node_ftable_map)
-    (init : node_ftable_map) (mp : M) (k0 : node_id) (v0 : Vv) :
-  map.get mp k0 = Some v0 ->
-  (forall ft k v, P ft -> P (f ft k v)) ->
-  (forall ft, P (f ft k0 v0)) ->
-  P (map.fold f init mp).
-Proof.
-  intros Hget Hmono Hk0.
-  refine (map.fold_spec (fun (m' : M) (acc : node_ftable_map) => map.get m' k0 = Some v0 -> P acc)
-            f init _ _ mp Hget).
-  - intros Hc. rewrite map.get_empty in Hc. discriminate.
-  - intros k v m r Hmk IH Hget'.
-    destruct (node_id_eqb_spec k k0) as [->|Hne].
-    + rewrite map.get_put_same in Hget'. injection Hget' as <-. apply Hk0.
-    + rewrite map.get_put_diff in Hget' by (intro; subst; apply Hne; reflexivity).
-      apply Hmono, IH, Hget'.
-Qed.
-
-(* the [fold_left] analogue: some element [x0] of [l] has a step that always establishes [P]. *)
+(* if some element [x0] of [l] has a step that always establishes [P], and every step is
+   monotone for [P], then the whole [fold_left] establishes [P]. *)
 Lemma fold_left_adds {A : Type} (P : node_ftable_map -> Prop) (f : node_ftable_map -> A -> node_ftable_map)
     (l : list A) (init : node_ftable_map) (x0 : A) :
   In x0 l ->
