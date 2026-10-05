@@ -1,4 +1,4 @@
-From Stdlib Require Import List Bool.
+From Stdlib Require Import List Bool Relation_Operators.
 From Datalog Require Import Datalog.
 From Datalog.Util Require Import Pftree.
 From coqutil Require Import Map.Interface Map.Properties Map.Solver Tactics Tactics.fwd Datatypes.List.
@@ -78,29 +78,27 @@ Definition node_produces (layout : Layout) (n : Node) (r : rel) : Prop :=
 Definition node_consumes (layout : Layout) (n : Node) (r : rel) : Prop :=
   exists rule, In rule (layout n) /\ In r (rule.hyp_rels rule).
 
-(* n2 is reachable from n1 via forwarding for relation r in one or more steps *)
-Inductive forwarding_reachable (forward : ForwardingFn) (r : rel) : Node -> Node -> Prop :=
-  | fwd_step : forall n1 n2,
-      In n2 (forward n1 r) ->
-      forwarding_reachable forward r n1 n2
-  | fwd_trans : forall n1 n2 n3,
-      In n2 (forward n1 r) ->
-      forwarding_reachable forward r n2 n3 ->
-      forwarding_reachable forward r n1 n3.
+(* n1 forwards facts of relation r directly to n2 *)
+Definition forwards_rel (forward : ForwardingFn) (r : rel) (n1 n2 : Node) : Prop :=
+  In n2 (forward n1 r).
+
+(* n2 is reachable from n1 via forwarding for relation r in zero or more steps *)
+Definition forwarding_reachable (forward : ForwardingFn) (r : rel) :=
+  clos_refl_trans_1n _ (forwards_rel forward r).
 
 (* A walk whose every consecutive pair forwards [r] makes its last node forwarding-reachable
-   from its first (or they coincide).  This is the bridge from a laid-down forwarding path to
+   from its first.  This is the bridge from a laid-down forwarding path to
    the [forwarding_reachable] closure that [good_source] reasons about. *)
 Lemma forwarding_chain_reachable (forward : ForwardingFn) (r : rel) :
   forall (path : list Node) (a b : Node),
   (forall i x y, nth_error path i = Some x -> nth_error path (S i) = Some y -> In y (forward x r)) ->
   nth_error path 0 = Some a ->
   nth_error path (pred (length path)) = Some b ->
-  a = b \/ forwarding_reachable forward r a b.
+  forwarding_reachable forward r a b.
 Proof.
   induction path as [|x [|y rest] IH]; intros a b Hcons Ha Hb.
   - discriminate Ha.
-  - cbn in Ha, Hb. injection Ha as <-. injection Hb as <-. left. reflexivity.
+  - cbn in Ha, Hb. injection Ha as <-. injection Hb as <-. apply rt1n_refl.
   - cbn in Ha. injection Ha as <-.
     assert (Hxy : In y (forward x r)) by (apply (Hcons 0 x y); reflexivity).
     assert (Hcons' : forall i u v, nth_error (y :: rest) i = Some u ->
@@ -108,9 +106,7 @@ Proof.
     { intros i u v Hu Hv. apply (Hcons (S i) u v); cbn; [exact Hu | exact Hv]. }
     assert (Hb' : nth_error (y :: rest) (pred (length (y :: rest))) = Some b)
       by (cbn [length pred] in Hb |- *; cbn [nth_error] in Hb; exact Hb).
-    destruct (IH y b Hcons' eq_refl Hb') as [Heq | Hreach].
-    + subst y. right. apply fwd_step. exact Hxy.
-    + right. exact (fwd_trans forward r x y b Hxy Hreach).
+    exact (rt1n_trans _ _ _ _ _ Hxy (IH y b Hcons' eq_refl Hb')).
 Qed.
 
 (* The forwarding table is good for a relation r if for every producer,
@@ -119,15 +115,13 @@ Definition good_forwarding_prod_cons (net : DataflowNetwork) (r : rel) : Prop :=
   forall n_prod n_cons,
     node_produces net.(layout) n_prod r ->
     node_consumes net.(layout) n_cons r ->
-    n_prod = n_cons \/
     forwarding_reachable net.(forward) r n_prod n_cons.
 
 Definition good_forwarding_output_nodes (net : DataflowNetwork) (r : rel) : Prop :=
   forall n_prod,
     node_produces (layout net) n_prod r ->
     exists n_out,
-      output net n_out r /\
-      (n_prod = n_out \/ forwarding_reachable (forward net) r n_prod n_out).
+      output net n_out r /\ forwarding_reachable (forward net) r n_prod n_out.
 
 (* Apply it to all relations *)
 Definition good_forwarding_complete (net : DataflowNetwork) : Prop :=
@@ -172,10 +166,9 @@ Definition good_network (net : DataflowNetwork) (program : list rule) : Prop :=
    equivalence is correspondingly stated only for declared-output relations. *)
 Definition good_source (net : DataflowNetwork) (n : Node) (R : rel) : Prop :=
   (forall n_cons, node_consumes net.(layout) n_cons R ->
-     n = n_cons \/ forwarding_reachable net.(forward) R n n_cons) /\
+     forwarding_reachable net.(forward) R n n_cons) /\
   ((exists n_out, net.(output) n_out R) ->
-   exists n_out, net.(output) n_out R /\
-     (n = n_out \/ forwarding_reachable net.(forward) R n n_out)).
+   exists n_out, net.(output) n_out R /\ forwarding_reachable net.(forward) R n n_out).
 
 (* Streaming input: the network's input facts are *exactly* the base facts [Q], and each base
    fact is injected at an input node that is a good source for its relation (so it forwards to
@@ -274,17 +267,11 @@ Lemma forwarding_lifts :
     forwarding_reachable net.(forward) (fact.rel f) n1 n2 ->
     network_pftree net (FactOnNode n2 f).
 Proof.
-  intros net n1 n2 f Hpf Hreach.
-  induction Hreach.
-  - (* single step: n1 -> n2 directly *)
-    eapply pftree.step with (l := [FactOnNode n1 f]).
-    + apply Forward. exact H.
-    + constructor; [exact Hpf | constructor].
-  - (* transitive: n1 -> n2 -> n3 *)
-    apply IHHreach.
-    eapply pftree.step with (l := [FactOnNode n1 f]).
-    + apply Forward. exact H.
-    + constructor; [exact Hpf | constructor].
+  intros net n1 n2 f Hpf Hreach. revert Hpf.
+  induction Hreach as [|x y z Hxy _ IH]; intros Hpf; [exact Hpf|].
+  apply IH. eapply pftree.step with (l := [FactOnNode x f]).
+  + apply Forward. exact Hxy.
+  + constructor; [exact Hpf | constructor].
 Qed.
 
 (* If rule [r] at node [n] derives [nf], then [n] is a producer of [nf]'s relation. *)
@@ -321,9 +308,7 @@ Lemma fact_at_source_consumer :
     network_pftree net (FactOnNode n_cons f).
 Proof.
   intros net f n n_cons Hpf [Hcons _] Hc.
-  destruct (Hcons n_cons Hc) as [-> | Hreach].
-  - exact Hpf.
-  - eapply forwarding_lifts; eauto.
+  eapply forwarding_lifts; [exact Hpf | exact (Hcons n_cons Hc)].
 Qed.
 
 (* Every derivable fact (from base facts [Q]) exists at a node that is a good source for its
@@ -383,9 +368,7 @@ Proof.
   eapply pftree.step with (l := [FactOnNode n_out f]).
   - apply OutputStep. exact Hout.
   - constructor; [| constructor].
-    destruct Hreach as [-> | Hfwd].
-    + exact Hpf.
-    + eapply forwarding_lifts; [exact Hpf | exact Hfwd].
+    eapply forwarding_lifts; [exact Hpf | exact Hreach].
 Qed.
 
 End DistributedDatalog.

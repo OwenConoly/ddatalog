@@ -16,7 +16,7 @@
    [compile_rule] produces, i.e. the *generic-join correctness*: the trie-join query
    [generate_query] admits exactly the variable bindings under which the lowered rule fires. *)
 
-From Stdlib Require Import List Bool ZArith Lia.
+From Stdlib Require Import List Bool ZArith Lia Relation_Operators.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Datatypes.Result Eqb.
 From Datalog Require Import Datalog NattifyRel RelMap.
 From Datalog.Util Require Import List Map Default Pftree Eqb.
@@ -2559,9 +2559,9 @@ Lemma forwarding_reachable_ext (f1 f2 : node_id -> rel_id -> list node_id) (r : 
   DistributedDatalog.forwarding_reachable f1 r a b ->
   DistributedDatalog.forwarding_reachable f2 r a b.
 Proof.
-  intros Hext H. induction H as [n1 n2 Hin | n1 n2 n3 Hin Hr IH].
-  - apply DistributedDatalog.fwd_step. rewrite <- (Hext n1 r). exact Hin.
-  - apply (DistributedDatalog.fwd_trans f2 r n1 n2 n3); [rewrite <- (Hext n1 r); exact Hin | exact IH].
+  intros Hext H. induction H as [|n1 n2 n3 Hin _ IH]; [apply rt1n_refl|].
+  eapply rt1n_trans; [|exact IH]. unfold DistributedDatalog.forwards_rel in *.
+  rewrite <- Hext. exact Hin.
 Qed.
 
 (* [good_source] depends on the forwarding function only through [forwarding_reachable], so it
@@ -2573,16 +2573,14 @@ Lemma good_source_forward_ext (net1 net2 : DNet) (n : node_id) (R : rel_id) :
   DistributedDatalog.good_source net1 n R -> DistributedDatalog.good_source net2 n R.
 Proof.
   intros Hlay Hout Hfwd [Hcons Hexout]. split.
-  - intros n_cons Hncons. rewrite <- Hlay in Hncons. destruct (Hcons n_cons Hncons) as [Heq | Hreach].
-    + left; exact Heq.
-    + right. exact (forwarding_reachable_ext _ _ R n n_cons Hfwd Hreach).
+  - intros n_cons Hncons. rewrite <- Hlay in Hncons.
+    exact (forwarding_reachable_ext _ _ R n n_cons Hfwd (Hcons n_cons Hncons)).
   - intros Houtex2.
     assert (Houtex1 : exists n_out, net1.(DistributedDatalog.output) n_out R).
     { destruct Houtex2 as [n_out Ho]. exists n_out. rewrite Hout. exact Ho. }
     destruct (Hexout Houtex1) as [n_out [Hout_o Hreach_o]]. exists n_out. split.
     + rewrite <- Hout. exact Hout_o.
-    + destruct Hreach_o as [Heq | Hreach];
-        [left; exact Heq | right; exact (forwarding_reachable_ext _ _ R n n_out Hfwd Hreach)].
+    + exact (forwarding_reachable_ext _ _ R n n_out Hfwd Hreach_o).
 Qed.
 
 (* [good_network_streaming] transports across two nets agreeing on graph/layout/input/output with
@@ -2646,10 +2644,8 @@ Proof.
   { intros i x y Hx Hy. unfold fwd_list.
     exact (generate_forwarding_table_adds g all_rels ninfos rel0 prod cons path producers
              consumers i x y lfc lfp Hrel Hprods Hcons Hprod Hcon Hne Hpath Hx Hy). }
-  destruct (@DistributedDatalog.forwarding_chain_reachable rel_id node_id
-              (fwd_list FT) rel0 path prod cons Hchain Hhd Hlast) as [Heq | Hreach].
-  - exfalso. apply Hne. exact Heq.
-  - exact Hreach.
+  exact (@DistributedDatalog.forwarding_chain_reachable rel_id node_id
+           (fwd_list FT) rel0 path prod cons Hchain Hhd Hlast).
 Qed.
 
 Abbreviation cg2g := (@ComputableGraph.computable_graph_to_graph node_id node_id_set node_id_edge_set).
@@ -2771,12 +2767,11 @@ Lemma construction_reach (all_rels : list rel_id) (ninfos : list node_info)
   existsb (eqb np) (get_or_default lfp R) = true ->
   existsb (eqb nc) (get_or_default lfc R) = true ->
   Datalog.Util.List.is_Some (get_path g np nc) = true ->
-  np = nc \/
   @DistributedDatalog.forwarding_reachable rel_id node_id
     (fwd_list (fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty)) R np nc.
 Proof.
   intros HR Hprod Hcons Hpath.
-  destruct (eqb_boolspec _ np nc) as [E|Hne]; [left; exact E | right].
+  destruct (eqb_boolspec _ np nc) as [<-|Hne]; [apply rt1n_refl |].
   destruct (get_path g np nc) as [path|] eqn:Hgpath; [| cbn in Hpath; discriminate].
   apply existsb_eqb_in in Hprod. apply existsb_eqb_in in Hcons.
   unfold get_or_default, get_or in Hprod, Hcons.

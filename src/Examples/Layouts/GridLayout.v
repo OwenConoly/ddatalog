@@ -1,4 +1,4 @@
-From Stdlib Require Import List Bool Lia.
+From Stdlib Require Import List Bool Lia Relation_Operators.
 From Datalog Require Import Datalog.
 From Datalog.Util Require Import List.
 From DatalogRocq Require Import DistributedDatalog Topologies.Graph GridGraph.
@@ -103,26 +103,16 @@ Qed.
 Lemma grid_reachable_to_forwarding :
   forall dims0 r n1 n2,
     GridGraph.grid_reachable dims0 n1 n2 ->
-    n1 = n2 \/ forwarding_reachable (mk_always_forward_table dims0) r n1 n2.
+    forwarding_reachable (mk_always_forward_table dims0) r n1 n2.
 Proof.
   intros dims0 r n1 n2 Hreach.
   induction Hreach.
-  - left. reflexivity.
-  - right.
-    destruct IHHreach as [-> | Hfwd].
-    + (* n2 = n3, just one forwarding step *)
-      apply fwd_step.
-      unfold mk_always_forward_table.
-      apply filter_In. split.
-      * apply GridGraph.all_nodes_h_correct. inversion H; auto.
-      * apply GridGraph.is_neighbor_correct. exact H.
-    + (* n2 reaches n3, and n1 reaches n2 *)
-      eapply fwd_trans.
-      * unfold mk_always_forward_table.
-        apply filter_In. split.
-        -- apply GridGraph.all_nodes_h_correct. inversion H; eauto.
-        -- apply GridGraph.is_neighbor_correct. exact H.
-      * exact Hfwd.
+  - apply rt1n_refl.
+  - eapply rt1n_trans; [| exact IHHreach].
+    unfold forwards_rel, mk_always_forward_table.
+    apply filter_In. split.
+    + apply GridGraph.all_nodes_h_correct. inversion H; eauto.
+    + apply GridGraph.is_neighbor_correct. exact H.
 Qed.
 
 Lemma good_forwarding_complete_grid :
@@ -144,7 +134,7 @@ Proof.
   apply GridGraph.grid_connected; auto.
   - intros n_prod Hprod. exists n_prod. split.
     + simpl. unfold mk_all_output_fn. auto.
-    + left; auto.
+    + apply rt1n_refl.
 Qed.
 
 Lemma good_network :
