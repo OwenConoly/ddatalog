@@ -47,25 +47,21 @@ Qed.
 
 Section DistributedDatalogToHardwareCompilerCorrect.
 
-Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-Context {semantics : datalog_semantics fn aggregator T}.
-Context {context : map.map var T} {context_ok : map.ok context}.
-Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
-Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
-Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+Context `{params : datalog_params (_rel := rel_id)}.
+Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-Context {var_idx_map : map.map var nat}.   (* used by compute_permutation *)
+Context {var_idx_map : map.map exprvar nat}.   (* used by compute_permutation *)
 Context {var_idx_map_ok : map.ok var_idx_map}.
 
-Abbreviation lowered_fact := (@HardwareProgram.lowered_fact var fn).
-Abbreviation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
-Abbreviation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var fn var_eqb fn_eqb).
-Abbreviation generate_join := (@DistributedDatalogToHardwareCompiler.generate_join var fn var_eqb fn_eqb).
-Abbreviation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
+Abbreviation lowered_fact := (@HardwareProgram.lowered_fact exprvar fn).
+Abbreviation lowered_rule := (@HardwareProgram.lowered_rule exprvar fn aggregator).
+Abbreviation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query exprvar fn var_eqb fn_eqb).
+Abbreviation generate_join := (@DistributedDatalogToHardwareCompiler.generate_join exprvar fn var_eqb fn_eqb).
+Abbreviation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order exprvar fn).
 
 (* the tuple of a (normal) ground fact; meta facts (never produced by the bare fragment)
    read as []. *)
-Definition nfargs (f : Datalog.fact (_rel := rel_id)) : list T :=
+Definition nfargs (f : Datalog.fact (_rel := rel_id)) : list value :=
   match f with nfact _ a => a | _ => [] end.
 
 (*----Trie-generation facts (toward hooking up compile_rule)----*)
@@ -73,7 +69,7 @@ Definition nfargs (f : Datalog.fact (_rel := rel_id)) : list T :=
 (*----Reading the compiler's lowered AST as a Datalog program----*)
 
 (* A [lowered_rule] IS a [Datalog] rule over numeric relation ids ([rel_id]) at the source's
-   [var]/[fn]/[aggregator] -- exactly the rule the trie-join semantics verifies.  So there is NO
+   [exprvar]/[fn]/[aggregator] -- exactly the rule the trie-join semantics verifies.  So there is NO
    [lowered -> Datalog] conversion: the compiler emits these rules in their final type, and
    ([DistributedDatalogToHardwareCompiler.global_rename_rule]/[compile_rule]) error out on any non-[rule.impl], so a
    lowered program is normal by construction.  A lowered fact/expr likewise IS a [Datalog]
@@ -165,12 +161,12 @@ Qed.
 (*----generate_query: shape lemmas (proved)----*)
 
 (* One join per variable in the ordering. *)
-Lemma generate_query_length (tb : list trie) (ord : list var) (hyps : list lowered_fact) :
+Lemma generate_query_length (tb : list trie) (ord : list exprvar) (hyps : list lowered_fact) :
   length (generate_query tb ord hyps) = length ord.
 Proof. unfold DistributedDatalogToHardwareCompiler.generate_query. apply length_map. Qed.
 
 (* The i-th join is the join for the i-th variable in the ordering (default-free form). *)
-Lemma generate_query_nth_error (tb : list trie) (ord : list var)
+Lemma generate_query_nth_error (tb : list trie) (ord : list exprvar)
     (hyps : list lowered_fact) (i : nat) :
   nth_error (generate_query tb ord hyps) i
   = option_map (fun v => generate_join tb v hyps) (nth_error ord i).
@@ -181,11 +177,11 @@ Proof. unfold DistributedDatalogToHardwareCompiler.generate_query. apply nth_err
 (* A binding [vals] over a [NoDup] ordering [ord] induces the datalog context that the lowered
    rule is evaluated under: position [i] in the ordering is variable [nth i ord], holding value
    [nth i vals]. *)
-Definition ctx_of (ord : list var) (vals : list T) : option context :=
+Definition ctx_of (ord : list exprvar) (vals : list value) : option context :=
   map.of_list_zip ord vals.
 
 (* The induced context exists whenever the binding has one value per ordering slot. *)
-Lemma ctx_of_exists (ord : list var) (vals : list T) :
+Lemma ctx_of_exists (ord : list exprvar) (vals : list value) :
   length ord = length vals -> exists ctx, ctx_of ord vals = Some ctx.
 Proof.
   intros H. unfold ctx_of, map.of_list_zip.
@@ -193,7 +189,7 @@ Proof.
 Qed.
 
 (* And it maps the i-th ordering variable to the i-th value (ordering is duplicate-free). *)
-Lemma ctx_of_get (ord : list var) (vals : list T) (ctx : context) (i : nat) (v : var) (t : T) :
+Lemma ctx_of_get (ord : list exprvar) (vals : list value) (ctx : context) (i : nat) (v : exprvar) (t : value) :
   NoDup ord ->
   ctx_of ord vals = Some ctx ->
   nth_error ord i = Some v ->
@@ -208,7 +204,7 @@ Qed.
 (*----join_output_fact: projection characterization (proved)----*)
 
 (* The inner fold of [join_output_fact] succeeds with [out] iff every index reads its value. *)
-Lemma project_vals_ok (vals : list T) (idxs : list nat) (out : list T) :
+Lemma project_vals_ok (vals : list value) (idxs : list nat) (out : list value) :
   fold_right (fun idx acc =>
     match acc, nth_error vals idx with
     | Some vs, Some v => Some (v :: vs)
@@ -228,7 +224,7 @@ Proof.
 Qed.
 
 (* Hence the whole [join_output_fact] in terms of the projected tuple. *)
-Lemma join_output_fact_spec (vals : list T) (jo : join_output) (f : Datalog.fact (_rel := rel_id)) :
+Lemma join_output_fact_spec (vals : list value) (jo : join_output) (f : Datalog.fact (_rel := rel_id)) :
   join_output_fact vals jo = Some f
   <-> exists out, f = nfact jo.(output_rel) out /\
                   Forall2 (fun idx v => nth_error vals idx = Some v)
@@ -246,7 +242,7 @@ Qed.
 
 (*----Conclusion projection: join_output_fact <-> interp_fact (bare concls)----*)
 
-Lemma interp_var_iff (ctx : context) (v : var) (x : T) :
+Lemma interp_var_iff (ctx : context) (v : exprvar) (x : value) :
   expr.interp ctx (expr.var v : Datalog.expr (_fn := fn)) x <-> map.get ctx v = Some x.
 Proof.
   split.
@@ -255,7 +251,7 @@ Proof.
 Qed.
 
 (* The induced context reads the i-th ordering variable as the i-th binding value. *)
-Lemma ctx_get_eq_nth (ord : list var) (vals : list T) (ctx : context) (idx : nat) (v : var) :
+Lemma ctx_get_eq_nth (ord : list exprvar) (vals : list value) (ctx : context) (idx : nat) (v : exprvar) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   nth_error ord idx = Some v ->
   map.get ctx v = nth_error vals idx.
@@ -269,7 +265,7 @@ Qed.
 
 (* Bare conclusion args paired with their ordering indices: interpreting the args under the
    induced context yields exactly the values the indices project from the binding. *)
-Lemma corr_bridge (ord : list var) (vals : list T) (ctx : context) :
+Lemma corr_bridge (ord : list exprvar) (vals : list value) (ctx : context) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   forall args idxs out,
   Forall2 (fun e idx => exists v, e = expr.var v /\ nth_error ord idx = Some v) args idxs ->
@@ -296,7 +292,7 @@ Qed.
    conclusion fact under the induced context.  [Hcorr] is the structural fact that
    [compile_concl] establishes for bare conclusions (each output index is the ordering
    index of the corresponding variable). *)
-Lemma join_output_fact_interp (concl : lowered_fact) (ord : list var) (vals : list T)
+Lemma join_output_fact_interp (concl : lowered_fact) (ord : list exprvar) (vals : list value)
     (ctx : context) (jo : join_output) (f : Datalog.fact (_rel := rel_id)) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   jo.(output_rel) = concl.(Datalog.clause.rel) ->
@@ -317,22 +313,22 @@ Qed.
 (*  compute_permutation is a NoDup permutation list of the right length        *)
 (*============================================================================*)
 
-Abbreviation cperm_aux := (@DistributedDatalogToHardwareCompiler.compute_perm_aux var var_idx_map).
-Abbreviation cperm := (@DistributedDatalogToHardwareCompiler.compute_permutation var var_eqb var_idx_map).
-Abbreviation bbm := (@DistributedDatalogToHardwareCompiler.build_base_map var var_eqb var_idx_map).
+Abbreviation cperm_aux := (@DistributedDatalogToHardwareCompiler.compute_perm_aux exprvar var_idx_map).
+Abbreviation cperm := (@DistributedDatalogToHardwareCompiler.compute_permutation exprvar var_eqb var_idx_map).
+Abbreviation bbm := (@DistributedDatalogToHardwareCompiler.build_base_map exprvar var_eqb var_idx_map).
 
-Definition mget0 (m : var_idx_map) (v : var) : nat :=
+Definition mget0 (m : var_idx_map) (v : exprvar) : nat :=
   match map.get m v with Some n => n | None => 0 end.
 
-Lemma var_eqb_refl (v : var) : var_eqb v v = true.
+Lemma var_eqb_refl (v : exprvar) : var_eqb v v = true.
 Proof. destruct (var_eqb_spec v v); congruence. Qed.
 
 (*----count_occ / firstn helpers----*)
 
-Lemma count_occ_nil (q : var) : count_occ q [] = 0.
+Lemma count_occ_nil (q : exprvar) : count_occ q [] = 0.
 Proof. reflexivity. Qed.
 
-Lemma count_occ_cons (q x : var) (l : list var) :
+Lemma count_occ_cons (q x : exprvar) (l : list exprvar) :
   count_occ q (x :: l) = (if var_eqb x q then 1 else 0) + count_occ q l.
 Proof.
   unfold count_occ. cbn [filter].
@@ -340,7 +336,7 @@ Proof.
   destruct (var_eqb x q); reflexivity.
 Qed.
 
-Lemma firstn_S_nth (l : list var) (i : nat) (d : var) :
+Lemma firstn_S_nth (l : list exprvar) (i : nat) (d : exprvar) :
   i < length l -> firstn (S i) l = firstn i l ++ [nth i l d].
 Proof.
   revert i. induction l as [|x xs IH]; intros i Hi; simpl in *.
@@ -349,7 +345,7 @@ Proof.
     rewrite (IH i') by lia. reflexivity.
 Qed.
 
-Lemma count_occ_firstn_S (v : var) (l : list var) (i : nat) (d : var) :
+Lemma count_occ_firstn_S (v : exprvar) (l : list exprvar) (i : nat) (d : exprvar) :
   i < length l ->
   count_occ v (firstn (S i) l) = count_occ v (firstn i l) + (if var_eqb (nth i l d) v then 1 else 0).
 Proof.
@@ -357,7 +353,7 @@ Proof.
   lia.
 Qed.
 
-Lemma count_firstn_mono (v : var) (l : list var) (i j : nat) :
+Lemma count_firstn_mono (v : exprvar) (l : list exprvar) (i j : nat) :
   i <= j -> count_occ v (firstn i l) <= count_occ v (firstn j l).
 Proof.
   intros Hij. induction Hij as [|j Hij IH]; [lia|].
@@ -367,7 +363,7 @@ Proof.
     rewrite (firstn_all2 (n := j) l) in IH by lia. lia.
 Qed.
 
-Lemma count_firstn_strict (v : var) (l : list var) (i j : nat) (d : var) :
+Lemma count_firstn_strict (v : exprvar) (l : list exprvar) (i j : nat) (d : exprvar) :
   i < j -> nth i l d = v -> i < length l ->
   count_occ v (firstn i l) < count_occ v (firstn j l).
 Proof.
@@ -378,7 +374,7 @@ Proof.
 Qed.
 
 (* Occurrence index of position i is strictly below the total count of that variable. *)
-Lemma occ_lt_count (v : var) (l : list var) (i : nat) (d : var) :
+Lemma occ_lt_count (v : exprvar) (l : list exprvar) (i : nat) (d : exprvar) :
   i < length l -> nth i l d = v ->
   count_occ v (firstn i l) < count_occ v l.
 Proof.
@@ -392,27 +388,27 @@ Qed.
 
 (*----length and value characterization of compute_perm_aux----*)
 
-Lemma cperm_aux_length (l : list var) (bm om : var_idx_map) :
+Lemma cperm_aux_length (l : list exprvar) (bm om : var_idx_map) :
   length (cperm_aux l bm om) = length l.
 Proof. revert om. induction l as [|v vs IH]; intros om; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
 
-Lemma cperm_aux_cons (v : var) (vs : list var) (bm om : var_idx_map) :
+Lemma cperm_aux_cons (v : exprvar) (vs : list exprvar) (bm om : var_idx_map) :
   cperm_aux (v :: vs) bm om
   = (mget0 bm v + mget0 om v) :: cperm_aux vs bm (map.put om v (mget0 om v + 1)).
 Proof. reflexivity. Qed.
 
-Lemma mget0_put_same (m : var_idx_map) (v : var) (n : nat) :
+Lemma mget0_put_same (m : var_idx_map) (v : exprvar) (n : nat) :
   mget0 (map.put m v n) v = n.
 Proof. unfold mget0. rewrite map.get_put_same. reflexivity. Qed.
 
-Lemma mget0_put_diff (m : var_idx_map) (v w : var) (n : nat) :
+Lemma mget0_put_diff (m : var_idx_map) (v w : exprvar) (n : nat) :
   v <> w -> mget0 (map.put m v n) w = mget0 m w.
 Proof. intros H. unfold mget0. rewrite map.get_put_diff by congruence. reflexivity. Qed.
 
 (* nth value produced for position i: base of its variable, plus how many times that variable
    already occurred (in [om] and in the prefix consumed so far). *)
-Lemma cperm_aux_nth (bm : var_idx_map) (l : list var) :
-  forall (om : var_idx_map) (i : nat) (d : var),
+Lemma cperm_aux_nth (bm : var_idx_map) (l : list exprvar) :
+  forall (om : var_idx_map) (i : nat) (d : exprvar),
   i < length l ->
   nth i (cperm_aux l bm om) 0 =
     mget0 bm (nth i l d) + mget0 om (nth i l d) + count_occ (nth i l d) (firstn i l).
@@ -432,27 +428,27 @@ Qed.
 (*----base offsets assigned by build_base_map----*)
 
 (* The offset build_base_map assigns to v's first occurrence in [desired]. *)
-Fixpoint base_fn (desired original : list var) (offset : nat) (v : var) : nat :=
+Fixpoint base_fn (desired original : list exprvar) (offset : nat) (v : exprvar) : nat :=
   match desired with
   | [] => offset
   | w :: ws => if var_eqb w v then offset
                else base_fn ws original (offset + count_occ w original) v
   end.
 
-Lemma base_fn_ge (desired original : list var) (offset : nat) (v : var) :
+Lemma base_fn_ge (desired original : list exprvar) (offset : nat) (v : exprvar) :
   offset <= base_fn desired original offset v.
 Proof.
   revert offset. induction desired as [|w ws IH]; intros offset; simpl; [lia|].
   destruct (var_eqb w v); [lia|]. specialize (IH (offset + count_occ w original)). lia.
 Qed.
 
-Lemma bbm_cons (w : var) (ws original : list var) (offset : nat) (m : var_idx_map) :
+Lemma bbm_cons (w : exprvar) (ws original : list exprvar) (offset : nat) (m : var_idx_map) :
   bbm (w :: ws) original offset m
   = bbm ws original (offset + count_occ w original) (map.put m w offset).
 Proof. reflexivity. Qed.
 
-Lemma build_base_map_get_notin (desired original : list var) (offset : nat)
-    (m : var_idx_map) (v : var) :
+Lemma build_base_map_get_notin (desired original : list exprvar) (offset : nat)
+    (m : var_idx_map) (v : exprvar) :
   ~ In v desired -> map.get (bbm desired original offset m) v = map.get m v.
 Proof.
   revert offset m. induction desired as [|w ws IH]; intros offset m Hnin; [reflexivity|].
@@ -460,8 +456,8 @@ Proof.
   rewrite map.get_put_diff by (simpl in Hnin; intuition congruence). reflexivity.
 Qed.
 
-Lemma build_base_map_get (desired original : list var) (offset : nat)
-    (m : var_idx_map) (v : var) :
+Lemma build_base_map_get (desired original : list exprvar) (offset : nat)
+    (m : var_idx_map) (v : exprvar) :
   NoDup desired -> In v desired ->
   map.get (bbm desired original offset m) v = Some (base_fn desired original offset v).
 Proof.
@@ -476,7 +472,7 @@ Qed.
 
 (* Distinct variables get disjoint blocks [base, base+count): one block lies entirely below
    the other. *)
-Lemma base_fn_mono (desired original : list var) (offset : nat) (v w : var) :
+Lemma base_fn_mono (desired original : list exprvar) (offset : nat) (v w : exprvar) :
   NoDup desired -> In v desired -> In w desired -> v <> w ->
   base_fn desired original offset v + count_occ v original <= base_fn desired original offset w
   \/ base_fn desired original offset w + count_occ w original <= base_fn desired original offset v.
@@ -497,14 +493,14 @@ Qed.
 
 (*----compute_permutation: length, value, NoDup----*)
 
-Lemma mget0_empty (v : var) : mget0 map.empty v = 0.
+Lemma mget0_empty (v : exprvar) : mget0 map.empty v = 0.
 Proof. unfold mget0. rewrite map.get_empty. reflexivity. Qed.
 
-Lemma compute_permutation_length (original desired : list var) :
+Lemma compute_permutation_length (original desired : list exprvar) :
   length (cperm original desired) = length original.
 Proof. unfold DistributedDatalogToHardwareCompiler.compute_permutation. apply cperm_aux_length. Qed.
 
-Lemma compute_permutation_nth (original desired : list var) (i : nat) (d : var) :
+Lemma compute_permutation_nth (original desired : list exprvar) (i : nat) (d : exprvar) :
   i < length original ->
   nth i (cperm original desired) 0 =
     mget0 (bbm desired original 0 map.empty) (nth i original d)
@@ -517,7 +513,7 @@ Qed.
 
 (* The value at position i is [base(vi) + occ_i] with [occ_i < count vi]; distinct positions
    thus get distinct values. *)
-Lemma cperm_val_neq (original desired : list var) (d : var) (i j : nat) :
+Lemma cperm_val_neq (original desired : list exprvar) (d : exprvar) (i j : nat) :
   NoDup desired -> (forall v, In v original -> In v desired) ->
   i < j -> j < length original ->
   nth i (cperm original desired) 0 <> nth j (cperm original desired) 0.
@@ -544,7 +540,7 @@ Proof.
   - destruct (base_fn_mono desired original 0 vi vj Hnd Hivd Hjvd Hvv) as [Hle|Hle]; lia.
 Qed.
 
-Lemma compute_permutation_NoDup (original desired : list var) :
+Lemma compute_permutation_NoDup (original desired : list exprvar) :
   NoDup desired -> (forall v, In v original -> In v desired) ->
   NoDup (cperm original desired).
 Proof.
@@ -601,14 +597,14 @@ Lemma zip3_map3 {A X Y Z : Type} (f : A -> X) (g : A -> Y) (h : A -> Z) (l : lis
 Proof. induction l as [|x l IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
 
 (* The flat list of entries generate_join produces (forward order). *)
-Definition gj_entries (tb : list trie) (v : var) (hyps : list lowered_fact)
+Definition gj_entries (tb : list trie) (v : exprvar) (hyps : list lowered_fact)
   : list (trie_id * nat * clause_id) :=
   flat_map (fun '(c, t, hyp) =>
               map (fun a => (t.(tid), nth a t.(tperm) 0, c))
                   (indexes_of (expr.var v) hyp.(Datalog.clause.args)))
            (combine3 (seq 0 (length hyps)) tb hyps).
 
-Lemma generate_join_entries (tb : list trie) (v : var) (hyps : list lowered_fact) :
+Lemma generate_join_entries (tb : list trie) (v : exprvar) (hyps : list lowered_fact) :
   zip3 (generate_join tb v hyps).(HardwareProgram.tries)
        (generate_join tb v hyps).(trie_levels)
        (generate_join tb v hyps).(clauses)
@@ -658,7 +654,7 @@ Proof.
 Qed.
 
 (* Membership in generate_join's entry list. *)
-Lemma gj_entries_In (tb : list trie) (v : var) (hyps : list lowered_fact)
+Lemma gj_entries_In (tb : list trie) (v : exprvar) (hyps : list lowered_fact)
     (e : trie_id * nat * clause_id) :
   In e (gj_entries tb v hyps) <->
   (exists c t hyp a,
@@ -682,7 +678,7 @@ Proof.
 Qed.
 
 (* Reading a lowered fact as a datalog fact, factored. *)
-Lemma interp_lfact_iff (ctx : context) (lf : lowered_fact) (R : rel_id) (tup : list T) :
+Lemma interp_lfact_iff (ctx : context) (lf : lowered_fact) (R : rel_id) (tup : list value) :
   interp_fact ctx lf (nfact R tup) <->
   R = lf.(Datalog.clause.rel) /\ Forall2 (expr.interp ctx) (lf.(Datalog.clause.args)) tup.
 Proof.
@@ -693,7 +689,7 @@ Qed.
 
 (* For bare args, the per-position interpretation condition. *)
 Lemma bare_interp_args_iff (ctx : context)
-    (args : list (@HardwareProgram.lowered_expr var fn)) (tup : list T) :
+    (args : list (@HardwareProgram.lowered_expr exprvar fn)) (tup : list value) :
   Forall (fun e => exists v, e = expr.var v) args ->
   ( Forall2 (expr.interp ctx) (args) tup <->
     (length args = length tup /\
@@ -736,8 +732,8 @@ Qed.
    - (<-) Given [ctx] interpreting all hyps, read [vals := map (ctx) ord]; each join entry reads
      back the matching tuple column by the same [trie_read_NoDup] identity. *)
 Theorem generate_query_correct
-    (ord : list var) (hyps : list lowered_fact) (tb : list trie) (tries : list trie)
-    (vals : list T) (hyps' : list (Datalog.fact (_rel := rel_id))) (dt : trie) (dh : lowered_fact) :
+    (ord : list exprvar) (hyps : list lowered_fact) (tb : list trie) (tries : list trie)
+    (vals : list value) (hyps' : list (Datalog.fact (_rel := rel_id))) (dt : trie) (dh : lowered_fact) :
   NoDup ord ->
   Forall bare_fact hyps ->
   length tb = length hyps ->
@@ -918,14 +914,14 @@ Qed.
 
 (* The per-conclusion fact [compile_concl] establishes: the conclusion is bare and each output
    index is the ordering position of the corresponding variable. *)
-Definition concl_corr (ord : list var) (c : lowered_fact) (jo : join_output) : Prop :=
+Definition concl_corr (ord : list exprvar) (c : lowered_fact) (jo : join_output) : Prop :=
   jo.(output_rel) = c.(Datalog.clause.rel) /\
   Forall2 (fun e idx => exists v, e = expr.var v /\ nth_error ord idx = Some v)
           c.(Datalog.clause.args) jo.(output_var_indices).
 
 (* Lifting [join_output_fact_interp] over the whole conclusion list: under the induced context,
    the trie-join's conclusion outputs are exactly the lowered rule's conclusion facts. *)
-Lemma concl_exists_iff (ord : list var) (vals : list T) (ctx : context)
+Lemma concl_exists_iff (ord : list exprvar) (vals : list value) (ctx : context)
     (concls : list lowered_fact) (jos : list join_output) (f : Datalog.fact (_rel := rel_id)) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   Forall2 (concl_corr ord) concls jos ->
@@ -940,8 +936,8 @@ Proof.
 Qed.
 
 (* Variables appearing in a corresponding conclusion live in the ordering. *)
-Lemma corr_args_vars_in_ord (ord : list var)
-    (args : list (@HardwareProgram.lowered_expr var fn)) (idxs : list nat) (v : var) :
+Lemma corr_args_vars_in_ord (ord : list exprvar)
+    (args : list (@HardwareProgram.lowered_expr exprvar fn)) (idxs : list nat) (v : exprvar) :
   Forall2 (fun e idx => exists w, e = expr.var w /\ nth_error ord idx = Some w) args idxs ->
   In v (flat_map expr.vars (args)) -> In v ord.
 Proof.
@@ -955,7 +951,7 @@ Qed.
 (* Transport an [Exists interp_fact] over the conclusion list across two contexts that agree on
    the ordering (the conclusion variables, by [concl_corr], are all in the ordering). *)
 Lemma exists_interp_transport (concls : list lowered_fact) (jos : list join_output)
-    (ord : list var) (ctx ctx' : context) (f : Datalog.fact (_rel := rel_id)) :
+    (ord : list exprvar) (ctx ctx' : context) (f : Datalog.fact (_rel := rel_id)) :
   Forall2 (concl_corr ord) concls jos ->
   (forall v, In v ord -> map.get ctx v = map.get ctx' v) ->
   Exists (fun c => interp_fact ctx (c) f) concls ->
@@ -971,7 +967,7 @@ Proof.
 Qed.
 
 (* A bare hypothesis's datalog variables coincide with its [compute_var_order]. *)
-Lemma bare_vars_in_cvo (h : lowered_fact) (v : var) :
+Lemma bare_vars_in_cvo (h : lowered_fact) (v : exprvar) :
   bare_fact h -> In v (Datalog.clause.vars (h)) -> In v (compute_var_order h).
 Proof.
   intros Hb Hin.
@@ -1071,7 +1067,7 @@ Qed.
    [concl_exists_iff] (conclusions). *)
 Theorem hw_rule_correct
     (concls hyps : list lowered_fact) (hr : hardware_rule)
-    (ord : list var) (tb : list trie) (tries : list trie) (dt : trie) (dh : lowered_fact) :
+    (ord : list exprvar) (tb : list trie) (tries : list trie) (dt : trie) (dh : lowered_fact) :
   NoDup ord ->
   Forall bare_fact hyps ->
   Forall bare_fact concls ->
@@ -1994,16 +1990,12 @@ Section NodeCorrect.
 Import ResultMonadNotations.
 Open Scope result_monad_scope.
 
-Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+Context `{params : datalog_params (_rel := rel_id)}.
+Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-Context {semantics : datalog_semantics fn aggregator T}.
-Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
-Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
-Context {context : map.map var T} {context_ok : map.ok context}.
-Context {var_idx_map : map.map var nat} {var_idx_map_ok : map.ok var_idx_map}.
-Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
-Context {var_edge_set : map.map var var_node_set}.
+Context {var_idx_map : map.map exprvar nat} {var_idx_map_ok : map.ok var_idx_map}.
+Context {var_node_set : map.map exprvar unit} {var_node_set_ok : map.ok var_node_set}.
+Context {var_edge_set : map.map exprvar var_node_set}.
 Context {node_id : Type}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
@@ -2012,14 +2004,14 @@ Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.de
 #[local] Existing Instance rel_id.
 
 Abbreviation node_context := DistributedDatalogToHardwareCompiler.node_context.
-Abbreviation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
-Abbreviation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
+Abbreviation lowered_rule := (@HardwareProgram.lowered_rule exprvar fn aggregator).
+Abbreviation lowered_program := (@HardwareProgram.lowered_program exprvar fn aggregator).
 Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
-Abbreviation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Abbreviation lowered_fact := (@HardwareProgram.lowered_fact exprvar fn).
 Abbreviation compile_rule :=
-  (@DistributedDatalogToHardwareCompiler.compile_rule var fn aggregator var_eqb fn_eqb var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_rule exprvar fn aggregator var_eqb fn_eqb var_node_set var_edge_set var_idx_map).
 Abbreviation compile_node :=
-  (@DistributedDatalogToHardwareCompiler.compile_node var fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_node exprvar fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 
 (* PER-RULE: a compiled rule (whose post-context tries are all in the node table [tries], which
    has unique ids) matches its lowered datalog rule -- by discharging every hypothesis of
@@ -2157,16 +2149,12 @@ Section CompileTop.
 Import ResultMonadNotations.
 Open Scope result_monad_scope.
 
-Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+Context `{params : datalog_params (_rel := rel_id)}.
+Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-Context {semantics : datalog_semantics fn aggregator T}.
-Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
-Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
-Context {context : map.map var T} {context_ok : map.ok context}.
-Context {var_idx_map : map.map var nat} {var_idx_map_ok : map.ok var_idx_map}.
-Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
-Context {var_edge_set : map.map var var_node_set}.
+Context {var_idx_map : map.map exprvar nat} {var_idx_map_ok : map.ok var_idx_map}.
+Context {var_node_set : map.map exprvar unit} {var_node_set_ok : map.ok var_node_set}.
+Context {var_edge_set : map.map exprvar var_node_set}.
 Context {node_id : Type}
         {node_id_eqb : Eqb node_id} {node_id_eqb_spec : Eqb_ok node_id_eqb}.
 #[local] Existing Instance rel_id.
@@ -2174,7 +2162,7 @@ Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Context {node_id_set : map.map node_id unit}.
 Context {node_id_edge_set : map.map node_id node_id_set}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
-Context {layout_map : map.map node_id (@HardwareProgram.lowered_program var fn aggregator)}
+Context {layout_map : map.map node_id (@HardwareProgram.lowered_program exprvar fn aggregator)}
         {layout_map_ok : map.ok layout_map}.
 Context {node_ftable_map : map.map node_id forwarding_table}.
 Context {fact_locations_map : map.map rel_id (list node_id)}
@@ -2182,22 +2170,22 @@ Context {fact_locations_map : map.map rel_id (list node_id)}
 Context {rels_at_node : map.map node_id (list rel_id)}
         {rels_at_node_ok : map.ok rels_at_node}.
 
-Abbreviation program := (@HardwareProgram.lowered_program var fn aggregator).
-Abbreviation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
+Abbreviation program := (@HardwareProgram.lowered_program exprvar fn aggregator).
+Abbreviation lowered_program := (@HardwareProgram.lowered_program exprvar fn aggregator).
 Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Abbreviation compile_node :=
-  (@DistributedDatalogToHardwareCompiler.compile_node var fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_node exprvar fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 Abbreviation compile_all_nodes :=
-  (@DistributedDatalogToHardwareCompiler.compile_all_nodes var fn aggregator var_eqb fn_eqb node_id forwarding_table layout_map var_node_set var_edge_set var_idx_map).
+  (@DistributedDatalogToHardwareCompiler.compile_all_nodes exprvar fn aggregator var_eqb fn_eqb node_id forwarding_table layout_map var_node_set var_edge_set var_idx_map).
 Abbreviation attach_forwarding_tables :=
   (@DistributedDatalogToHardwareCompiler.attach_forwarding_tables node_id node_id_eqb forwarding_table node_ftable_map).
 Abbreviation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
 Abbreviation compile :=
-  (@DistributedDatalogToHardwareCompiler.compile var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map rels_at_node).
+  (@DistributedDatalogToHardwareCompiler.compile exprvar fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map rels_at_node).
 Abbreviation get_internal_producers_of :=
-  (@DistributedDatalogToHardwareCompiler.get_internal_producers_of var fn aggregator node_id layout_map fact_locations_map rels_at_node).
+  (@DistributedDatalogToHardwareCompiler.get_internal_producers_of exprvar fn aggregator node_id layout_map fact_locations_map rels_at_node).
 Abbreviation get_internal_consumers_of :=
-  (@DistributedDatalogToHardwareCompiler.get_internal_consumers_of var fn aggregator node_id layout_map fact_locations_map rels_at_node).
+  (@DistributedDatalogToHardwareCompiler.get_internal_consumers_of exprvar fn aggregator node_id layout_map fact_locations_map rels_at_node).
 Abbreviation all_rules_fed :=
   (@DistributedDatalogToHardwareCompiler.all_rules_fed node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
 Abbreviation producers_go_out :=
@@ -2213,7 +2201,7 @@ Definition all_producers (layout : layout_map) (ext : fact_locations_map) : fact
   union_with (list_union eqb) (get_internal_producers_of layout) ext.
 Definition all_consumers (layout : layout_map) (ext : fact_locations_map) : fact_locations_map :=
   union_with (list_union eqb) (get_internal_consumers_of layout) ext.
-Abbreviation DNet := (@DistributedDatalog.DataflowNetwork rel_id var fn aggregator T value_eqb value_set node_id).
+Abbreviation DNet := (@DistributedDatalog.DataflowNetwork rel_id exprvar fn aggregator value value_eqb value_set node_id).
 
 (* Every node_info produced by [compile_all_nodes] is the [compile_node] result for some node
    in the lowered layout. *)
@@ -2381,8 +2369,8 @@ Qed.
 (*  (e.g. [GridLayout.check_layout]) discharges.                             *)
 (*===========================================================================*)
 
-Abbreviation lowered_fact := (@HardwareProgram.lowered_fact var fn).
-Abbreviation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
+Abbreviation lowered_fact := (@HardwareProgram.lowered_fact exprvar fn).
+Abbreviation lowered_rule := (@HardwareProgram.lowered_rule exprvar fn aggregator).
 
 (* Boolean version of [bare_fact]: every argument is a plain variable.  PARAMETRIC over the relation
    and function types -- bareness inspects only [expr.var]/[expr.app], never the relation/function
@@ -2827,7 +2815,7 @@ Qed.
 (* Decidable check that every node a layout assigns rules to is a real graph node.  Now a GATE inside
    [compile_lowered]; aliased here so the existing lemmas / top theorems refer to the same function. *)
 Abbreviation layout_in_graphb :=
-  (@DistributedDatalogToHardwareCompiler.layout_in_graphb var fn aggregator node_id node_id_set
+  (@DistributedDatalogToHardwareCompiler.layout_in_graphb exprvar fn aggregator node_id node_id_set
      layout_map node_id_edge_set).
 
 Lemma layout_in_graphb_entry (g : node_graph) (llayout : layout_map) :
@@ -3228,7 +3216,7 @@ Definition dnet_of_ninfos (ninfos : list node_info) (base : DNet) : DNet :=
 (*============================================================================*)
 
 (* [get_facts_on_node] shape lemmas. *)
-Lemma get_facts_on_node_in (l : list (@DistributedDatalog.network_prop rel_id T value_eqb value_set node_id))
+Lemma get_facts_on_node_in (l : list (@DistributedDatalog.network_prop rel_id value value_eqb value_set node_id))
       (n : node_id) (g : Datalog.fact (_rel := rel_id)) :
   In (n, g) (get_facts_on_node l) -> In (FactOnNode n g) l.
 Proof.
@@ -3314,7 +3302,7 @@ Qed.
 
 (* COMPLETENESS of the operational run: the [RuleApp] case merges the present hypotheses
    ([present_list]) and fires a matching hardware rule ([node_fires_iff] + [dstep_run]). *)
-Lemma netpft_present (x : @DistributedDatalog.network_prop rel_id T value_eqb value_set node_id) :
+Lemma netpft_present (x : @DistributedDatalog.network_prop rel_id value value_eqb value_set node_id) :
   network_pftree net x ->
   match x with
   | FactOnNode n f => present n f
@@ -3506,7 +3494,7 @@ Qed.
 
 Context {rel : relT} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
 
-Definition program_rels (p : list (@Datalog.rule rel var fn aggregator)) : list rel :=
+Definition program_rels (p : list (@Datalog.rule rel exprvar fn aggregator)) : list rel :=
   flat_map rule.all_rels p.
 
 Local Abbreviation rules_only p := {| program.rules := p; program.meta_rules := [] |}.
@@ -3516,7 +3504,7 @@ Definition relabel_Q (rho : rel -> rel_id) (Q : Datalog.fact (_rel := rel) -> Pr
   fun f' => exists f, f' = fact.map_rel rho f /\ Q f.
 
 Theorem nattify_and_compile_correct
-    (p : list (@Datalog.rule rel var fn aggregator))
+    (p : list (@Datalog.rule rel exprvar fn aggregator))
     (layout : layout_map) (fps fcs : fact_locations_map) (g : node_graph)
     (ninfos : list node_info)
     (Qsrc : Datalog.fact (_rel := rel) -> Prop) (fsrc : Datalog.fact (_rel := rel)) :

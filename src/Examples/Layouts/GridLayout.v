@@ -5,17 +5,13 @@ From coqutil Require Import Map.Interface Eqb.
 Import ListNotations.
 
 Section GridLayout.
-  Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-  Context {semantics : datalog_semantics fn aggregator T} `{query_sig : query_signature rel}.
-  Context {context : map.map var T} {context_ok : map.ok context}.
-  Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
-  Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
-  Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+  Context `{params : datalog_params} `{query_sig : query_signature rel}.
+  Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
   Context {aggregator_eqb : Eqb aggregator} {aggregator_eqb_ok : Eqb_ok aggregator_eqb}.
 
-  Definition rule := @Datalog.rule rel var fn aggregator.
+  Definition rule := @Datalog.rule rel exprvar fn aggregator.
 
   Context {rule_eqb : rule -> rule -> bool}.
   Context {rule_eqb_spec : forall r1 r2 : rule,

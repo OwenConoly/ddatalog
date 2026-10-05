@@ -34,12 +34,8 @@ Section NodeHardwareSemantics.
 
 (* Relation names are already numeric ([rel_id] = [nat]) at this stage; functions,
    variables, and the value type stay abstract. *)
-Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-Context {semantics : datalog_semantics fn aggregator T}.
-Context {context : map.map var T} {context_ok : map.ok context}.
-Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
-Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
-Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
+Context `{params : datalog_params (_rel := rel_id)}.
+Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 
 (* The reference programs this node is verified against are ordinary [Datalog] programs over
    the numeric ids the hardware uses.  NodeHardwareSemantics never mentions the compiler's [lowered_rule]
@@ -76,7 +72,7 @@ Fixpoint inv_perm_index (perm : permutation) (level : nat) : option nat :=
 
 (* Value the trie with permutation [perm] exposes at [level], given a tuple [tup]
    stored in original column order. *)
-Definition trie_read (perm : permutation) (tup : list T) (level : nat) : option T :=
+Definition trie_read (perm : permutation) (tup : list value) (level : nat) : option value :=
   match inv_perm_index perm level with
   | Some a => nth_error tup a
   | None => None
@@ -134,7 +130,7 @@ Fixpoint zip3 {A B C : Type} (la : list A) (lb : list B) (lc : list C)
    [clause] supplies a hypothesis tuple in the trie's relation that reads to [vi]
    at [level]. *)
 Definition join_entry_sat (tries : list trie) (hyps' : list dl_fact)
-    (vi : T) (e : trie_id * nat * clause_id) : Prop :=
+    (vi : value) (e : trie_id * nat * clause_id) : Prop :=
   let '(tid, level, clause) := e in
   exists t hyp_tup,
     lookup_trie tries tid = Some t /\
@@ -144,20 +140,20 @@ Definition join_entry_sat (tries : list trie) (hyps' : list dl_fact)
 (* The [i]-th join binds variable-order position [i]: every entry must read the same
    value [vi = nth_error vals i]. *)
 Definition join_sat (tries : list trie) (hyps' : list dl_fact)
-    (vals : list T) (i : nat) (j : join) : Prop :=
+    (vals : list value) (i : nat) (j : join) : Prop :=
   exists vi, nth_error vals i = Some vi /\
     Forall (join_entry_sat tries hyps' vi)
            (zip3 j.(HardwareProgram.tries) j.(trie_levels) j.(clauses)).
 
 (* The whole query: one join per variable, in order. *)
 Definition query_sat (tries : list trie) (q : query)
-    (vals : list T) (hyps' : list dl_fact) : Prop :=
+    (vals : list value) (hyps' : list dl_fact) : Prop :=
   length vals = length q /\
   Forall (fun '(i, j) => join_sat tries hyps' vals i j)
          (combine (seq 0 (length q)) q).
 
 (* A conclusion projects the binding [vals] through [output_var_indices]. *)
-Definition join_output_fact (vals : list T) (jo : join_output) : option dl_fact :=
+Definition join_output_fact (vals : list value) (jo : join_output) : option dl_fact :=
   match fold_right (fun idx acc =>
           match acc, nth_error vals idx with
           | Some vs, Some v => Some (v :: vs)
@@ -256,11 +252,11 @@ Compute inv_perm_index [0; 1] 1.   (* identity perm => Some 1 *)
 
 (* trie storing relation tuple [10; 20] under perm [1;0] (columns swapped):
    reading level 0 recovers original column 1 (= 20), level 1 recovers column 0 (= 10). *)
-Compute trie_read (T := nat) [1; 0] [10; 20] 0.   (* Some 20 *)
-Compute trie_read (T := nat) [1; 0] [10; 20] 1.   (* Some 10 *)
+Compute trie_read (_value := nat) [1; 0] [10; 20] 0.   (* Some 20 *)
+Compute trie_read (_value := nat) [1; 0] [10; 20] 1.   (* Some 10 *)
 
 Compute zip3 [0; 1] [1; 1] [0; 1].
 
 (* Projecting a binding [v0;v1;v2] = [7;8;9] through output indices [2;0] => (R, [9;7]). *)
-Compute join_output_fact (T := nat) [7; 8; 9]
+Compute join_output_fact (_value := nat) [7; 8; 9]
   {| output_rel := 5; output_var_indices := [2; 0] |}.

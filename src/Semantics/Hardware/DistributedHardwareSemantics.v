@@ -25,11 +25,7 @@ Import ListNotations.
 Section DistributedHardwareSemantics.
 
 (* Relations are numeric ids at this layer; functions, variables, and values are abstract. *)
-Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-Context {semantics : datalog_semantics fn aggregator T}.
-Context {context : map.map var T} {context_ok : map.ok context}.
-Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
-Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
+Context `{params : datalog_params (_rel := rel_id)}.
 (* The node-identifier type is a parameter (was the hardcoded [nat*nat]). *)
 Context {node_id : Type}
         {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.

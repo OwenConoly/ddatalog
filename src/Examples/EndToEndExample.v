@@ -56,10 +56,10 @@ Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 Definition grid_equiv :=
   @nattify_and_compile_correct
     string string unit string
-    _ _ _ _
     sig_src
-    _ _ value_set_src value_set_src_ok
     (SortedListString.map string) (SortedListString.ok string)
+    _ _ value_set_src value_set_src_ok
+    _ _ _ _
     StringDatalog.var_idx_map  (SortedListString.ok nat)
     StringDatalog.var_node_set (SortedListString.ok unit)
     StringDatalog.var_edge_set

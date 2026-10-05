@@ -102,19 +102,19 @@ Definition factJ : nat_fact := fact.normal {| normal_fact.rel := 0; normal_fact.
 Example ex_inv_perm : inv_perm_index [1; 0] 0 = Some 1 := eq_refl.
 
 (* Reading A's stored tuple [7;8] (= (x,y)) under ordering (y,x): level 0 recovers y = 8, level 1 recovers x = 7. *)
-Example ex_read_Ay : trie_read (T := nat) [1; 0] [7; 8] 0 = Some 8 := eq_refl.
-Example ex_read_Ax : trie_read (T := nat) [1; 0] [7; 8] 1 = Some 7 := eq_refl.
+Example ex_read_Ay : trie_read (_value := nat) [1; 0] [7; 8] 0 = Some 8 := eq_refl.
+Example ex_read_Ax : trie_read (_value := nat) [1; 0] [7; 8] 1 = Some 7 := eq_refl.
 
 (* Reading B's stored tuple [8;7] (= (y,x)) with the identity permutation. *)
-Example ex_read_By : trie_read (T := nat) [0; 1] [8; 7] 0 = Some 8 := eq_refl.
-Example ex_read_Bx : trie_read (T := nat) [0; 1] [8; 7] 1 = Some 7 := eq_refl.
+Example ex_read_By : trie_read (_value := nat) [0; 1] [8; 7] 0 = Some 8 := eq_refl.
+Example ex_read_Bx : trie_read (_value := nat) [0; 1] [8; 7] 1 = Some 7 := eq_refl.
 
 (*==========================================================================*)
 (*  Layer 2: projecting the conclusion ([join_output_fact]).                  *)
 (*==========================================================================*)
 
 (* Binding [y;x] = [8;7] projected through output indices [1;0] gives J(7,8). *)
-Example ex_project : join_output_fact (T := nat) [8; 7] concl = Some factJ := eq_refl.
+Example ex_project : join_output_fact (_value := nat) [8; 7] concl = Some factJ := eq_refl.
 
 (*==========================================================================*)
 (*  Layer 3: the rule fires ([hw_rule_impl] derives J(7,8) from A(7,8),B(8,7)).*)
