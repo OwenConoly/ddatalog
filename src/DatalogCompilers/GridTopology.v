@@ -11,18 +11,19 @@
 From Stdlib Require Import List ZArith.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridGraph SortedListList SortedListNat ComputableGraph.
 From coqutil Require Import Map.Interface.
+From Datalog.Util Require Import Map.
 Import ListNotations.
 
 (* Build the grid topology graph (node set + neighbor edges) from dimensions.  Since a node id
    *is* its coordinate list, there is no destructuring/reassembly. *)
-Definition build_topo_node_set (dims : GridGraph.Dimensions) : @map.rep Node unit _ :=
+Definition build_topo_node_set (dims : GridGraph.Dimensions) : partial_map Node unit :=
   List.fold_left
     (fun acc n => map.put acc n tt)
     (GridGraph.all_nodes_h dims)
     map.empty.
 
 Definition build_topo_edge_set (dims : GridGraph.Dimensions)
-    : @map.rep Node (@map.rep Node unit _) _ :=
+    : partial_map Node (partial_map Node unit) :=
   let nodes := GridGraph.all_nodes_h dims in
   List.fold_left
     (fun acc n =>

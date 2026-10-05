@@ -9,6 +9,7 @@ From Datalog Require Import Datalog NattifyRel RelMap.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridTopology StringDatalog StringDatalogParams
   GridGraph SortedListNat DistributedHardwareProgram.
 From coqutil Require Import Map.Interface Map.SortedListString Result.
+From Datalog.Util Require Import Map.
 Import ListNotations.
 Import StringDatalogParams.
 
@@ -20,7 +21,7 @@ Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 Definition make_layout_map
     (program : list rule)
     (layout  : list (node_id * list nat))
-    : @map.rep node_id (list rule) _ :=
+    : partial_map node_id (list rule) :=
   List.fold_left
     (fun acc '(nid, idxs) =>
       let empty_rule := rule.impl [] [] in
@@ -36,10 +37,10 @@ Definition rel_ids (program : list rule) : string -> rel_id :=
     {| program.rules := program; program.meta_rules := [] |}.
 
 Definition nattify_layout (enc : string -> rel_id)
-    (slayout : @map.rep node_id (list rule) _) : @map.rep node_id (list HardwareProgram.lowered_rule) _ :=
+    (slayout : partial_map node_id (list rule)) : partial_map node_id (list HardwareProgram.lowered_rule) :=
   map.fold (fun acc nid rules => map.put acc nid (List.map (rule.map_rel enc) rules)) map.empty slayout.
 
-Definition nattify_fact_locs (enc : string -> rel_id) (fl : @map.rep string (list node_id) _) : @map.rep rel_id (list node_id) _ :=
+Definition nattify_fact_locs (enc : string -> rel_id) (fl : partial_map string (list node_id)) : partial_map rel_id (list node_id) :=
   map.fold (fun acc R locs => map.put acc (enc R) locs) map.empty fl.
 
 (* The end-to-end compiler: nattify the string layout / fact-locations, then wire the numbered
@@ -48,8 +49,8 @@ Definition nattify_fact_locs (enc : string -> rel_id) (fl : @map.rep string (lis
 Definition compile_program
     (program        : list rule)
     (layout         : list (node_id * list nat))
-    (fact_producers : @map.rep string (list node_id) _)
-    (fact_consumers : @map.rep string (list node_id) _)
+    (fact_producers : partial_map string (list node_id))
+    (fact_consumers : partial_map string (list node_id))
     (topo_dims      : GridGraph.Dimensions)
     : _ :=
   let enc := rel_ids program in
@@ -72,7 +73,7 @@ Definition compile_program_rel_ids (program : list rule) : list (string * rel_id
    TODO: replace with the real input (fact-producer) and output (fact-consumer) nodes for the
    program -- only the genuine EDB sources and result sinks, not every node. *)
 Definition all_io_locations (program : list rule) (layout : list (node_id * list nat))
-    (topo_dims : GridGraph.Dimensions) : @map.rep string (list node_id) _ :=
+    (topo_dims : GridGraph.Dimensions) : partial_map string (list node_id) :=
   let nodes := GridGraph.all_nodes_h topo_dims in
   (* only relations of the rules the layout actually assigns are in the global context *)
   let assigned := List.flat_map (fun '(_, idxs) =>
