@@ -14,10 +14,10 @@
    and the order-independence machinery ([dstep_replay], [dreach_merge], [present_list]) the bridge
    uses to prove adequacy. *)
 
-From Datalog Require Import Datalog.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
-From DatalogRocq Require Import HardwareProgram DistributedHardwareProgram NodeHardwareSemantics.
+From DatalogRocq Require Import Topologies.Graph HardwareProgram DistributedHardwareProgram NodeHardwareSemantics.
+From Datalog Require Import Datalog Map Default.
 
 Import ListNotations.
 
@@ -27,11 +27,8 @@ Section DistributedHardwareSemantics.
 Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context `{sig : signature fn aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
-Context {node_id : Type}
+Context {node_id : node_idT}
         {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
-
-(* ground/runtime facts at this (numeric-id) layer *)
-Notation dl_fact := (@Datalog.fact rel_id T).
 
 (*============================================================================*)
 (*  OPERATIONAL hardware semantics: a standalone small-step machine that just  *)
@@ -42,25 +39,24 @@ Notation dl_fact := (@Datalog.fact rel_id T).
 (*  Its equivalence to the declarative semantics above is a PROVED theorem.     *)
 (*============================================================================*)
 
-(* a configuration: which facts are currently present at which node. *)
-Definition config := node_id -> node_id -> dl_fact -> Prop.
-Definition cadd (c : config) (n s : node_id) (f : dl_fact) : config :=
-  fun n0 s0 f0 => c n0 s0 f0 \/ (n0 = n /\ s0 = s /\ f0 = f).
+#[local] Existing Instance rel_id.
 
-Definition facts_at (c : config) (n : node_id) : dl_fact -> Prop :=
-  fun f => exists s, c n s f.
+(* a configuration: which facts are currently present at which virtual node. *)
+Definition config := virtual_node -> fact -> Prop.
+Definition cadd (c : config) (n : virtual_node) (f : fact) : config :=
+  fun n0 f0 => c n0 f0 \/ (n0 = n /\ f0 = f).
 
 Section Run.
 Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
-        (forward : node_id -> rel_id -> node_id -> list node_id)
-        (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop).
+        (forward : node_id -> rel_id -> virtual_node -> list virtual_node)
+        (input : node_id -> nat -> fact -> Prop) (output : node_id -> rel_id -> Prop).
 
 (* one operational step: an EDB fact ENTERS at an input node; a node FIRES one hardware rule on
    facts it currently holds; or a fact is FORWARDED to a neighbour per that node's forwarding
    table. *)
 Inductive dstep (c : config) : config -> Prop :=
-| dstep_input n f :
-    input n f -> dstep c (cadd c n n f)
+| dstep_input n channel f :
+    input n channel f -> dstep c (cadd c (fwd_node n channel) f)
 | dstep_run n f hyps :
     Exists (fun hr => hw_rule_impl (tries n) hr f hyps) (prog n) ->
     Forall (facts_at c n) hyps ->
@@ -74,15 +70,14 @@ Inductive dreach : config -> Prop :=
 | dreachS c c' : dreach c -> dstep c c' -> dreach c'.
 
 (* a fact is PRODUCED by the run when some reachable configuration holds it at an output node. *)
-Definition hw_run_output (f : dl_fact) : Prop :=
+Definition hw_run_output (f : fact) : Prop :=
   exists n s c, dreach c /\ c n s f /\ output n (Datalog.rel_of f).
 
 End Run.
 
 (*----Running the compiler's output [ninfos] directly----*)
 
-Context {forwarding_table : map.map (rel_id * node_id) (list node_id)}.
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Context {forwarding_table : map.map (rel_id * virtual_node) (list virtual_node)}.
 
 (* read a node's compiled data off the returned [ninfos] (empty default if the node is absent). *)
 Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
@@ -100,17 +95,16 @@ Definition node_tries (ninfos : list node_info) (n : node_id) : list trie :=
 
 (* the forwarding function read off [ninfos]: the destinations a node lists for a relation. *)
 Definition forward_from_ninfos (ninfos : list node_info) (n : node_id) (r : rel_id)
-    (original_source : node_id) : list node_id :=
-  match map.get (find_ninfo ninfos n).(DistributedHardwareProgram.nforwarding) (r, original_source) with
-  | Some ds => ds | None => [] end.
+    (original_source : node_id) : list virtual_node :=
+  get_or_default (find_ninfo ninfos n).(nforwarding) (r, node_src original_source).
 
 (* RUN THE COMPILED NETWORK, straight from the compiler output [ninfos]: each node runs [node_prog]
    over the facts it holds (reading them through [node_tries]) and forwards along [forward_from_ninfos];
    [input]/[output] are the runtime EDB sources / answer sinks.  [run_ninfos ninfos input output f] is
    the predicate "the run can park fact [f] at an output node" -- the distributed [hw_run_output] with
    every node's data sourced from its [node_info].  NO [DistributedDatalog] anywhere in its definition. *)
-Definition run_ninfos (ninfos : list node_info) (input : node_id -> dl_fact -> Prop)
-    (output : node_id -> rel_id -> Prop) : dl_fact -> Prop :=
+Definition run_ninfos (ninfos : list node_info) (input : node_id -> fact -> Prop)
+    (output : node_id -> rel_id -> Prop) : fact -> Prop :=
   hw_run_output (node_prog ninfos) (node_tries ninfos) (forward_from_ninfos ninfos) input output.
 
 (*============================================================================*)
@@ -122,13 +116,13 @@ Definition run_ninfos (ninfos : list node_info) (input : node_id -> dl_fact -> P
 Section Adequacy.
 Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
         (forward : node_id -> rel_id -> node_id -> list node_id)
-        (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop).
+        (input : node_id -> fact -> Prop) (output : node_id -> rel_id -> Prop).
 
 Notation step  := (dstep prog tries forward input).
 Notation reach := (dreach prog tries forward input).
 
 (* a fact is operationally PRESENT at a node when some reachable config holds it. *)
-Definition present (n s : node_id) (f : dl_fact) : Prop := exists c, reach c /\ c n s f.
+Definition present (n s : node_id) (f : fact) : Prop := exists c, reach c /\ c n s f.
 
 (* MONOTONICITY: any step taken from [c] can be replayed from any larger config [d] -- it adds the
    same fact and the result still extends [d].  (This is why processing order is immaterial.) *)
@@ -166,7 +160,7 @@ Proof.
 Qed.
 
 (* Merge a list of separately-present facts (all at node [n]) into ONE reachable config holding them all. *)
-Lemma present_list (n : node_id) (hs : list dl_fact) :
+Lemma present_list (n : node_id) (hs : list fact) :
   Forall (fun h => exists s, present n s h) hs ->
   exists c, reach c /\ Forall (fun h => facts_at c n h) hs.
 Proof.
