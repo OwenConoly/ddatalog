@@ -545,9 +545,6 @@ Definition compile (layout : layout_map)
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
 
-From coqutil Require Import SortedListString.
-Existing Instance SortedListString.map.
-
 Compute compute_permutation [2;3;1;1] [1;2;3].
 Compute generate_join
   [ {| tid := 0; trel := 0; tperm := [0; 1] |} ;
