@@ -18,8 +18,6 @@ Context {node_id_set : map.map node_id unit} {node_id_set_ok : map.ok node_id_se
 Context {node_id_edge_set : map.map node_id node_id_set} {node_id_edge_set_ok : map.ok node_id_edge_set}.
 
 Abbreviation node_graph := (@ComputableGraph.ComputableGraph node_id node_id_set node_id_edge_set).
-Abbreviation cg_edge := (@ComputableGraph.cg_edge node_id node_id_set node_id_edge_set).
-Abbreviation is_path := (@ComputableGraph.is_path node_id node_id_set node_id_edge_set).
 
 Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 Context {forwarding_table : map.map rel_id (list destination)}

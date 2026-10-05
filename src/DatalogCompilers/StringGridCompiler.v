@@ -13,7 +13,6 @@ Import ListNotations.
 Import StringDatalogParams.
 
 Abbreviation node_id     := GridGraph.Node.
-Abbreviation node_id_map := GridTopology.node_id_map.
 Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 
 (* concrete fact-location tables: [rel]/[rel_id]-keyed maps to node lists. *)
