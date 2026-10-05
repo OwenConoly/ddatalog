@@ -14,7 +14,7 @@
 
        hardware_program  --(hw_prog_impl_fact)-->  facts
               ||  node_implements                     ||
-          [Datalog] program P  --(Datalog.prog_impl_fact)-->  facts
+          [Datalog] program P  --(program.interp)-->  facts
 
    [hw_node_correct] reduces this to a per-rule bridge [hw_rule_matches].  NodeHardwareSemantics is
    compiler-agnostic: it never mentions the compiler's [lowered_rule] AST.  Proving a *compiled*
@@ -22,9 +22,11 @@
    distributed version is [DistributedHardwareSemantics]. *)
 
 From Datalog Require Import Datalog.
+From Datalog.Util Require Import Pftree.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
 From DatalogRocq Require Import HardwareProgram.
+From DatalogRocq Require DistributedDatalog.
 
 Import ListNotations.
 
@@ -33,8 +35,10 @@ Section NodeHardwareSemantics.
 (* Relation names are already numeric ([rel_id] = [nat]) at this stage; functions,
    variables, and the value type stay abstract. *)
 Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-Context `{sig : signature fn aggregator T}.
+Context {semantics : datalog_semantics fn aggregator T}.
 Context {context : map.map var T} {context_ok : map.ok context}.
+Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
+Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 
 (* The reference programs this node is verified against are ordinary [Datalog] programs over
@@ -42,11 +46,11 @@ Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
    AST: the hardware program is compared directly to a [Datalog] program.  (Turning a compiled
    [lowered_rule] into such a [dl_rule], and proving the compiled hardware matches it, is the
    compiler's job in [DistributedDatalogToHardwareCompilerCorrect].) *)
-Notation dl_rule := (@Datalog.rule rel_id var fn aggregator).
+Notation dl_rule := (rule (_rel := rel_id)).
 Notation dl_program := (list dl_rule).
-(* Ground/runtime facts are [Datalog.fact]s ([normal_fact R args]); the bare fragment
-   never produces [meta_fact]s. *)
-Notation dl_fact := (@Datalog.fact rel_id T).
+(* Ground/runtime facts are [Datalog.fact]s ([fact.normal nf]); the bare fragment
+   never produces [fact.meta]s. *)
+Notation dl_fact := (Datalog.fact (_rel := rel_id)).
 
 (*============================================================================*)
 (*  Trie-join (hardware) semantics on a single node                           *)
@@ -134,7 +138,7 @@ Definition join_entry_sat (tries : list trie) (hyps' : list dl_fact)
   let '(tid, level, clause) := e in
   exists t hyp_tup,
     lookup_trie tries tid = Some t /\
-    nth_error hyps' clause = Some (Datalog.normal_fact t.(trel) hyp_tup) /\
+    nth_error hyps' clause = Some (fact.normal {| normal_fact.rel := t.(trel); normal_fact.args := hyp_tup |}) /\
     trie_read t.(tperm) hyp_tup level = Some vi.
 
 (* The [i]-th join binds variable-order position [i]: every entry must read the same
@@ -159,23 +163,24 @@ Definition join_output_fact (vals : list T) (jo : join_output) : option dl_fact 
           | Some vs, Some v => Some (v :: vs)
           | _, _ => None
           end) (Some []) jo.(output_var_indices) with
-  | Some out => Some (Datalog.normal_fact jo.(output_rel) out)
+  | Some out => Some (fact.normal {| normal_fact.rel := jo.(output_rel); normal_fact.args := out |})
   | None => None
   end.
 
-(* The single-rule semantics, in the same shape as [Datalog.rule_impl]: hardware rule
+(* The single-rule semantics, in the same shape as [DistributedDatalog.fires]: hardware rule
    [hr] (with trie table [tries]) produces conclusion fact [f] from hypothesis facts
    [hyps'] (one per clause/hypothesis, in clause order).
 
    The rule fires only when the hypothesis facts have the shape [hr] expects: one fact per
    clause, each tuple with the clause's arity ([hr.(hsig)]).  This makes the hardware as
-   strict as [Datalog.rule_impl] (whose [Forall2] forces exactly this), so that no spurious
+   strict as [rule.interp] (whose [Forall2] forces exactly this), so that no spurious
    facts are derived from over-long or extra hypothesis facts. *)
 Definition hw_rule_impl (tries : list trie) (hr : hardware_rule)
     (f : dl_fact) (hyps' : list dl_fact) : Prop :=
   Forall2 (fun sg fct => match fct with
-                         | Datalog.normal_fact R args => R = fst sg /\ length args = snd sg
-                         | _ => False
+                         | fact.normal {| normal_fact.rel := R; normal_fact.args := args |} =>
+                             R = fst sg /\ length args = snd sg
+                         | fact.meta _ => False
                          end) hr.(hsig) hyps' /\
   exists vals,
     query_sat tries hr.(hhyps) vals hyps' /\
@@ -189,24 +194,12 @@ Definition node_run (tries : list trie) (hp : hardware_program) (inputs : dl_fac
   : dl_fact -> Prop :=
   pftree (fun f hyps' => Exists (fun hr => hw_rule_impl tries hr f hyps') hp) inputs.
 
-(* The proof-tree closure, mirroring [Datalog.prog_impl] with an empty EDB
+(* The proof-tree closure, mirroring [program.interp] with an empty EDB
    ([Q := fun _ => False]): a fact is hardware-derivable iff it is the root of a
    proof tree whose every node fires some hardware rule.  ([node_run] with no inputs.) *)
 Definition hw_prog_impl_fact (tries : list trie) (hp : hardware_program)
   : dl_fact -> Prop :=
   node_run tries hp (fun _ => False).
-
-(* [pftree] weakening (the new [Datalog] drops the old [pftree_weaken]; we reprove
-   it from [pftree_ind]): replacing the step relation by a weaker one preserves trees. *)
-Lemma pftree_weaken {U : Type} (P1 P2 : U -> list U -> Prop) (Q : U -> Prop) x :
-  (forall x l, P1 x l -> P2 x l) ->
-  pftree P1 Q x -> pftree P2 Q x.
-Proof.
-  intros Himp.
-  apply (Datalog.pftree_ind P1 Q (fun x => pftree P2 Q x)).
-  - intros x0 HQ. apply pftree_leaf; assumption.
-  - intros x0 l HP1 _ HR. eapply pftree_step; [apply Himp; eassumption | assumption].
-Qed.
 
 (*============================================================================*)
 (*  Correctness: trie-join semantics vs. datalog semantics                    *)
@@ -217,23 +210,21 @@ Qed.
    derives exactly what [P] derives.  [P] is an ordinary [Datalog] program over the numeric ids
    the hardware uses -- no compiler AST involved. *)
 Definition node_implements (tries : list trie) (hp : hardware_program) (P : dl_program) : Prop :=
-  forall f, hw_prog_impl_fact tries hp f <-> Datalog.prog_impl P (fun _ => False) f.
+  forall f, hw_prog_impl_fact tries hp f <->
+         program.interp {| program.rules := P; program.meta_rules := [] |} (fun _ => False) f.
 
 (* Per-rule bridge: hardware rule [hr] (with trie table [tries]) is *correct* for datalog rule
-   [r] when, fact-for-fact, the trie-join produces exactly what [r] produces under derivation
-   environment [env].  (For the bare/normal fragment [rule_impl] is [env]-independent, so the
-   choice of [env] is immaterial.)  Everything else reduces to this; [DistributedDatalogToHardwareCompilerCorrect]
-   discharges it for compiled rules via the trie-join argument. *)
-Definition hw_rule_matches (tries : list trie)
-    (env : list dl_fact -> rel_id -> list T -> Prop) (r : dl_rule) (hr : hardware_rule) : Prop :=
-  forall f hyps', hw_rule_impl tries hr f hyps' <-> rule_impl env r f hyps'.
+   [r] when, fact-for-fact, the trie-join produces exactly what [r] produces.  Everything else
+   reduces to this; [DistributedDatalogToHardwareCompilerCorrect] discharges it for compiled rules
+   via the trie-join argument. *)
+Definition hw_rule_matches (tries : list trie) (r : dl_rule) (hr : hardware_rule) : Prop :=
+  forall f hyps', hw_rule_impl tries hr f hyps' <-> DistributedDatalog.fires r f hyps'.
 
 (* Pointwise, the two one-step relations agree once every rule matches. *)
-Lemma matches_step (tries : list trie) (P : dl_program) (hp : hardware_program)
-    (env : list dl_fact -> rel_id -> list T -> Prop) f hyps' :
-  Forall2 (hw_rule_matches tries env) P hp ->
+Lemma matches_step (tries : list trie) (P : dl_program) (hp : hardware_program) f hyps' :
+  Forall2 (hw_rule_matches tries) P hp ->
   (Exists (fun hr => hw_rule_impl tries hr f hyps') hp
-   <-> Exists (fun r => rule_impl env r f hyps') P).
+   <-> Exists (fun r => DistributedDatalog.fires r f hyps') P).
 Proof.
   intros HF. induction HF as [| r hr P' hp' Hmatch HF IH]; simpl.
   - split; intros HE; inversion HE.
@@ -244,12 +235,12 @@ Qed.
    whole node's trie-join semantics derives exactly the datalog program's facts -- i.e. the
    node implements [P].  The deep work is thus isolated to the per-rule obligation. *)
 Theorem hw_node_correct (tries : list trie) (P : dl_program) (hp : hardware_program) :
-  Forall2 (hw_rule_matches tries (Datalog.one_step_derives P)) P hp ->
+  Forall2 (hw_rule_matches tries) P hp ->
   node_implements tries hp P.
 Proof.
-  intros HF f. cbv [node_implements hw_prog_impl_fact Datalog.prog_impl].
-  split; intros H; eapply pftree_weaken; try exact H; intros x l Hx;
-    apply (matches_step tries P hp (Datalog.one_step_derives P) _ _ HF); exact Hx.
+  intros HF f. cbv [node_implements hw_prog_impl_fact node_run].
+  apply pftree.step_ext. intros. rewrite DistributedDatalog.interp_step_iff_fires.
+  apply matches_step. exact HF.
 Qed.
 
 End NodeHardwareSemantics.

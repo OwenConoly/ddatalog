@@ -10,4 +10,5 @@
 -Q _build/default/datalog/src/util Datalog.Util
 -Q _build/default/datalog/src/datalog Datalog
 -Q _build/default/datalog/graph_search/coqutil/src/coqutil coqutil
+-Q _build/default/datalog/graph_search/src GraphSearch
 -Q _build/default/src DatalogRocq

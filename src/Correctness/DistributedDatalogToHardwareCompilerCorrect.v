@@ -1,6 +1,6 @@
 (* Correctness of [DistributedDatalogToHardwareCompiler.compile] against the trie-join semantics of [NodeHardwareSemantics],
    for the *bare-variable* (SuperNice) fragment: every hypothesis/conclusion argument is a
-   bare variable [var_expr].  (Function-application arguments in premises/conclusions are not yet
+   bare variable [expr.var].  (Function-application arguments in premises/conclusions are not yet
    handled by the compiler -- see DistributedDatalogToHardwareCompiler.generate_join / compile_concl -- and are out of
    scope here.)
 
@@ -71,20 +71,20 @@ Definition nfargs (f : Datalog.fact (rel := rel_id)) : list T :=
 (* A [lowered_rule] IS a [Datalog] rule over numeric relation ids ([rel_id]) at the source's
    [var]/[fn]/[aggregator] -- exactly the rule the trie-join semantics verifies.  So there is NO
    [lowered -> Datalog] conversion: the compiler emits these rules in their final type, and
-   ([DistributedDatalogToHardwareCompiler.global_rename_rule]/[compile_rule]) error out on any non-[normal_rule], so a
+   ([DistributedDatalogToHardwareCompiler.global_rename_rule]/[compile_rule]) error out on any non-[rule.impl], so a
    lowered program is normal by construction.  A lowered fact/expr likewise IS a [Datalog]
    clause/expr over numeric ids. *)
 
-(* A [normal_rule] fires (env-free, since its conclusion is a [normal_fact]) exactly when some
+(* A [rule.impl] fires (env-free, since its conclusion is a [normal_fact]) exactly when some
    context interprets all its hypothesis clauses to [hyps'] and one conclusion clause to [f]. *)
 Lemma lrule_impl_iff (concls hyps : list lowered_fact)
     (env : list (Datalog.fact (rel := rel_id)) -> rel_id -> list T -> Prop)
     (f : Datalog.fact (rel := rel_id)) (hyps' : list (Datalog.fact (rel := rel_id))) :
-  rule_impl env (Datalog.normal_rule concls hyps) f hyps' <->
+  rule_impl env (Datalog.rule.impl concls hyps) f hyps' <->
   exists R args ctx,
     f = Datalog.normal_fact R args /\
-    Forall2 (interp_clause ctx) hyps hyps' /\
-    Exists (fun c => interp_clause ctx c (Datalog.normal_fact R args)) concls.
+    Forall2 (clause.interp ctx) hyps hyps' /\
+    Exists (fun c => clause.interp ctx c (Datalog.normal_fact R args)) concls.
 Proof.
   split.
   - intros H. inversion H; subst.
@@ -97,23 +97,23 @@ Qed.
 (*----The bare-variable fragment----*)
 
 Definition bare_fact (lf : lowered_fact) : Prop :=
-  Forall (fun e => exists v, e = var_expr v) lf.(Datalog.clause_args).
+  Forall (fun e => exists v, e = expr.var v) lf.(Datalog.clause.args).
 
-(* The compiler only produces [normal_rule]s; a rule is *bare* when all its clause arguments
+(* The compiler only produces [rule.impl]s; a rule is *bare* when all its clause arguments
    are bare variables. *)
 Definition bare_rule (lr : lowered_rule) : Prop :=
   match lr with
-  | Datalog.normal_rule concls hyps => Forall bare_fact hyps /\ Forall bare_fact concls
+  | Datalog.rule.impl concls hyps => Forall bare_fact hyps /\ Forall bare_fact concls
   | _ => False
   end.
 
 (* For a bare fact, [compute_var_order] (which drops function args) keeps every argument, so
    its length is the fact's arity and arg positions line up with variable positions. *)
 Lemma bare_compute_var_order_length (lf : lowered_fact) :
-  bare_fact lf -> length (compute_var_order lf) = length lf.(Datalog.clause_args).
+  bare_fact lf -> length (compute_var_order lf) = length lf.(Datalog.clause.args).
 Proof.
   unfold bare_fact, DistributedDatalogToHardwareCompiler.compute_var_order. intros H.
-  induction lf.(Datalog.clause_args) as [|a args IH]; simpl in *.
+  induction lf.(Datalog.clause.args) as [|a args IH]; simpl in *.
   - reflexivity.
   - inversion H as [|x l [v Hv] H']; subst. simpl. rewrite IH; auto.
 Qed.
@@ -203,7 +203,7 @@ Qed.
 (*----Conclusion projection: join_output_fact <-> interp_fact (bare concls)----*)
 
 Lemma interp_var_iff (ctx : context) (v : var) (x : T) :
-  interp_expr ctx (var_expr v : Datalog.expr (fn := fn)) x <-> map.get ctx v = Some x.
+  expr.interp ctx (expr.var v : Datalog.expr (fn := fn)) x <-> map.get ctx v = Some x.
 Proof.
   split.
   - intros H; inversion H; subst; assumption.
@@ -228,8 +228,8 @@ Qed.
 Lemma corr_bridge (ord : list var) (vals : list T) (ctx : context) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   forall args idxs out,
-  Forall2 (fun e idx => exists v, e = var_expr v /\ nth_error ord idx = Some v) args idxs ->
-  ( Forall2 (interp_expr ctx) (args) out
+  Forall2 (fun e idx => exists v, e = expr.var v /\ nth_error ord idx = Some v) args idxs ->
+  ( Forall2 (expr.interp ctx) (args) out
     <-> Forall2 (fun idx v => nth_error vals idx = Some v) idxs out ).
 Proof.
   intros Hnd Hlen Hctx args idxs out Hcorr. revert out.
@@ -255,10 +255,10 @@ Qed.
 Lemma join_output_fact_interp (concl : lowered_fact) (ord : list var) (vals : list T)
     (ctx : context) (jo : join_output) (f : Datalog.fact (rel := rel_id)) :
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
-  jo.(output_rel) = concl.(Datalog.clause_rel) ->
-  Forall2 (fun e idx => exists v, e = var_expr v /\ nth_error ord idx = Some v)
-          concl.(Datalog.clause_args) jo.(output_var_indices) ->
-  ( join_output_fact vals jo = Some f <-> interp_clause ctx concl f ).
+  jo.(output_rel) = concl.(Datalog.clause.rel) ->
+  Forall2 (fun e idx => exists v, e = expr.var v /\ nth_error ord idx = Some v)
+          concl.(Datalog.clause.args) jo.(output_var_indices) ->
+  ( join_output_fact vals jo = Some f <-> clause.interp ctx concl f ).
 Proof.
   intros Hnd Hlen Hctx Hrel Hcorr. rewrite join_output_fact_spec. split.
   - intros [out [Hf Hfa]]. exists out. split.
@@ -561,7 +561,7 @@ Definition gj_entries (tb : list trie) (v : var) (hyps : list lowered_fact)
   : list (trie_id * nat * clause_id) :=
   flat_map (fun '(c, t, hyp) =>
               map (fun a => (t.(tid), nth a t.(tperm) 0, c))
-                  (indexes_of (var_expr v) hyp.(Datalog.clause_args)))
+                  (indexes_of (expr.var v) hyp.(Datalog.clause.args)))
            (combine3 (seq 0 (length hyps)) tb hyps).
 
 Lemma generate_join_entries (tb : list trie) (v : var) (hyps : list lowered_fact) :
@@ -619,7 +619,7 @@ Lemma gj_entries_In (tb : list trie) (v : var) (hyps : list lowered_fact)
   In e (gj_entries tb v hyps) <->
   (exists c t hyp a,
      nth_error (combine tb hyps) c = Some (t, hyp) /\
-     nth_error hyp.(Datalog.clause_args) a = Some (var_expr v) /\
+     nth_error hyp.(Datalog.clause.args) a = Some (expr.var v) /\
      e = (t.(tid), nth a t.(tperm) 0, c)).
 Proof.
   unfold gj_entries. rewrite in_flat_map. split.
@@ -639,8 +639,8 @@ Qed.
 
 (* Reading a lowered fact as a datalog fact, factored. *)
 Lemma interp_lfact_iff (ctx : context) (lf : lowered_fact) (R : rel_id) (tup : list T) :
-  interp_clause ctx lf (Datalog.normal_fact R tup) <->
-  R = lf.(Datalog.clause_rel) /\ Forall2 (interp_expr ctx) (lf.(Datalog.clause_args)) tup.
+  clause.interp ctx lf (Datalog.normal_fact R tup) <->
+  R = lf.(Datalog.clause.rel) /\ Forall2 (expr.interp ctx) (lf.(Datalog.clause.args)) tup.
 Proof.
   split.
   - intros [nf_args [HF Heq]]. injection Heq as HR Htup. subst. split; [reflexivity | assumption].
@@ -650,10 +650,10 @@ Qed.
 (* For bare args, the per-position interpretation condition. *)
 Lemma bare_interp_args_iff (ctx : context)
     (args : list (@HardwareProgram.lowered_expr var fn)) (tup : list T) :
-  Forall (fun e => exists v, e = var_expr v) args ->
-  ( Forall2 (interp_expr ctx) (args) tup <->
+  Forall (fun e => exists v, e = expr.var v) args ->
+  ( Forall2 (expr.interp ctx) (args) tup <->
     (length args = length tup /\
-     forall a w, nth_error args a = Some (var_expr w) -> nth_error tup a = map.get ctx w) ).
+     forall a w, nth_error args a = Some (expr.var w) -> nth_error tup a = map.get ctx w) ).
 Proof.
   intros Hbare. rewrite Forall2_nth_error_iff. split.
   - intros [Hlen Hpt]. split; [exact Hlen|]. intros a w Haw.
@@ -664,7 +664,7 @@ Proof.
     destruct (nth_error tup a) as [y|] eqn:Hy; [|congruence].
     specialize (Hpt a _ _ Haw Hy). apply interp_var_iff in Hpt. symmetry; exact Hpt.
   - intros [Hlen Hpt]. split; [exact Hlen|]. intros a arg y Earg Hy.
-    assert (Hw : exists w, arg = var_expr w)
+    assert (Hw : exists w, arg = expr.var w)
       by (rewrite Forall_forall in Hbare; apply Hbare; eapply nth_error_In; exact Earg).
     destruct Hw as [w ->]. apply interp_var_iff.
     specialize (Hpt a w Earg). rewrite Hy in Hpt. symmetry; exact Hpt.
@@ -688,7 +688,7 @@ Qed.
    - (->) Given satisfying [vals], take [ctx := ctx_of ord vals].  For hypothesis i with bare
      args, [join_sat] for each variable position forces [nth (pos of v in ord) vals] to equal
      [trie_read tperm_i tup_i level]; [trie_read_NoDup] rewrites that to [nth_error tup_i argpos],
-     which is exactly [interp_expr ctx (var_expr v)].  Assemble [interp_fact ctx (h_i) (..)].
+     which is exactly [expr.interp ctx (expr.var v)].  Assemble [interp_fact ctx (h_i) (..)].
    - (<-) Given [ctx] interpreting all hyps, read [vals := map (ctx) ord]; each join entry reads
      back the matching tuple column by the same [trie_read_NoDup] identity. *)
 Theorem generate_query_correct
@@ -701,16 +701,16 @@ Theorem generate_query_correct
   length vals = length ord ->
   (forall v, In v (flat_map compute_var_order hyps) -> In v ord) ->
   (forall i, i < length hyps ->
-     (nth i tb dt).(trel) = (nth i hyps dh).(Datalog.clause_rel) /\
+     (nth i tb dt).(trel) = (nth i hyps dh).(Datalog.clause.rel) /\
      (nth i tb dt).(tperm) = DistributedDatalogToHardwareCompiler.compute_permutation (var_eqb := var_eqb)
                                 (compute_var_order (nth i hyps dh)) ord /\
      lookup_trie tries (nth i tb dt).(tid) = Some (nth i tb dt) /\
      exists tup, nth i hyps' (Datalog.normal_fact 0 []) =
-                   Datalog.normal_fact (nth i hyps dh).(Datalog.clause_rel) tup /\
-                 length tup = length (nth i hyps dh).(Datalog.clause_args)) ->
+                   Datalog.normal_fact (nth i hyps dh).(Datalog.clause.rel) tup /\
+                 length tup = length (nth i hyps dh).(Datalog.clause.args)) ->
   ( query_sat tries (generate_query tb ord hyps) vals hyps'
     <-> exists ctx, ctx_of ord vals = Some ctx /\
-                    Forall2 (interp_clause ctx) (hyps) hyps' ).
+                    Forall2 (clause.interp ctx) (hyps) hyps' ).
 Proof.
   intros Hnd Hbare Htbl Hhl Hvl Hcov Hstruct.
   destruct (ctx_of_exists ord vals (eq_sym Hvl)) as [ctx Hctx].
@@ -728,8 +728,8 @@ Proof.
   assert (Hentry : forall c a w u tupc,
             c < length hyps ->
             nth c hyps' (Datalog.normal_fact 0 []) =
-              Datalog.normal_fact (nth c hyps dh).(Datalog.clause_rel) tupc ->
-            nth_error (nth c hyps dh).(Datalog.clause_args) a = Some (var_expr w) ->
+              Datalog.normal_fact (nth c hyps dh).(Datalog.clause.rel) tupc ->
+            nth_error (nth c hyps dh).(Datalog.clause.args) a = Some (expr.var w) ->
             ( join_entry_sat tries hyps' u ((nth c tb dt).(tid), nth a (nth c tb dt).(tperm) 0, c)
               <-> nth_error tupc a = Some u )).
   { intros c a w u tupc Hc Hnf Haw.
@@ -741,11 +741,11 @@ Proof.
     { rewrite Htperm. apply compute_permutation_NoDup; [exact Hnd|].
       intros v Hv. apply Hcov, in_flat_map.
       exists (nth c hyps dh). split; [apply nth_In; lia | exact Hv]. }
-    assert (Halt : a < length (nth c hyps dh).(Datalog.clause_args)) by (apply nth_error_Some; congruence).
+    assert (Halt : a < length (nth c hyps dh).(Datalog.clause.args)) by (apply nth_error_Some; congruence).
     assert (Harity : a < length (nth c tb dt).(tperm)).
     { rewrite Htperm, compute_permutation_length, bare_compute_var_order_length by exact Hbarec.
       exact Halt. }
-    assert (Hnh : nth_error hyps' c = Some (Datalog.normal_fact (nth c hyps dh).(Datalog.clause_rel) tupc)).
+    assert (Hnh : nth_error hyps' c = Some (Datalog.normal_fact (nth c hyps dh).(Datalog.clause.rel) tupc)).
     { rewrite (nth_error_nth' hyps' (Datalog.normal_fact 0 [])) by lia. rewrite Hnf0. reflexivity. }
     unfold join_entry_sat. split.
     - intros [t' [tup' [Hl' [Hn' Hr]]]].
@@ -781,7 +781,7 @@ Proof.
         exists vi. split; [exact Hvi|]. rewrite generate_join_entries, Forall_forall. exact HFe. }
   (* the common pointwise condition *)
   pose (Ccond := forall c a w, c < length hyps ->
-          nth_error (nth c hyps dh).(Datalog.clause_args) a = Some (var_expr w) ->
+          nth_error (nth c hyps dh).(Datalog.clause.args) a = Some (expr.var w) ->
           nth_error (nfargs (nth c hyps' (Datalog.normal_fact 0 []))) a = map.get ctx w).
   assert (Hq_iff : query_sat tries (generate_query tb ord hyps) vals hyps' <-> Ccond).
   { rewrite Hqs. unfold Ccond. split.
@@ -790,7 +790,7 @@ Proof.
       assert (Inw : In w ord).
       { apply Hcov, in_flat_map. exists (nth c hyps dh). split; [apply nth_In; lia|].
         unfold compute_var_order, DistributedDatalogToHardwareCompiler.compute_var_order. apply in_flat_map.
-        exists (var_expr w). split; [eapply nth_error_In; exact Haw | simpl; auto]. }
+        exists (expr.var w). split; [eapply nth_error_In; exact Haw | simpl; auto]. }
       destruct (In_nth_error _ _ Inw) as [i Hi].
       specialize (H i w Hi). destruct H as [vi [Hvi HFe]].
       assert (Hin_e : In ((nth c tb dt).(tid), nth a (nth c tb dt).(tperm) 0, c) (gj_entries tb w hyps)).
@@ -812,7 +812,7 @@ Proof.
       replace (nfargs (nth c hyps' (Datalog.normal_fact 0 []))) with tupc in H
         by (rewrite Hnf; reflexivity).
       rewrite H, (ctx_get_eq_nth ord vals ctx i v Hnd (eq_sym Hvl) Hctx Hiv). exact Hvi. }
-  assert (Hi_iff : Forall2 (interp_clause ctx) (hyps) hyps' <-> Ccond).
+  assert (Hi_iff : Forall2 (clause.interp ctx) (hyps) hyps' <-> Ccond).
   { rewrite Forall2_nth_error_iff. unfold Ccond. split.
     - intros [Hlen Hpt] c a w Hc Haw.
       assert (Hbarec : bare_fact (nth c hyps dh))
@@ -821,7 +821,7 @@ Proof.
       assert (P1 : nth_error (hyps) c = Some ((nth c hyps dh)))
         by (rewrite (nth_error_nth' hyps dh) by lia; reflexivity).
       assert (P2 : nth_error hyps' c =
-                     Some (Datalog.normal_fact (nth c hyps dh).(Datalog.clause_rel) tupc)).
+                     Some (Datalog.normal_fact (nth c hyps dh).(Datalog.clause.rel) tupc)).
       { rewrite (nth_error_nth' hyps' (Datalog.normal_fact 0 [])) by lia. rewrite Hnf. reflexivity. }
       specialize (Hpt c _ _ P1 P2).
       apply interp_lfact_iff in Hpt. destruct Hpt as [_ HF2].
@@ -839,7 +839,7 @@ Proof.
       assert (Hbarec : bare_fact (nth c hyps dh))
         by (rewrite Forall_forall in Hbare; apply Hbare; apply nth_In; lia).
       destruct (Hstruct c Hc) as [_ [_ [_ [tupc [Hnf Hltup]]]]].
-      assert (Eyf : yf = Datalog.normal_fact (nth c hyps dh).(Datalog.clause_rel) tupc).
+      assert (Eyf : yf = Datalog.normal_fact (nth c hyps dh).(Datalog.clause.rel) tupc).
       { assert (Hyn : nth c hyps' (Datalog.normal_fact 0 []) = yf)
           by (apply (nth_error_nth hyps' c (Datalog.normal_fact 0 [])); exact Hyf).
         rewrite <- Hyn. exact Hnf. }
@@ -875,9 +875,9 @@ Qed.
 (* The per-conclusion fact [compile_concl] establishes: the conclusion is bare and each output
    index is the ordering position of the corresponding variable. *)
 Definition concl_corr (ord : list var) (c : lowered_fact) (jo : join_output) : Prop :=
-  jo.(output_rel) = c.(Datalog.clause_rel) /\
-  Forall2 (fun e idx => exists v, e = var_expr v /\ nth_error ord idx = Some v)
-          c.(Datalog.clause_args) jo.(output_var_indices).
+  jo.(output_rel) = c.(Datalog.clause.rel) /\
+  Forall2 (fun e idx => exists v, e = expr.var v /\ nth_error ord idx = Some v)
+          c.(Datalog.clause.args) jo.(output_var_indices).
 
 (* Lifting [join_output_fact_interp] over the whole conclusion list: under the induced context,
    the trie-join's conclusion outputs are exactly the lowered rule's conclusion facts. *)
@@ -886,7 +886,7 @@ Lemma concl_exists_iff (ord : list var) (vals : list T) (ctx : context)
   NoDup ord -> length ord = length vals -> ctx_of ord vals = Some ctx ->
   Forall2 (concl_corr ord) concls jos ->
   ( Exists (fun jo => join_output_fact vals jo = Some f) jos <->
-    Exists (fun c => interp_clause ctx (c) f) concls ).
+    Exists (fun c => clause.interp ctx (c) f) concls ).
 Proof.
   intros Hnd Hlen Hctx HF. induction HF as [| c jo concls jos [Hrel Hcorr] HF IH].
   - simpl. split; intros HE; inversion HE.
@@ -898,8 +898,8 @@ Qed.
 (* Variables appearing in a corresponding conclusion live in the ordering. *)
 Lemma corr_args_vars_in_ord (ord : list var)
     (args : list (@HardwareProgram.lowered_expr var fn)) (idxs : list nat) (v : var) :
-  Forall2 (fun e idx => exists w, e = var_expr w /\ nth_error ord idx = Some w) args idxs ->
-  In v (flat_map vars_of_expr (args)) -> In v ord.
+  Forall2 (fun e idx => exists w, e = expr.var w /\ nth_error ord idx = Some w) args idxs ->
+  In v (flat_map expr.vars (args)) -> In v ord.
 Proof.
   intros HF. induction HF as [|e idx args idxs [w [-> Hwo]] HF IH]; simpl; intros Hin.
   - contradiction.
@@ -914,29 +914,29 @@ Lemma exists_interp_transport (concls : list lowered_fact) (jos : list join_outp
     (ord : list var) (ctx ctx' : context) (f : Datalog.fact (rel := rel_id)) :
   Forall2 (concl_corr ord) concls jos ->
   (forall v, In v ord -> map.get ctx v = map.get ctx' v) ->
-  Exists (fun c => interp_clause ctx (c) f) concls ->
-  Exists (fun c => interp_clause ctx' (c) f) concls.
+  Exists (fun c => clause.interp ctx (c) f) concls ->
+  Exists (fun c => clause.interp ctx' (c) f) concls.
 Proof.
   intros HF Hag Hex. induction HF as [|c jo concls jos [Hrel Hcorr] HF IH].
   - inversion Hex.
   - rewrite Exists_cons in Hex. rewrite Exists_cons. destruct Hex as [Hc | Hrest].
     + left. eapply Datalog.interp_clause_agree_on; [exact Hc|].
       apply Forall_forall. intros v Hvin. red. apply Hag.
-      eapply (corr_args_vars_in_ord ord c.(Datalog.clause_args) jo.(output_var_indices) v Hcorr). exact Hvin.
+      eapply (corr_args_vars_in_ord ord c.(Datalog.clause.args) jo.(output_var_indices) v Hcorr). exact Hvin.
     + right. apply IH; exact Hrest.
 Qed.
 
 (* A bare hypothesis's datalog variables coincide with its [compute_var_order]. *)
 Lemma bare_vars_in_cvo (h : lowered_fact) (v : var) :
-  bare_fact h -> In v (Datalog.vars_of_clause (h)) -> In v (compute_var_order h).
+  bare_fact h -> In v (Datalog.clause.vars (h)) -> In v (compute_var_order h).
 Proof.
   intros Hb Hin.
-  assert (Hin' : In v (flat_map vars_of_expr (h.(Datalog.clause_args)))) by exact Hin.
+  assert (Hin' : In v (flat_map expr.vars (h.(Datalog.clause.args)))) by exact Hin.
   apply in_flat_map in Hin'. destruct Hin' as [e [Hein Hve]].
   unfold bare_fact in Hb. rewrite Forall_forall in Hb. destruct (Hb e Hein) as [w Hw]. subst e.
   simpl in Hve. destruct Hve as [Heq | []]. subst v.
   unfold DistributedDatalogToHardwareCompiler.compute_var_order. apply in_flat_map.
-  exists (var_expr w). split; [exact Hein | simpl; auto].
+  exists (expr.var w). split; [exact Hein | simpl; auto].
 Qed.
 
 (*----per-hypothesis relation/arity facts----*)
@@ -949,14 +949,14 @@ Notation hsig_ok := (fun (sg : rel_id * nat) (fct : Datalog.fact (rel := rel_id)
   end).
 
 (* Each hypothesis fact is the [normal_fact] with the clause's relation and arity, read off
-   from [interp_clause]. *)
+   from [clause.interp]. *)
 Lemma interp_hyp_arity (ctx : context) (rule_hyps : list lowered_fact)
     (hyps' : list (Datalog.fact (rel := rel_id))) (dh : lowered_fact) (i : nat) :
-  Forall2 (interp_clause ctx) (rule_hyps) hyps' ->
+  Forall2 (clause.interp ctx) (rule_hyps) hyps' ->
   i < length rule_hyps ->
   exists tup, nth i hyps' (Datalog.normal_fact 0 []) =
-                Datalog.normal_fact (nth i rule_hyps dh).(Datalog.clause_rel) tup /\
-              length tup = length (nth i rule_hyps dh).(Datalog.clause_args).
+                Datalog.normal_fact (nth i rule_hyps dh).(Datalog.clause.rel) tup /\
+              length tup = length (nth i rule_hyps dh).(Datalog.clause.args).
 Proof.
   intros HF Hi. apply Forall2_nth_error_iff in HF. destruct HF as [Hlen Hpt].
   assert (P1 : nth_error (rule_hyps) i = Some ((nth i rule_hyps dh)))
@@ -970,12 +970,12 @@ Proof.
   - apply Forall2_length in HFa. symmetry; exact HFa.
 Qed.
 
-(* The [hsig] shape check is exactly what [interp_clause] over the hypotheses provides. *)
+(* The [hsig] shape check is exactly what [clause.interp] over the hypotheses provides. *)
 Lemma interp_hyps_hsig (ctx : context) (rule_hyps : list lowered_fact)
     (hyps' : list (Datalog.fact (rel := rel_id))) :
-  Forall2 (interp_clause ctx) (rule_hyps) hyps' ->
+  Forall2 (clause.interp ctx) (rule_hyps) hyps' ->
   Forall2 hsig_ok
-          (map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) rule_hyps) hyps'.
+          (map (fun h => (h.(Datalog.clause.rel), length h.(Datalog.clause.args))) rule_hyps) hyps'.
 Proof.
   revert hyps'. induction rule_hyps as [|h lhs IH]; intros hyps' HF.
   - simpl in HF. inversion HF. simpl. constructor.
@@ -989,7 +989,7 @@ Qed.
 (* Conversely, the [hsig] shape check yields the per-hypothesis relation/arity facts. *)
 Lemma hsig_length (rule_hyps : list lowered_fact) (hyps' : list (Datalog.fact (rel := rel_id))) :
   Forall2 hsig_ok
-          (map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) rule_hyps) hyps' ->
+          (map (fun h => (h.(Datalog.clause.rel), length h.(Datalog.clause.args))) rule_hyps) hyps' ->
   length hyps' = length rule_hyps.
 Proof.
   intros HF. apply Forall2_length in HF. rewrite length_map in HF. symmetry; exact HF.
@@ -998,16 +998,16 @@ Qed.
 Lemma hsig_arity (rule_hyps : list lowered_fact) (hyps' : list (Datalog.fact (rel := rel_id)))
     (dh : lowered_fact) (i : nat) :
   Forall2 hsig_ok
-          (map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) rule_hyps) hyps' ->
+          (map (fun h => (h.(Datalog.clause.rel), length h.(Datalog.clause.args))) rule_hyps) hyps' ->
   i < length rule_hyps ->
   exists tup, nth i hyps' (Datalog.normal_fact 0 []) =
-                Datalog.normal_fact (nth i rule_hyps dh).(Datalog.clause_rel) tup /\
-              length tup = length (nth i rule_hyps dh).(Datalog.clause_args).
+                Datalog.normal_fact (nth i rule_hyps dh).(Datalog.clause.rel) tup /\
+              length tup = length (nth i rule_hyps dh).(Datalog.clause.args).
 Proof.
   intros HF Hi. apply Forall2_nth_error_iff in HF. destruct HF as [Hlen Hpt].
   rewrite length_map in Hlen.
-  assert (P1 : nth_error (map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) rule_hyps) i
-             = Some ((nth i rule_hyps dh).(Datalog.clause_rel), length (nth i rule_hyps dh).(Datalog.clause_args)))
+  assert (P1 : nth_error (map (fun h => (h.(Datalog.clause.rel), length h.(Datalog.clause.args))) rule_hyps) i
+             = Some ((nth i rule_hyps dh).(Datalog.clause.rel), length (nth i rule_hyps dh).(Datalog.clause.args)))
     by (rewrite nth_error_map, (nth_error_nth' rule_hyps dh) by lia; reflexivity).
   assert (Hib : i < length hyps') by (rewrite <- Hlen; exact Hi).
   assert (P2 : nth_error hyps' i = Some (nth i hyps' (Datalog.normal_fact 0 [])))
@@ -1036,14 +1036,14 @@ Theorem hw_rule_correct
   (forall v, In v (flat_map compute_var_order hyps) -> In v ord) ->
   (forall v, In v ord -> In v (flat_map compute_var_order hyps)) ->
   hr.(hhyps) = generate_query tb ord hyps ->
-  hr.(hsig) = map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) hyps ->
+  hr.(hsig) = map (fun h => (h.(Datalog.clause.rel), length h.(Datalog.clause.args))) hyps ->
   Forall2 (concl_corr ord) concls hr.(hconcls) ->
   (forall i, i < length hyps ->
-     (nth i tb dt).(trel) = (nth i hyps dh).(Datalog.clause_rel) /\
+     (nth i tb dt).(trel) = (nth i hyps dh).(Datalog.clause.rel) /\
      (nth i tb dt).(tperm) = DistributedDatalogToHardwareCompiler.compute_permutation (var_eqb := var_eqb)
                                (compute_var_order (nth i hyps dh)) ord /\
      lookup_trie tries (nth i tb dt).(tid) = Some (nth i tb dt)) ->
-  hw_rule_matches tries env (Datalog.normal_rule concls hyps) hr.
+  hw_rule_matches tries env (Datalog.rule.impl concls hyps) hr.
 Proof.
   intros Hnd Hbareh Hbarec Htbl Hcov Hord_sub Hhhyps Hhsig Hconcl Htrie.
   intros f hyps'. unfold hw_rule_impl. split.
@@ -1054,13 +1054,13 @@ Proof.
     assert (Hvl : length vals = length ord).
     { destruct Hqs as [Hqlen _]. rewrite Hhhyps, generate_query_length in Hqlen. exact Hqlen. }
     assert (Hstruct : forall i, i < length hyps ->
-       (nth i tb dt).(trel) = (nth i hyps dh).(Datalog.clause_rel) /\
+       (nth i tb dt).(trel) = (nth i hyps dh).(Datalog.clause.rel) /\
        (nth i tb dt).(tperm) = DistributedDatalogToHardwareCompiler.compute_permutation (var_eqb := var_eqb)
                                  (compute_var_order (nth i hyps dh)) ord /\
        lookup_trie tries (nth i tb dt).(tid) = Some (nth i tb dt) /\
        exists tup, nth i hyps' (Datalog.normal_fact 0 []) =
-                     Datalog.normal_fact (nth i hyps dh).(Datalog.clause_rel) tup /\
-                   length tup = length (nth i hyps dh).(Datalog.clause_args)).
+                     Datalog.normal_fact (nth i hyps dh).(Datalog.clause.rel) tup /\
+                   length tup = length (nth i hyps dh).(Datalog.clause.args)).
     { intros i Hi. destruct (Htrie i Hi) as [H1 [H2 H3]].
       destruct (hsig_arity hyps hyps' dh i Hsig Hi) as [tup [Hnf Hlt]].
       repeat split; try assumption. exists tup. split; assumption. }
@@ -1069,13 +1069,13 @@ Proof.
                     Hnd Hbareh Htbl Hlenh Hvl Hcov Hstruct)) in Hqs.
     destruct Hqs as [ctx [Hctx Hfa]].
     (* the produced fact comes from a conclusion clause, hence is a normal fact *)
-    assert (Hexf : Exists (fun c => interp_clause ctx c f) concls).
+    assert (Hexf : Exists (fun c => clause.interp ctx c f) concls).
     { apply (proj1 (concl_exists_iff ord vals ctx concls hr.(hconcls) f
                       Hnd (eq_sym Hvl) Hctx Hconcl)).
       apply Exists_exists. exists jo. split; [exact Hin | exact Hjo]. }
     apply Exists_exists in Hexf. destruct Hexf as [c [Hcin [nf_args [Hcargs Hfeq]]]].
     apply (proj2 (lrule_impl_iff concls hyps env f hyps')).
-    exists (c.(Datalog.clause_rel)), nf_args, ctx. split; [exact Hfeq|]. split; [exact Hfa|].
+    exists (c.(Datalog.clause.rel)), nf_args, ctx. split; [exact Hfeq|]. split; [exact Hfa|].
     rewrite <- Hfeq. apply Exists_exists. exists c. split; [exact Hcin|]. exists nf_args. auto.
   - (* datalog derivation -> hardware derivation *)
     intros Hri. apply lrule_impl_iff in Hri.
@@ -1085,14 +1085,14 @@ Proof.
     { intros v Hv. apply Hord_sub in Hv. apply in_flat_map in Hv.
       destruct Hv as [h [Hh Hvco]].
       assert (Hbh : bare_fact h) by (rewrite Forall_forall in Hbareh; auto).
-      assert (HLvar : In (var_expr v) h.(Datalog.clause_args)).
+      assert (HLvar : In (expr.var v) h.(Datalog.clause.args)).
       { unfold DistributedDatalogToHardwareCompiler.compute_var_order in Hvco. apply in_flat_map in Hvco.
         destruct Hvco as [arg [Harg Hva]]. unfold bare_fact in Hbh. rewrite Forall_forall in Hbh.
         destruct (Hbh arg Harg) as [w Hw]. subst arg. simpl in Hva.
         destruct Hva as [Heq | []]. subst w. exact Harg. }
       destruct (Forall2_In_l _ _ _ (h) Hfa Hh) as [y [_ Hint]].
       destruct Hint as [tup [HFa Hyeq]].
-      destruct (Forall2_In_l _ _ _ (var_expr v) HFa HLvar) as [u [_ Hiu]].
+      destruct (Forall2_In_l _ _ _ (expr.var v) HFa HLvar) as [u [_ Hiu]].
       apply interp_var_iff in Hiu. exists u. exact Hiu. }
     (* build the binding [vals] from the context over the ordering *)
     assert (HforallOrd : Forall (fun v => In v ord) ord)
@@ -1109,7 +1109,7 @@ Proof.
       rewrite (ctx_get_eq_nth ord vals ctx' i v Hnd Hlenov Hctx' Hi), Evt.
       symmetry. exact (map.getmany_of_list_get ord i ctx vals v t Hvals Hi Evt). }
     (* transport the hypotheses' interpretation to [ctx'] *)
-    assert (Hfa' : Forall2 (interp_clause ctx') (hyps) hyps').
+    assert (Hfa' : Forall2 (clause.interp ctx') (hyps) hyps').
     { eapply Forall2_impl_strong; [exact Hfa|].
       intros lf y Hif Hinlf _.
       eapply Datalog.interp_clause_agree_on; [exact Hif|].
@@ -1120,13 +1120,13 @@ Proof.
     { pose proof Hfa as HfaC. apply Forall2_nth_error_iff in HfaC.
       destruct HfaC as [Hl _]. exact (eq_sym Hl). }
     assert (Hstruct : forall i, i < length hyps ->
-       (nth i tb dt).(trel) = (nth i hyps dh).(Datalog.clause_rel) /\
+       (nth i tb dt).(trel) = (nth i hyps dh).(Datalog.clause.rel) /\
        (nth i tb dt).(tperm) = DistributedDatalogToHardwareCompiler.compute_permutation (var_eqb := var_eqb)
                                  (compute_var_order (nth i hyps dh)) ord /\
        lookup_trie tries (nth i tb dt).(tid) = Some (nth i tb dt) /\
        exists tup, nth i hyps' (Datalog.normal_fact 0 []) =
-                     Datalog.normal_fact (nth i hyps dh).(Datalog.clause_rel) tup /\
-                   length tup = length (nth i hyps dh).(Datalog.clause_args)).
+                     Datalog.normal_fact (nth i hyps dh).(Datalog.clause.rel) tup /\
+                   length tup = length (nth i hyps dh).(Datalog.clause.args)).
     { intros i Hi. destruct (Htrie i Hi) as [H1 [H2 H3]].
       destruct (interp_hyp_arity ctx hyps hyps' dh i Hfa Hi) as [tup [Hnf Hlt]].
       repeat split; try assumption. exists tup. split; assumption. }
@@ -1137,7 +1137,7 @@ Proof.
         apply (proj2 (generate_query_correct ord hyps tb tries vals hyps' dt dh
                         Hnd Hbareh Htbl Hlenh (eq_sym Hlenov) Hcov Hstruct)).
         exists ctx'. split; [exact Hctx' | exact Hfa'].
-      * assert (Hex' : Exists (fun c => interp_clause ctx' (c) (Datalog.normal_fact R args)) concls).
+      * assert (Hex' : Exists (fun c => clause.interp ctx' (c) (Datalog.normal_fact R args)) concls).
         { eapply exists_interp_transport; [exact Hconcl | | exact Hex].
           intros v Hv. symmetry. apply Hagree; exact Hv. }
         apply (proj2 (concl_exists_iff ord vals ctx' concls hr.(hconcls) (Datalog.normal_fact R args)
@@ -1200,14 +1200,14 @@ Notation get_rule_var_index := (@DistributedDatalogToHardwareCompiler.get_rule_v
 Lemma generate_trie_spec (hyp : lowered_fact) (ord : list var)
     (existing : list trie) (nc : node_context) (t : trie) (nc' : node_context) :
   generate_trie hyp ord existing nc = (t, nc') ->
-  t.(trel) = hyp.(Datalog.clause_rel) /\
+  t.(trel) = hyp.(Datalog.clause.rel) /\
   t.(tperm) = compute_permutation (compute_var_order hyp) ord.
 Proof.
   intros H. unfold DistributedDatalogToHardwareCompiler.generate_trie in H. cbv zeta in H.
   destruct (List.find _ existing) as [t0|] eqn:Hfind; inversion H; subst; clear H.
   - apply List.find_some in Hfind. destruct Hfind as [_ Hpred].
     apply andb_true_iff in Hpred. destruct Hpred as [Hrel Hperm].
-    destruct (eqb_boolspec _ t.(trel) hyp.(Datalog.clause_rel)) as [Er|Nr];
+    destruct (eqb_boolspec _ t.(trel) hyp.(Datalog.clause.rel)) as [Er|Nr];
       [|discriminate Hrel].
     destruct (eqb_boolspec _ t.(tperm) (compute_permutation (compute_var_order hyp) ord)) as [Ep|Np];
       [|discriminate Hperm].
@@ -1225,7 +1225,7 @@ Lemma compile_hyps_fold (ord : list var) (all_rels : list rel_id) (hyps : list l
       (t :: pool, t :: per_hyp_rev, ncontext)) hyps (pool0, rev0, nc0)
     = (pool1, rev1, nc1) ->
   exists ts, rev1 = (List.rev ts ++ rev0)%list /\ List.length ts = List.length hyps /\
-    Forall2 (fun t hyp => t.(trel) = hyp.(Datalog.clause_rel) /\
+    Forall2 (fun t hyp => t.(trel) = hyp.(Datalog.clause.rel) /\
                           t.(tperm) = compute_permutation (compute_var_order hyp) ord) ts hyps.
 Proof.
   induction hyps as [|hyp hyps IH]; intros pool0 rev0 nc0 pool1 rev1 nc1 H; simpl in H.
@@ -1252,7 +1252,7 @@ Qed.
 (* If each element's producer [g] sends a [Success] result to a fact [P a b], then
    [all_success (map g l)] yields the pointwise [Forall2 P].  ([List.all_success_Success_iff]
    from coqutil supplies the underlying elementwise inversion.) *)
-Lemma all_success_map_spec {A B} (g : A -> result B) (P : A -> B -> Prop) :
+Lemma all_success_map_spec {A B} (g : A -> Result.result B) (P : A -> B -> Prop) :
   forall (l : list A) (out : list B),
   Forall (fun a => forall b, g a = Success b -> P a b) l ->
   List.all_success (List.map g l) = Success out ->
@@ -1270,11 +1270,11 @@ Qed.
    This is exactly [DistributedDatalogToHardwareCompilerCorrect.concl_corr]. *)
 Lemma compile_concl_corr (concl : lowered_fact) (all_rels : list rel_id) (ord : list var)
     (jo : join_output) :
-  Forall (fun e => exists v, e = var_expr v) concl.(Datalog.clause_args) ->
+  Forall (fun e => exists v, e = expr.var v) concl.(Datalog.clause.args) ->
   compile_concl concl ord = Success jo ->
-  jo.(output_rel) = concl.(Datalog.clause_rel) /\
-  Forall2 (fun e idx => exists v, e = var_expr v /\ List.nth_error ord idx = Some v)
-          concl.(Datalog.clause_args) jo.(output_var_indices).
+  jo.(output_rel) = concl.(Datalog.clause.rel) /\
+  Forall2 (fun e idx => exists v, e = expr.var v /\ List.nth_error ord idx = Some v)
+          concl.(Datalog.clause.args) jo.(output_var_indices).
 Proof.
   intros Hbare H. unfold DistributedDatalogToHardwareCompiler.compile_concl in H.
   match type of H with
@@ -1290,7 +1290,7 @@ Qed.
 (* [compile_concls] yields the per-conclusion correspondence [concl_corr] over the whole list. *)
 Lemma compile_concls_corr (concls : list lowered_fact) (all_rels : list rel_id) (ord : list var)
     (jos : list join_output) :
-  Forall (fun c => Forall (fun e => exists v, e = var_expr v) c.(Datalog.clause_args)) concls ->
+  Forall (fun c => Forall (fun e => exists v, e = expr.var v) c.(Datalog.clause.args)) concls ->
   compile_concls concls ord = Success jos ->
   Forall2 (concl_corr ord) concls jos.
 Proof.
@@ -1420,7 +1420,7 @@ Lemma compile_hyps_full (hyps : list lowered_fact) (ord : list var) (all_rels : 
   wf_nc nc ->
   wf_nc nc' /\ incl nc.(nctries) nc'.(nctries) /\
   exists tb, q = generate_query tb ord hyps /\ List.length tb = List.length hyps /\
-    Forall2 (fun t hyp => t.(trel) = hyp.(Datalog.clause_rel) /\
+    Forall2 (fun t hyp => t.(trel) = hyp.(Datalog.clause.rel) /\
                           t.(tperm) = compute_permutation (compute_var_order hyp) ord) tb hyps /\
     (forall t, In t tb -> In t nc'.(nctries)).
 Proof.
@@ -1551,17 +1551,17 @@ Qed.
 (*----bare hypotheses: collected vars coincide with the variable ordering's vars----*)
 
 Lemma bare_collect_vars_fact (h : lowered_fact) :
-  Forall (fun e => exists v, e = var_expr v) h.(Datalog.clause_args) ->
-  Datalog.vars_of_clause h = compute_var_order h.
+  Forall (fun e => exists v, e = expr.var v) h.(Datalog.clause.args) ->
+  Datalog.clause.vars h = compute_var_order h.
 Proof.
-  unfold Datalog.vars_of_clause, DistributedDatalogToHardwareCompiler.compute_var_order.
-  induction h.(Datalog.clause_args) as [|a args IH]; intros Hb; simpl; [reflexivity|].
+  unfold Datalog.clause.vars, DistributedDatalogToHardwareCompiler.compute_var_order.
+  induction h.(Datalog.clause.args) as [|a args IH]; intros Hb; simpl; [reflexivity|].
   inversion Hb as [|x l [v ->] Hb']; subst. simpl. f_equal. apply IH; exact Hb'.
 Qed.
 
 Lemma bare_collect_vars_hyps (hyps : list lowered_fact) :
-  Forall (fun h => Forall (fun e => exists v, e = var_expr v) h.(Datalog.clause_args)) hyps ->
-  flat_map Datalog.vars_of_clause hyps = flat_map compute_var_order hyps.
+  Forall (fun h => Forall (fun e => exists v, e = expr.var v) h.(Datalog.clause.args)) hyps ->
+  flat_map Datalog.clause.vars hyps = flat_map compute_var_order hyps.
 Proof.
   induction hyps as [|h hyps IH]; intros Hb; simpl; [reflexivity|].
   inversion Hb as [|x l Hbh Hb']; subst.
@@ -1690,9 +1690,9 @@ Proof.
   - intros k val m r _ Hr. rewrite HF. exact Hr.
 Qed.
 
-(* So adding a bare argument [var_expr v] puts exactly [v] into the node set. *)
+(* So adding a bare argument [expr.var v] puts exactly [v] into the node set. *)
 Lemma add_arg_edges_LVar_nodes (v : var) (g : var_graph) (cv : var_node_set) :
-  (DistributedDatalogToHardwareCompiler.add_arg_edges (var_expr v) g cv).(nodes) = map.put g.(nodes) v tt.
+  (DistributedDatalogToHardwareCompiler.add_arg_edges (expr.var v) g cv).(nodes) = map.put g.(nodes) v tt.
 Proof.
   cbn [DistributedDatalogToHardwareCompiler.add_arg_edges].
   erewrite addarg_fold_nodes; [reflexivity | intros acc u x; reflexivity].
@@ -1700,13 +1700,13 @@ Qed.
 
 Lemma add_args_edges_mono (args : list (@HardwareProgram.lowered_expr var fn)) :
   forall (g : var_graph) (seen : var_node_set) (w : var),
-  Forall (fun e => exists u, e = var_expr u) args ->
+  Forall (fun e => exists u, e = expr.var u) args ->
   map.get g.(nodes) w <> None ->
   map.get (DistributedDatalogToHardwareCompiler.add_args_edges args g seen).(nodes) w <> None.
 Proof.
   induction args as [|a args IH]; intros g seen w Hb Hg; simpl; [exact Hg|].
   inversion Hb as [|x l [u ->] Hb']; subst.
-  apply (IH (DistributedDatalogToHardwareCompiler.add_arg_edges (var_expr u) g seen) (map.put seen u tt) w Hb').
+  apply (IH (DistributedDatalogToHardwareCompiler.add_arg_edges (expr.var u) g seen) (map.put seen u tt) w Hb').
   rewrite add_arg_edges_LVar_nodes.
   destruct (var_eqb_spec u w) as [->|Hne].
   - rewrite map.get_put_same. discriminate.
@@ -1715,23 +1715,23 @@ Qed.
 
 Lemma add_args_edges_covers (args : list (@HardwareProgram.lowered_expr var fn)) :
   forall (g : var_graph) (seen : var_node_set) (w : var),
-  Forall (fun e => exists u, e = var_expr u) args ->
-  In (var_expr w) args ->
+  Forall (fun e => exists u, e = expr.var u) args ->
+  In (expr.var w) args ->
   map.get (DistributedDatalogToHardwareCompiler.add_args_edges args g seen).(nodes) w <> None.
 Proof.
   induction args as [|a args IH]; intros g seen w Hb Hin; simpl in Hin; [contradiction|].
   inversion Hb as [|x l [u ->] Hb']; subst. simpl. destruct Hin as [Heq | Hin].
   - injection Heq as ->.
-    apply (add_args_edges_mono args (DistributedDatalogToHardwareCompiler.add_arg_edges (var_expr w) g seen)
+    apply (add_args_edges_mono args (DistributedDatalogToHardwareCompiler.add_arg_edges (expr.var w) g seen)
              (map.put seen w tt) w Hb').
     rewrite add_arg_edges_LVar_nodes, map.get_put_same. discriminate.
-  - apply (IH (DistributedDatalogToHardwareCompiler.add_arg_edges (var_expr u) g seen) (map.put seen u tt) w Hb' Hin).
+  - apply (IH (DistributedDatalogToHardwareCompiler.add_arg_edges (expr.var u) g seen) (map.put seen u tt) w Hb' Hin).
 Qed.
 
-(* Bare: a fact's collected variables are exactly its [var_expr] arguments. *)
+(* Bare: a fact's collected variables are exactly its [expr.var] arguments. *)
 Lemma bare_in_collect_args (args : list (@HardwareProgram.lowered_expr var fn)) (w : var) :
-  Forall (fun e => exists u, e = var_expr u) args ->
-  (In w (flat_map Datalog.vars_of_expr args) <-> In (var_expr w) args).
+  Forall (fun e => exists u, e = expr.var u) args ->
+  (In w (flat_map Datalog.expr.vars args) <-> In (expr.var w) args).
 Proof.
   induction args as [|a args IH]; intros Hb; simpl; [reflexivity|].
   inversion Hb as [|x l [u ->] Hb']; subst. simpl. rewrite (IH Hb'). split.
@@ -1740,31 +1740,31 @@ Proof.
 Qed.
 
 Lemma add_hyp_edges_mono (h : lowered_fact) (g : var_graph) (w : var) :
-  Forall (fun e => exists u, e = var_expr u) h.(Datalog.clause_args) ->
+  Forall (fun e => exists u, e = expr.var u) h.(Datalog.clause.args) ->
   map.get g.(nodes) w <> None ->
   map.get (DistributedDatalogToHardwareCompiler.add_hyp_edges h g).(nodes) w <> None.
 Proof. unfold DistributedDatalogToHardwareCompiler.add_hyp_edges. intros. apply add_args_edges_mono; assumption. Qed.
 
 Lemma add_hyp_edges_covers (h : lowered_fact) (g : var_graph) (w : var) :
-  Forall (fun e => exists u, e = var_expr u) h.(Datalog.clause_args) ->
-  In w (Datalog.vars_of_clause h) ->
+  Forall (fun e => exists u, e = expr.var u) h.(Datalog.clause.args) ->
+  In w (Datalog.clause.vars h) ->
   map.get (DistributedDatalogToHardwareCompiler.add_hyp_edges h g).(nodes) w <> None.
 Proof.
-  unfold DistributedDatalogToHardwareCompiler.add_hyp_edges, Datalog.vars_of_clause. intros Hb Hin.
-  apply add_args_edges_covers; [exact Hb | apply (bare_in_collect_args h.(Datalog.clause_args) w Hb); exact Hin].
+  unfold DistributedDatalogToHardwareCompiler.add_hyp_edges, Datalog.clause.vars. intros Hb Hin.
+  apply add_args_edges_covers; [exact Hb | apply (bare_in_collect_args h.(Datalog.clause.args) w Hb); exact Hin].
 Qed.
 
 (* The whole dependency graph: every collected hypothesis variable is a node. *)
 Lemma create_dep_graph_covers (hyps : list lowered_fact) :
-  Forall (fun h => Forall (fun e => exists u, e = var_expr u) h.(Datalog.clause_args)) hyps ->
-  forall w, In w (flat_map Datalog.vars_of_clause hyps) ->
+  Forall (fun h => Forall (fun e => exists u, e = expr.var u) h.(Datalog.clause.args)) hyps ->
+  forall w, In w (flat_map Datalog.clause.vars hyps) ->
   map.get (DistributedDatalogToHardwareCompiler.create_dependency_graph hyps).(nodes) w <> None.
 Proof.
   unfold DistributedDatalogToHardwareCompiler.create_dependency_graph.
   (* generalize the initial accumulator graph *)
   assert (Hgen : forall (hs : list lowered_fact) (g : var_graph) w,
-            Forall (fun h => Forall (fun e => exists u, e = var_expr u) h.(Datalog.clause_args)) hs ->
-            (In w (flat_map Datalog.vars_of_clause hs) \/ map.get g.(nodes) w <> None) ->
+            Forall (fun h => Forall (fun e => exists u, e = expr.var u) h.(Datalog.clause.args)) hs ->
+            (In w (flat_map Datalog.clause.vars hs) \/ map.get g.(nodes) w <> None) ->
             map.get (fold_left (fun acc h => DistributedDatalogToHardwareCompiler.add_hyp_edges h acc) hs g).(nodes) w
               <> None).
   { intros hs. induction hs as [|h hs IH]; intros g w Hb Hor; simpl.
@@ -1795,7 +1795,7 @@ Notation initial_ordering_context :=
    dependency graph is duplicate-free and contains exactly the hypothesis variables.  This
    discharges [hw_rule_correct]'s [NoDup ord], coverage, and subset hypotheses. *)
 Lemma compute_variable_ordering_ordered_correct (hyps : list lowered_fact) :
-  Forall (fun h => Forall (fun e => exists u, e = var_expr u) h.(Datalog.clause_args)) hyps ->
+  Forall (fun h => Forall (fun e => exists u, e = expr.var u) h.(Datalog.clause.args)) hyps ->
   NoDup (compute_variable_ordering_ordered (create_dependency_graph hyps) hyps) /\
   (forall v, In v (compute_variable_ordering_ordered (create_dependency_graph hyps) hyps) ->
              In v (flat_map compute_var_order hyps)) /\
@@ -1803,12 +1803,12 @@ Lemma compute_variable_ordering_ordered_correct (hyps : list lowered_fact) :
              In v (compute_variable_ordering_ordered (create_dependency_graph hyps) hyps)).
 Proof.
   intros Hb.
-  assert (Hcv : flat_map Datalog.vars_of_clause hyps = flat_map compute_var_order hyps)
+  assert (Hcv : flat_map Datalog.clause.vars hyps = flat_map compute_var_order hyps)
     by (apply bare_collect_vars_hyps; exact Hb).
   unfold DistributedDatalogToHardwareCompiler.compute_variable_ordering_ordered. cbv zeta.
   set (g := create_dependency_graph hyps).
   set (cs := DistributedDatalogToHardwareCompiler.hyp_var_order hyps).
-  assert (HcandIn : forall v, In v cs <-> In v (flat_map Datalog.vars_of_clause hyps)).
+  assert (HcandIn : forall v, In v cs <-> In v (flat_map Datalog.clause.vars hyps)).
   { intros v. unfold cs, DistributedDatalogToHardwareCompiler.hyp_var_order.
     symmetry. apply dedup_preserves_In. }
   assert (Hcs : NoDup cs) by (unfold cs, DistributedDatalogToHardwareCompiler.hyp_var_order; apply NoDup_dedup).
@@ -2011,9 +2011,9 @@ Proof.
   destruct (compute_variable_ordering_ordered_correct rhyps Hbh) as [Hnd [Hsub Hcov]].
   apply (hw_rule_correct rconcls rhyps
            {| hhyps := q; hconcls := concls;
-              hsig := map (fun h => (h.(Datalog.clause_rel), length h.(Datalog.clause_args))) rhyps |}
+              hsig := map (fun h => (h.(Datalog.clause.rel), length h.(Datalog.clause.args))) rhyps |}
            env ord tb tries {| tid := 0; trel := 0; tperm := [] |}
-           {| Datalog.clause_rel := 0; Datalog.clause_args := [] |}).
+           {| Datalog.clause.rel := 0; Datalog.clause.args := [] |}).
   - exact Hnd.
   - exact Hbh.
   - exact Hbc.
@@ -2028,7 +2028,7 @@ Proof.
     assert (Hitb : i < length tb) by (rewrite Hlentb; exact Hi).
     assert (Pt : nth_error tb i = Some (nth i tb {| tid := 0; trel := 0; tperm := [] |}))
       by (apply nth_error_nth'; exact Hitb).
-    assert (Ph : nth_error rhyps i = Some (nth i rhyps {| Datalog.clause_rel := 0; Datalog.clause_args := [] |}))
+    assert (Ph : nth_error rhyps i = Some (nth i rhyps {| Datalog.clause.rel := 0; Datalog.clause.args := [] |}))
       by (apply nth_error_nth'; exact Hi).
     specialize (Hpt i _ _ Pt Ph). destruct Hpt as [Htrel Htperm].
     split; [exact Htrel | split; [exact Htperm |]].
@@ -2342,15 +2342,15 @@ Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
 Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
 
 (* Boolean version of [bare_fact]: every argument is a plain variable.  PARAMETRIC over the relation
-   and function types -- bareness inspects only [var_expr]/[fun_expr], never the relation/function
+   and function types -- bareness inspects only [expr.var]/[expr.app], never the relation/function
    identifiers -- so the SAME check applies to the source layout (over [rel]/[fn]) and the renamed
    lowered layout (over [rel_id]/[fn]). *)
 Definition bare_factb {Rel Fn} (f : Datalog.clause (rel := Rel) (fn := Fn)) : bool :=
-  forallb (fun e => match e with var_expr _ => true | fun_expr _ _ => false end) f.(Datalog.clause_args).
+  forallb (fun e => match e with expr.var _ => true | expr.app _ _ => false end) f.(Datalog.clause.args).
 
 Definition bare_ruleb {Rel Fn} (r : Datalog.rule (rel := Rel) (fn := Fn)) : bool :=
   match r with
-  | Datalog.normal_rule concls hyps => forallb bare_factb hyps && forallb bare_factb concls
+  | Datalog.rule.impl concls hyps => forallb bare_factb hyps && forallb bare_factb concls
   | _ => false
   end.
 
@@ -2418,9 +2418,9 @@ Qed.
    [bare_ruleb], for the same reason (applies to both the source and lowered layout). *)
 Definition range_restricted_ruleb {Rel Fn} (r : Datalog.rule (rel := Rel) (fn := Fn)) : bool :=
   match r with
-  | Datalog.normal_rule concls hyps =>
-    let hvars := flat_map Datalog.vars_of_clause hyps in
-    forallb (fun concl => forallb (fun v => existsb (eqb v) hvars) (Datalog.vars_of_clause concl))
+  | Datalog.rule.impl concls hyps =>
+    let hvars := flat_map Datalog.clause.vars hyps in
+    forallb (fun concl => forallb (fun v => existsb (eqb v) hvars) (Datalog.clause.vars concl))
       concls
   | _ => false
   end.
@@ -2705,7 +2705,7 @@ Proof.
       * intros n f. rewrite <- Hi. exact (HinQ n f).
       * intros f HQf. destruct (Hinj f HQf) as [n [Hinf Hgs]]. exists n. split.
         -- rewrite <- Hi. exact Hinf.
-        -- exact (good_source_forward_ext net1 net2 n (Datalog.rel_of f) Hl Ho Hf Hgs).
+        -- exact (good_source_forward_ext net1 net2 n (fact.rel f) Hl Ho Hf Hgs).
 Qed.
 
 (* PACKAGED C2 RESULT: whenever the compiler found (and laid) a path from a producer of [rel0]
@@ -2995,7 +2995,7 @@ Qed.
    locations [lfp] -- every [Q]-fact's relation has at least one declared input node, so the fact can
    actually enter the network.  (This is the EDB side condition of the top correctness theorem.) *)
 Definition edb_routable (lfp : fact_locations_map) (Q : Datalog.fact (rel := rel_id) -> Prop) : Prop :=
-  forall f, Q f -> exists n, In n (get_or_default lfp (Datalog.rel_of f)).
+  forall f, Q f -> exists n, In n (get_or_default lfp (fact.rel f)).
 
 
 (* Membership on either side of a [union_with (list_union ...)] transfers to the union. *)
@@ -3140,7 +3140,7 @@ Definition compiled_base_edb (g : node_graph) (ftables : node_ftable_map)
     (lfp lfc : fact_locations_map) (Q : Datalog.fact (rel := rel_id) -> Prop) : DNet :=
   {| DistributedDatalog.graph := cg2g g;
      DistributedDatalog.forward := fwd_list ftables;
-     DistributedDatalog.input := fun n f => Q f /\ In n (get_or_default lfp (Datalog.rel_of f));
+     DistributedDatalog.input := fun n f => Q f /\ In n (get_or_default lfp (fact.rel f));
      DistributedDatalog.output := fun n R => In n (get_or_default lfc R);
      DistributedDatalog.layout := fun _ => [] |}.
 
@@ -3173,7 +3173,7 @@ Theorem compiled_good_network_streaming_edb
   DistributedDatalog.good_layout (fun n => get_or_default llayout n) (Graph.nodes (cg2g g)) program ->
   all_rules_fed g (all_producers llayout ext_prod) (get_internal_consumers_of llayout) = true ->
   producers_go_out g (all_producers llayout ext_prod) ext_cons = true ->
-  (forall f, Q f -> exists n, In n (get_or_default ext_prod (Datalog.rel_of f))) ->
+  (forall f, Q f -> exists n, In n (get_or_default ext_prod (fact.rel f))) ->
   DistributedDatalog.good_network_streaming
     (dnet_of_llayout llayout (compiled_base_edb g (fold_left (update_forwarding_table_for_rel g (all_consumers llayout ext_cons) (all_producers llayout ext_prod) ninfos) (map.keys (all_consumers llayout ext_cons)) map.empty) ext_prod ext_cons Q))
     program Q.
@@ -3197,7 +3197,7 @@ Proof.
       * intros f HQf. destruct (HQ f HQf) as [n Hn].
         exists n. split.
         -- split; [exact HQf | exact Hn].
-        -- destruct (In_get_or_default ext_prod (Datalog.rel_of f) n Hn) as [locs [Hext Hnlocs]].
+        -- destruct (In_get_or_default ext_prod (fact.rel f) n Hn) as [locs [Hext Hnlocs]].
            apply (edb_input_good_source ninfos g llayout ext_prod ext_cons
                     (dnet_of_llayout llayout (compiled_base_edb g (fold_left (update_forwarding_table_for_rel g (all_consumers llayout ext_cons) (all_producers llayout ext_prod) ninfos) (map.keys (all_consumers llayout ext_cons)) map.empty) ext_prod ext_cons Q)))
              with (locs := locs);
@@ -3308,14 +3308,14 @@ Lemma node_run_to_netpft (c : DistributedHardwareSemantics.config) (n : node_id)
   network_pftree net (FactOnNode n f).
 Proof.
   intros Hleaf. unfold node_run. revert f.
-  apply (Datalog.pftree_ind
+  apply (pftree.ind
            (fun f hyps' => Exists (fun hr => hw_rule_impl (tries n) hr f hyps') (prog n))
            (c n)
            (fun f => network_pftree net (FactOnNode n f))).
   - intros f0 HQ. apply Hleaf, HQ.
   - intros f0 hyps' Hex _ HR.
     apply node_fires_iff in Hex. apply Exists_exists in Hex. destruct Hex as [r [Hin Hfires]].
-    unfold network_pftree. eapply pftree_step with (l := map (FactOnNode n) hyps').
+    unfold network_pftree. eapply pftree.step with (l := map (FactOnNode n) hyps').
     + eapply DistributedDatalog.RuleApp;
         [ exact Hin | apply facts_on_node_map_fst | rewrite facts_on_node_map_snd; exact Hfires ].
     + apply Forall_forall. intros p Hp. apply in_map_iff in Hp.
@@ -3332,13 +3332,13 @@ Proof.
   - inversion Hstep as [a g Hi | a g Hru | a a' g Hag Hfwd]; subst c'.
     + destruct Hcf as [Hold | [-> ->]].
       * apply IH; exact Hold.
-      * unfold network_pftree. eapply pftree_step with (l := []); [apply DistributedDatalog.Input; exact Hi | constructor].
+      * unfold network_pftree. eapply pftree.step with (l := []); [apply DistributedDatalog.Input; exact Hi | constructor].
     + destruct Hcf as [Hold | [-> ->]].
       * apply IH; exact Hold.
       * apply (node_run_to_netpft c a g); [intros h Hch; apply IH; exact Hch | exact Hru].
     + destruct Hcf as [Hold | [-> ->]].
       * apply IH; exact Hold.
-      * unfold network_pftree. eapply pftree_step with (l := [FactOnNode a g]);
+      * unfold network_pftree. eapply pftree.step with (l := [FactOnNode a g]);
           [apply DistributedDatalog.Forward; exact Hfwd | constructor; [apply IH; exact Hag | constructor]].
 Qed.
 
@@ -3346,7 +3346,7 @@ Theorem hw_run_output_to_network (f : Datalog.fact (rel := rel_id)) :
   DistributedHardwareSemantics.hw_run_output prog tries Fwd Inp Outp f -> network_prog_impl_fact net f.
 Proof.
   intros [n [c [Hr [Hcf Hout]]]]. exists n.
-  unfold network_pftree. eapply pftree_step with (l := [FactOnNode n f]);
+  unfold network_pftree. eapply pftree.step with (l := [FactOnNode n f]);
     [apply DistributedDatalog.OutputStep; exact Hout
     | constructor; [apply (reach_to_netpft c Hr n f Hcf) | constructor]].
 Qed.
@@ -3357,14 +3357,14 @@ Lemma netpft_present (x : @DistributedDatalog.network_prop rel_id T node_id) :
   network_pftree net x ->
   match x with
   | FactOnNode n f => present n f
-  | Output n f => present n f /\ Outp n (Datalog.rel_of f)
+  | Output n f => present n f /\ Outp n (fact.rel f)
   end.
 Proof.
   revert x. unfold network_pftree.
-  apply (Datalog.pftree_ind (fun fact_node hyps => network_step net fact_node hyps) (fun _ => False)
+  apply (pftree.ind (fun fact_node hyps => network_step net fact_node hyps) (fun _ => False)
            (fun x => match x with
                      | FactOnNode n f => present n f
-                     | Output n f => present n f /\ Outp n (Datalog.rel_of f)
+                     | Output n f => present n f /\ Outp n (fact.rel f)
                      end)).
   - intros x [].
   - intros x l Hstep _ HR.
@@ -3384,9 +3384,9 @@ Proof.
       destruct (DistributedHardwareSemantics.present_list prog tries Fwd Inp n _ Hpres)
         as [c [Hrc Hcfacts]].
       assert (Hnr : node_run (tries n) (prog n) (c n) f).
-      { unfold node_run. eapply pftree_step with (l := map snd (get_facts_on_node hyps)).
+      { unfold node_run. eapply pftree.step with (l := map snd (get_facts_on_node hyps)).
         - apply node_fires_iff. apply Exists_exists. exists r. split; [exact Hin | exact Hfires].
-        - apply Forall_forall. intros g Hg. apply pftree_leaf.
+        - apply Forall_forall. intros g Hg. apply pftree.leaf.
           rewrite Forall_forall in Hcfacts. apply Hcfacts, Hg. }
       exists (DistributedHardwareSemantics.cadd c n f). split.
       * eapply DistributedHardwareSemantics.dreachS;
@@ -3451,7 +3451,7 @@ Theorem compile_all_distributes_ninfos (llayout : layout_map) (all_rels : list r
   base.(DistributedDatalog.layout) = (fun n => get_or_default llayout n) ->
   base.(DistributedDatalog.forward) = fwd_list ft ->
   good_network_streaming base program Q ->
-  forall f, (exists n_out, base.(DistributedDatalog.output) n_out (Datalog.rel_of f)) ->
+  forall f, (exists n_out, base.(DistributedDatalog.output) n_out (fact.rel f)) ->
             run_ninfos (attach_forwarding_tables ninfos0 ft)
               (base.(DistributedDatalog.input)) (base.(DistributedDatalog.output)) f
             <-> DistributedDatalog.prog_impl_fact program Q f.
@@ -3506,9 +3506,9 @@ Theorem compile_distributed_correct
   (* Base facts [Q] enter at the declared fact-producer locations [fps]; a fact is OUTPUT exactly at
      the declared sink locations [fcs].  The equivalence holds for facts whose relation is a declared
      output (has a sink).  All routing is by construction, from the compiler's [layout_good] gate. *)
-  forall f, (exists n, In n (get_or_default fcs (Datalog.rel_of f))) ->
+  forall f, (exists n, In n (get_or_default fcs (fact.rel f))) ->
     run_ninfos ninfos
-      (fun n f0 => Q f0 /\ In n (get_or_default fps (Datalog.rel_of f0)))
+      (fun n f0 => Q f0 /\ In n (get_or_default fps (fact.rel f0)))
       (fun n R => In n (get_or_default fcs R))
       f
     <-> Datalog.prog_impl (canonical_program layout) Q f.
@@ -3549,7 +3549,7 @@ Qed.
 Context {rel : relT} {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
 
 Definition program_rels (p : list (@Datalog.rule rel var fn aggregator)) : list rel :=
-  flat_map Datalog.all_rels p.
+  flat_map rule.all_rels p.
 
 Definition relabel_Q (rho : rel -> rel_id) (Q : @Datalog.fact rel T -> Prop)
     : @Datalog.fact rel_id T -> Prop :=
@@ -3564,13 +3564,13 @@ Theorem nattify_and_compile_correct
   bare_layoutb layout = true ->
   DistributedDatalogToHardwareCompiler.layout_distributes_program
     (NattifyRel.nattify_rel_prog (program_rels p) p) layout ->
-  (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels p)) ->
+  (forall f, Qsrc f -> In (fact.rel f) (program_rels p)) ->
   edb_routable fps (relabel_Q (encode_rel (program_rels p) p) Qsrc) ->
   (* [fsrc]'s (nattified) relation is a declared output -- it has a sink location in [fcs]. *)
-  (exists n, In n (get_or_default fcs (Datalog.rel_of (nattify_rel_fact (program_rels p) p fsrc)))) ->
+  (exists n, In n (get_or_default fcs (fact.rel (nattify_rel_fact (program_rels p) p fsrc)))) ->
   ( run_ninfos ninfos
       (fun n f0 => relabel_Q (encode_rel (program_rels p) p) Qsrc f0
-                   /\ In n (get_or_default fps (Datalog.rel_of f0)))
+                   /\ In n (get_or_default fps (fact.rel f0)))
       (fun n R => In n (get_or_default fcs R))
       (nattify_rel_fact (program_rels p) p fsrc)
     <-> Datalog.prog_impl p Qsrc fsrc ).

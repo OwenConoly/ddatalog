@@ -16,7 +16,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -30,19 +30,19 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* null(X, Y) :- nullEdge(X, Y). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "null"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "null"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "nullEdge"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+      {| clause.rel := "nullEdge"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]).
 
 (* null(X, Y) :- null(X, W), arc(W, Y). *)
 Definition rule_1 : rule :=
-normal_rule ([
-      {| clause_rel := "null"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "null"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "null"; clause_args := [(var_expr "X"); (var_expr "W")] |};
-      {| clause_rel := "arc"; clause_args := [(var_expr "W"); (var_expr "Y")] |}
+      {| clause.rel := "null"; clause.args := [(expr.var "X"); (expr.var "W")] |};
+      {| clause.rel := "arc"; clause.args := [(expr.var "W"); (expr.var "Y")] |}
     ]).
 
 Definition program : list rule :=

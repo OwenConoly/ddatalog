@@ -6,8 +6,10 @@ Import ListNotations.
 
 Section GridLayout.
   Context {rel : relT} {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
-  Context `{sig : signature fn aggregator T} `{query_sig : query_signature rel}.
+  Context {semantics : datalog_semantics fn aggregator T} `{query_sig : query_signature rel}.
   Context {context : map.map var T} {context_ok : map.ok context}.
+  Context {value_eqb : Eqb T} {value_eqb_ok : Eqb_ok value_eqb}.
+  Context {value_set : map.map (list T) unit} {value_set_ok : map.ok value_set}.
   Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
@@ -40,7 +42,7 @@ Section GridLayout.
   Definition mk_always_forward_table (dims : list nat) (n : Node) : rel -> list Node :=
     fun f => filter (GridGraph.is_neighbor dims n) (all_nodes_h dims).
 
-  Definition mk_no_input_fn (n : Node) (f : @Datalog.fact rel T) : Prop := False.
+  Definition mk_no_input_fn (n : Node) (f : Datalog.fact) : Prop := False.
 
   Definition mk_all_output_fn (n : Node) (f : rel) : Prop := True.
 

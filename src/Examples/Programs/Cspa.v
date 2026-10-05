@@ -16,7 +16,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -34,89 +34,89 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* valueFlow(Y, X) :- assign(Y, X). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "Y"); (var_expr "X")] |}
+rule.impl ([
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "Y"); (expr.var "X")] |}
     ]) ([
-      {| clause_rel := "assign"; clause_args := [(var_expr "Y"); (var_expr "X")] |}
+      {| clause.rel := "assign"; clause.args := [(expr.var "Y"); (expr.var "X")] |}
     ]).
 
 (* valueFlow(X, X) :- assign(X, Y). *)
 Definition rule_1 : rule :=
-normal_rule ([
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "X"); (var_expr "X")] |}
+rule.impl ([
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "X"); (expr.var "X")] |}
     ]) ([
-      {| clause_rel := "assign"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+      {| clause.rel := "assign"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]).
 
 (* valueFlow(X, X) :- assign(Y, X). *)
 Definition rule_2 : rule :=
-normal_rule ([
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "X"); (var_expr "X")] |}
+rule.impl ([
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "X"); (expr.var "X")] |}
     ]) ([
-      {| clause_rel := "assign"; clause_args := [(var_expr "Y"); (var_expr "X")] |}
+      {| clause.rel := "assign"; clause.args := [(expr.var "Y"); (expr.var "X")] |}
     ]).
 
 (* valueFlow(X, Y) :- assign(X, Z), memoryAlias(Z, Y). *)
 Definition rule_3 : rule :=
-normal_rule ([
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "assign"; clause_args := [(var_expr "X"); (var_expr "Z")] |};
-      {| clause_rel := "memoryAlias"; clause_args := [(var_expr "Z"); (var_expr "Y")] |}
+      {| clause.rel := "assign"; clause.args := [(expr.var "X"); (expr.var "Z")] |};
+      {| clause.rel := "memoryAlias"; clause.args := [(expr.var "Z"); (expr.var "Y")] |}
     ]).
 
 (* valueFlow(X, Y) :- valueFlow(X, Z), valueFlow(Z, Y). *)
 Definition rule_4 : rule :=
-normal_rule ([
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "X"); (var_expr "Z")] |};
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "Z"); (var_expr "Y")] |}
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "X"); (expr.var "Z")] |};
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "Z"); (expr.var "Y")] |}
     ]).
 
 (* valueAlias(X, Y) :- valueFlow(Z, X), valueFlow(Z, Y). *)
 Definition rule_5 : rule :=
-normal_rule ([
-      {| clause_rel := "valueAlias"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "valueAlias"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "Z"); (var_expr "X")] |};
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "Z"); (var_expr "Y")] |}
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "Z"); (expr.var "X")] |};
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "Z"); (expr.var "Y")] |}
     ]).
 
 (* valueAlias(X, Y) :- valueFlow(Z, X), memoryAlias(Z, W), valueFlow(W, Y). *)
 Definition rule_6 : rule :=
-normal_rule ([
-      {| clause_rel := "valueAlias"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "valueAlias"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "Z"); (var_expr "X")] |};
-      {| clause_rel := "memoryAlias"; clause_args := [(var_expr "Z"); (var_expr "W")] |};
-      {| clause_rel := "valueFlow"; clause_args := [(var_expr "W"); (var_expr "Y")] |}
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "Z"); (expr.var "X")] |};
+      {| clause.rel := "memoryAlias"; clause.args := [(expr.var "Z"); (expr.var "W")] |};
+      {| clause.rel := "valueFlow"; clause.args := [(expr.var "W"); (expr.var "Y")] |}
     ]).
 
 (* memoryAlias(X, X) :- assign(Y, X). *)
 Definition rule_7 : rule :=
-normal_rule ([
-      {| clause_rel := "memoryAlias"; clause_args := [(var_expr "X"); (var_expr "X")] |}
+rule.impl ([
+      {| clause.rel := "memoryAlias"; clause.args := [(expr.var "X"); (expr.var "X")] |}
     ]) ([
-      {| clause_rel := "assign"; clause_args := [(var_expr "Y"); (var_expr "X")] |}
+      {| clause.rel := "assign"; clause.args := [(expr.var "Y"); (expr.var "X")] |}
     ]).
 
 (* memoryAlias(X, X) :- assign(X, Y). *)
 Definition rule_8 : rule :=
-normal_rule ([
-      {| clause_rel := "memoryAlias"; clause_args := [(var_expr "X"); (var_expr "X")] |}
+rule.impl ([
+      {| clause.rel := "memoryAlias"; clause.args := [(expr.var "X"); (expr.var "X")] |}
     ]) ([
-      {| clause_rel := "assign"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+      {| clause.rel := "assign"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]).
 
 (* memoryAlias(X, W) :- dereference(Y, X), valueAlias(Y, Z), dereference(Z, W). *)
 Definition rule_9 : rule :=
-normal_rule ([
-      {| clause_rel := "memoryAlias"; clause_args := [(var_expr "X"); (var_expr "W")] |}
+rule.impl ([
+      {| clause.rel := "memoryAlias"; clause.args := [(expr.var "X"); (expr.var "W")] |}
     ]) ([
-      {| clause_rel := "dereference"; clause_args := [(var_expr "Y"); (var_expr "X")] |};
-      {| clause_rel := "valueAlias"; clause_args := [(var_expr "Y"); (var_expr "Z")] |};
-      {| clause_rel := "dereference"; clause_args := [(var_expr "Z"); (var_expr "W")] |}
+      {| clause.rel := "dereference"; clause.args := [(expr.var "Y"); (expr.var "X")] |};
+      {| clause.rel := "valueAlias"; clause.args := [(expr.var "Y"); (expr.var "Z")] |};
+      {| clause.rel := "dereference"; clause.args := [(expr.var "Z"); (expr.var "W")] |}
     ]).
 
 Definition program : list rule :=

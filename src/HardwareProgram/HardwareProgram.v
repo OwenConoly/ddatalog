@@ -40,15 +40,15 @@ Record trie := {
 
 (* The "lowered" program is a [Datalog] program whose relations are numeric ids
    ([rel_id]) but whose functions/variables/aggregator are the source's -- it is NOT a separate
-   AST.  So [interp_clause]/[prog_impl] apply to it directly and NO [lowered -> Datalog]
+   AST.  So [clause.interp]/[program.interp] apply to it directly and NO [lowered -> Datalog]
    conversion is ever needed (the compiler produces these rules in their final type).
 
    The lowered aggregator is the source's [aggregator] (NOT [unit]), so a [lowered_rule] is
    literally the rule the trie-join semantics verifies -- no retyping adapter.  Aggregation is
    still unsupported: the lowering ([DistributedDatalogToHardwareCompiler.global_rename_rule]/[compile_rule]) only ever
-   emits [normal_rule]s and ERRORS (result monad) on [meta_rule]/[agg_rule], so a lowered program
-   is normal by construction.  A lowered atom is a [clause] ([clause_rel]/[clause_args]);
-   a ground lowered fact is a [fact] ([normal_fact]). *)
+   emits [rule.impl]s and ERRORS (result monad) on [rule.agg], so a lowered program
+   is normal by construction.  A lowered atom is a [clause] ([clause.rel]/[clause.args]);
+   a ground lowered fact is a [fact] ([fact.normal]). *)
 Definition lowered_expr := expr.
 Definition lowered_fact := clause.
 Definition lowered_rule := rule.

@@ -14,7 +14,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -28,19 +28,19 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* reach(Y) :- id(Y). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "reach"; clause_args := [(var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "reach"; clause.args := [(expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "id"; clause_args := [(var_expr "Y")] |}
+      {| clause.rel := "id"; clause.args := [(expr.var "Y")] |}
     ]).
 
 (* reach(Y) :- reach(X), arc(X, Y). *)
 Definition rule_1 : rule :=
-normal_rule ([
-      {| clause_rel := "reach"; clause_args := [(var_expr "Y")] |}
+rule.impl ([
+      {| clause.rel := "reach"; clause.args := [(expr.var "Y")] |}
     ]) ([
-      {| clause_rel := "reach"; clause_args := [(var_expr "X")] |};
-      {| clause_rel := "arc"; clause_args := [(var_expr "X"); (var_expr "Y")] |}
+      {| clause.rel := "reach"; clause.args := [(expr.var "X")] |};
+      {| clause.rel := "arc"; clause.args := [(expr.var "X"); (expr.var "Y")] |}
     ]).
 
 Definition program : list rule :=

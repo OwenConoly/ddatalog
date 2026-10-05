@@ -15,7 +15,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -27,19 +27,19 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* path(x, y) :- edge(x, y). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "path"; clause_args := [(var_expr "x"); (var_expr "y")] |}
+rule.impl ([
+      {| clause.rel := "path"; clause.args := [(expr.var "x"); (expr.var "y")] |}
     ]) ([
-      {| clause_rel := "edge"; clause_args := [(var_expr "x"); (var_expr "y")] |}
+      {| clause.rel := "edge"; clause.args := [(expr.var "x"); (expr.var "y")] |}
     ]).
 
 (* path(x, y) :- path(x, z), edge(z, y). *)
 Definition rule_1 : rule :=
-normal_rule ([
-      {| clause_rel := "path"; clause_args := [(var_expr "x"); (var_expr "y")] |}
+rule.impl ([
+      {| clause.rel := "path"; clause.args := [(expr.var "x"); (expr.var "y")] |}
     ]) ([
-      {| clause_rel := "path"; clause_args := [(var_expr "x"); (var_expr "z")] |};
-      {| clause_rel := "edge"; clause_args := [(var_expr "z"); (var_expr "y")] |}
+      {| clause.rel := "path"; clause.args := [(expr.var "x"); (expr.var "z")] |};
+      {| clause.rel := "edge"; clause.args := [(expr.var "z"); (expr.var "y")] |}
     ]).
 
 Definition program : list rule :=

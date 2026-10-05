@@ -15,7 +15,7 @@ Open Scope string_scope.
 
 
 (* Nullary function application = constant value *)
-Definition const (c : string) : expr := fun_expr c [].
+Definition const (c : string) : expr := expr.app c [].
 
 (* ------------------------------------------------------------------ *)
 (* Schema                                                               *)
@@ -24,11 +24,11 @@ Definition const (c : string) : expr := fun_expr c [].
 
 (* A(x, z) :- A(x, y), A(y, z). *)
 Definition rule_0 : rule :=
-normal_rule ([
-      {| clause_rel := "A"; clause_args := [(var_expr "x"); (var_expr "z")] |}
+rule.impl ([
+      {| clause.rel := "A"; clause.args := [(expr.var "x"); (expr.var "z")] |}
     ]) ([
-      {| clause_rel := "A"; clause_args := [(var_expr "x"); (var_expr "y")] |};
-      {| clause_rel := "A"; clause_args := [(var_expr "y"); (var_expr "z")] |}
+      {| clause.rel := "A"; clause.args := [(expr.var "x"); (expr.var "y")] |};
+      {| clause.rel := "A"; clause.args := [(expr.var "y"); (expr.var "z")] |}
     ]).
 
 Definition program : list rule :=

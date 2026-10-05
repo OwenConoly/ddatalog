@@ -20,76 +20,76 @@ Import StringDatalogParams.
 (* Id = 1             Identity element *)
 
 (* Plain (non-fancy) helpers replacing the old FancyNotations: NetKAT term constructors
-   are just function symbols ([fun_expr]) and the two relations ([Term], [rewrite]) are
+   are just function symbols ([expr.app]) and the two relations ([Term], [rewrite]) are
    plain [clause]s.  [v "x"] is a variable. *)
-Local Definition v (s : string) : expr := var_expr s.
-Local Definition Disj (a b : expr) : expr := fun_expr "Disj" [a; b].
-Local Definition Conj (a b : expr) : expr := fun_expr "Conj" [a; b].
-Local Definition Parallel (a b : expr) : expr := fun_expr "Parallel" [a; b].
-Local Definition Seq (a b : expr) : expr := fun_expr "Seq" [a; b].
-Local Definition Assn (a b : expr) : expr := fun_expr "Assn" [a; b].
-Local Definition Match (a b : expr) : expr := fun_expr "Match" [a; b].
-Local Definition Filter (a : expr) : expr := fun_expr "Filter" [a].
-Local Definition Not (a : expr) : expr := fun_expr "Not" [a].
-Local Definition Drop : expr := fun_expr "Drop" [].
-Local Definition Id : expr := fun_expr "Id" [].
-Local Definition Term (e : expr) : clause := {| clause_rel := "Term"; clause_args := [e] |}.
-Local Definition rw (a b : expr) : clause := {| clause_rel := "rewrite"; clause_args := [a; b] |}.
+Local Definition v (s : string) : expr := expr.var s.
+Local Definition Disj (a b : expr) : expr := expr.app "Disj" [a; b].
+Local Definition Conj (a b : expr) : expr := expr.app "Conj" [a; b].
+Local Definition Parallel (a b : expr) : expr := expr.app "Parallel" [a; b].
+Local Definition Seq (a b : expr) : expr := expr.app "Seq" [a; b].
+Local Definition Assn (a b : expr) : expr := expr.app "Assn" [a; b].
+Local Definition Match (a b : expr) : expr := expr.app "Match" [a; b].
+Local Definition Filter (a : expr) : expr := expr.app "Filter" [a].
+Local Definition Not (a : expr) : expr := expr.app "Not" [a].
+Local Definition Drop : expr := expr.app "Drop" [].
+Local Definition Id : expr := expr.app "Id" [].
+Local Definition Term (e : expr) : clause := {| clause.rel := "Term"; clause.args := [e] |}.
+Local Definition rw (a b : expr) : clause := {| clause.rel := "rewrite"; clause.args := [a; b] |}.
 
 (* ================= Associativity ================= *)
 
 (* a \/ (b \/ c) -> (a \/ b) \/ c *)
 Definition r_disj_assoc_l : rule :=
-  normal_rule
+  rule.impl
     [ Term (Disj (Disj (v "a") (v "b")) (v "c"));
       rw (Disj (v "a") (Disj (v "b") (v "c"))) (Disj (Disj (v "a") (v "b")) (v "c")) ]
     [ Term (Disj (v "a") (Disj (v "b") (v "c"))) ].
 
 (* (a \/ b) \/ c -> a \/ (b \/ c) *)
 Definition r_disj_assoc_r : rule :=
-  normal_rule
+  rule.impl
     [ Term (Disj (v "a") (Disj (v "b") (v "c")));
       rw (Disj (Disj (v "a") (v "b")) (v "c")) (Disj (v "a") (Disj (v "b") (v "c"))) ]
     [ Term (Disj (Disj (v "a") (v "b")) (v "c")) ].
 
 (* a /\ (b /\ c) -> (a /\ b) /\ c *)
 Definition r_conj_assoc_l : rule :=
-  normal_rule
+  rule.impl
     [ Term (Conj (Conj (v "a") (v "b")) (v "c"));
       rw (Conj (v "a") (Conj (v "b") (v "c"))) (Conj (Conj (v "a") (v "b")) (v "c")) ]
     [ Term (Conj (v "a") (Conj (v "b") (v "c"))) ].
 
 (* (a /\ b) /\ c -> a /\ (b /\ c) *)
 Definition r_conj_assoc_r : rule :=
-  normal_rule
+  rule.impl
     [ Term (Conj (v "a") (Conj (v "b") (v "c")));
       rw (Conj (Conj (v "a") (v "b")) (v "c")) (Conj (v "a") (Conj (v "b") (v "c"))) ]
     [ Term (Conj (Conj (v "a") (v "b")) (v "c")) ].
 
 (* p + (q + r) -> (p + q) + r *)
 Definition r_parallel_assoc_l : rule :=
-  normal_rule
+  rule.impl
     [ Term (Parallel (Parallel (v "p") (v "q")) (v "r"));
       rw (Parallel (v "p") (Parallel (v "q") (v "r"))) (Parallel (Parallel (v "p") (v "q")) (v "r")) ]
     [ Term (Parallel (v "p") (Parallel (v "q") (v "r"))) ].
 
 (* (p + q) + r -> p + (q + r) *)
 Definition r_parallel_assoc_r : rule :=
-  normal_rule
+  rule.impl
     [ Term (Parallel (v "p") (Parallel (v "q") (v "r")));
       rw (Parallel (Parallel (v "p") (v "q")) (v "r")) (Parallel (v "p") (Parallel (v "q") (v "r"))) ]
     [ Term (Parallel (Parallel (v "p") (v "q")) (v "r")) ].
 
 (* (p ; q) ; r -> p ; (q ; r) *)
 Definition r_seq_assoc_l : rule :=
-  normal_rule
+  rule.impl
     [ Term (Seq (Seq (v "p") (v "q")) (v "r"));
       rw (Seq (v "p") (Seq (v "q") (v "r"))) (Seq (Seq (v "p") (v "q")) (v "r")) ]
     [ Term (Seq (v "p") (Seq (v "q") (v "r"))) ].
 
 (* p ; (q ; r) -> (p ; q) ; r *)
 Definition r_seq_assoc_r : rule :=
-  normal_rule
+  rule.impl
     [ Term (Seq (v "p") (Seq (v "q") (v "r")));
       rw (Seq (Seq (v "p") (v "q")) (v "r")) (Seq (v "p") (Seq (v "q") (v "r"))) ]
     [ Term (Seq (Seq (v "p") (v "q")) (v "r")) ].
@@ -98,21 +98,21 @@ Definition r_seq_assoc_r : rule :=
 
 (* a \/ b -> b \/ a *)
 Definition r_disj_comm : rule :=
-  normal_rule
+  rule.impl
     [ Term (Disj (v "b") (v "a"));
       rw (Disj (v "a") (v "b")) (Disj (v "b") (v "a")) ]
     [ Term (Disj (v "a") (v "b")) ].
 
 (* a /\ b -> b /\ a *)
 Definition r_conj_comm : rule :=
-  normal_rule
+  rule.impl
     [ Term (Conj (v "b") (v "a"));
       rw (Conj (v "a") (v "b")) (Conj (v "b") (v "a")) ]
     [ Term (Conj (v "a") (v "b")) ].
 
 (* p + q -> q + p *)
 Definition r_parallel_comm : rule :=
-  normal_rule
+  rule.impl
     [ Term (Parallel (v "q") (v "p"));
       rw (Parallel (v "p") (v "q")) (Parallel (v "q") (v "p")) ]
     [ Term (Parallel (v "p") (v "q")) ].
@@ -121,35 +121,35 @@ Definition r_parallel_comm : rule :=
 
 (* a \/ 0 -> a *)
 Definition r_disj_id : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "a");
       rw (Disj (v "a") Drop) (v "a") ]
     [ Term (Disj (v "a") Drop) ].
 
 (* p + 0 -> p *)
 Definition r_parallel_filter_drop : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "p");
       rw (Parallel (v "p") (Filter Drop)) (v "p") ]
     [ Term (Parallel (v "p") (Filter Drop)) ].
 
 (* a /\ 1 -> a *)
 Definition r_conj_id : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "a");
       rw (Conj (v "a") Id) (v "a") ]
     [ Term (Conj (v "a") Id) ].
 
 (* 1 ; p -> p *)
 Definition r_seq_filter_id_l : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "p");
       rw (Seq (Filter Id) (v "p")) (v "p") ]
     [ Term (Seq (Filter Id) (v "p")) ].
 
 (* p ; 1 -> p *)
 Definition r_seq_filter_id_r : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "p");
       rw (Seq (v "p") (Filter Id)) (v "p") ]
     [ Term (Seq (v "p") (Filter Id)) ].
@@ -158,21 +158,21 @@ Definition r_seq_filter_id_r : rule :=
 
 (* a /\ 0 -> 0 *)
 Definition r_conj_drop : rule :=
-  normal_rule
+  rule.impl
     [ Term Drop;
       rw (Conj (v "a") Drop) Drop ]
     [ Term (Conj (v "a") Drop) ].
 
 (* p ; 0 -> 0 *)
 Definition r_seq_filter_drop_l : rule :=
-  normal_rule
+  rule.impl
     [ Term (Filter Drop);
       rw (Seq (Filter Drop) (v "p")) (Filter Drop) ]
     [ Term (Seq (Filter Drop) (v "p")) ].
 
 (* 0 ; p -> 0 *)
 Definition r_seq_filter_drop_r : rule :=
-  normal_rule
+  rule.impl
     [ Term (Filter Drop);
       rw (Seq (v "p") (Filter Drop)) (Filter Drop) ]
     [ Term (Seq (v "p") (Filter Drop)) ].
@@ -181,14 +181,14 @@ Definition r_seq_filter_drop_r : rule :=
 
 (* a \/ a -> a *)
 Definition r_disj_idempotent : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "a");
       rw (Disj (v "a") (v "a")) (v "a") ]
     [ Term (Disj (v "a") (v "a")) ].
 
 (* p + p -> p *)
 Definition r_parallel_idempotent : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "p");
       rw (Parallel (v "p") (v "p")) (v "p") ]
     [ Term (Parallel (v "p") (v "p")) ].
@@ -197,14 +197,14 @@ Definition r_parallel_idempotent : rule :=
 
 (* a /\ (b \/ c) -> (a /\ b) \/ (a /\ c) *)
 Definition r_conj_disj_dist_l : rule :=
-  normal_rule
+  rule.impl
     [ Term (Disj (Conj (v "a") (v "b")) (Conj (v "a") (v "c")));
       rw (Conj (v "a") (Disj (v "b") (v "c"))) (Disj (Conj (v "a") (v "b")) (Conj (v "a") (v "c"))) ]
     [ Term (Conj (v "a") (Disj (v "b") (v "c"))) ].
 
 (* (a /\ b) \/ (a /\ c) -> a /\ (b \/ c) *)
 Definition r_conj_disj_dist_r : rule :=
-  normal_rule
+  rule.impl
     [ Term (Conj (v "a") (Disj (v "b") (v "c")));
       rw (Disj (Conj (v "a") (v "b")) (Conj (v "a") (v "c"))) (Conj (v "a") (Disj (v "b") (v "c"))) ]
     [ Term (Disj (Conj (v "a") (v "b")) (Conj (v "a") (v "c"))) ].
@@ -213,21 +213,21 @@ Definition r_conj_disj_dist_r : rule :=
 
 (* a \/ 1 -> 1 *)
 Definition r_disj_id_plus : rule :=
-  normal_rule
+  rule.impl
     [ Term Id;
       rw (Disj (v "a") Id) Id ]
     [ Term (Disj (v "a") Id) ].
 
 (* a \/ ~a -> 1 *)
 Definition r_disj_not : rule :=
-  normal_rule
+  rule.impl
     [ Term Id;
       rw (Disj (v "a") (Not (v "a"))) Id ]
     [ Term (Disj (v "a") (Not (v "a"))) ].
 
 (* a /\ ~a -> 0 *)
 Definition r_conj_not : rule :=
-  normal_rule
+  rule.impl
     [ Term Drop;
       rw (Conj (v "a") (Not (v "a"))) Drop ]
     [ Term (Conj (v "a") (Not (v "a"))) ].
@@ -237,7 +237,7 @@ Definition r_conj_not : rule :=
 (* f1 := n1 ; f2 := n2 -> f2 := n2 ; f1 := n1 when f1 != f2 *)
 (* TODO encode the NEQ for f1 and f2 *)
 Definition r_mod_comm : rule :=
-  normal_rule
+  rule.impl
     [ Term (Seq (Assn (v "f2") (v "n2")) (Assn (v "f1") (v "n1")));
       rw (Seq (Assn (v "f1") (v "n1")) (Assn (v "f2") (v "n2")))
          (Seq (Assn (v "f2") (v "n2")) (Assn (v "f1") (v "n1"))) ]
@@ -245,7 +245,7 @@ Definition r_mod_comm : rule :=
 
 (* f1 := n1 ; f2 == n2 -> f2 == n2 ; f1 := n1 when f2 != f1 *)
 Definition r_mod_filter_comm1 : rule :=
-  normal_rule
+  rule.impl
     [ Term (Seq (Assn (v "f1") (v "n1")) (Filter (Match (v "f2") (v "n2"))));
       rw (Seq (Filter (Match (v "f2") (v "n2"))) (Assn (v "f1") (v "n1")))
          (Seq (Assn (v "f1") (v "n1")) (Filter (Match (v "f2") (v "n2")))) ]
@@ -253,7 +253,7 @@ Definition r_mod_filter_comm1 : rule :=
 
 (* f1 == n1 ; f2 := n2 -> f2 := n2 ; f1 == n1 when f2 != f1 *)
 Definition r_mod_filter_comm2 : rule :=
-  normal_rule
+  rule.impl
     [ Term (Seq (Filter (Match (v "f1") (v "n1"))) (Assn (v "f2") (v "n2")));
       rw (Seq (Assn (v "f2") (v "n2")) (Filter (Match (v "f1") (v "n1"))))
          (Seq (Filter (Match (v "f1") (v "n1"))) (Assn (v "f2") (v "n2"))) ]
@@ -261,14 +261,14 @@ Definition r_mod_filter_comm2 : rule :=
 
 (* f := n ; f == n -> f := n *)
 Definition r_mod_filter : rule :=
-  normal_rule
+  rule.impl
     [ Term (Assn (v "f") (v "n"));
       rw (Seq (Assn (v "f") (v "n")) (Filter (Match (v "f") (v "n")))) (Assn (v "f") (v "n")) ]
     [ Term (Seq (Assn (v "f") (v "n")) (Filter (Match (v "f") (v "n")))) ].
 
 (* f == n ; f := n -> f == n *)
 Definition r_filter_mod : rule :=
-  normal_rule
+  rule.impl
     [ Term (Filter (Match (v "f") (v "n")));
       rw (Seq (Filter (Match (v "f") (v "n"))) (Assn (v "f") (v "n"))) (Filter (Match (v "f") (v "n"))) ]
     [ Term (Seq (Filter (Match (v "f") (v "n"))) (Assn (v "f") (v "n"))) ].
@@ -276,14 +276,14 @@ Definition r_filter_mod : rule :=
 (* f == n1 ; f == n2 -> 0 when n1 != n2 *)
 (* TODO encode the NEQ for n1 and n2 *)
 Definition r_filter_contradiction : rule :=
-  normal_rule
+  rule.impl
     [ Term (Filter Drop);
       rw (Seq (Filter (Match (v "f") (v "n1"))) (Filter (Match (v "f") (v "n2")))) (Filter Drop) ]
     [ Term (Seq (Filter (Match (v "f") (v "n1"))) (Filter (Match (v "f") (v "n2")))) ].
 
 (* f := n ; f := n -> f := n *)
 Definition r_twice_mod : rule :=
-  normal_rule
+  rule.impl
     [ Term (Assn (v "f") (v "n"));
       rw (Seq (Assn (v "f") (v "n")) (Assn (v "f") (v "n"))) (Assn (v "f") (v "n")) ]
     [ Term (Seq (Assn (v "f") (v "n")) (Assn (v "f") (v "n"))) ].
@@ -292,39 +292,39 @@ Definition r_twice_mod : rule :=
 
 (* a \/ b -> Filter a + Filter b *)
 Definition r_filter_disj : rule :=
-  normal_rule
+  rule.impl
     [ Term (Parallel (Filter (v "a")) (Filter (v "b")));
       rw (Filter (Disj (v "a") (v "b"))) (Parallel (Filter (v "a")) (Filter (v "b"))) ]
     [ Term (Filter (Disj (v "a") (v "b"))) ].
 
 (* Filter a + Filter b -> Filter (a \/ b) *)
 Definition r_parallel_filter : rule :=
-  normal_rule
+  rule.impl
     [ Term (Filter (Disj (v "a") (v "b")));
       rw (Parallel (Filter (v "a")) (Filter (v "b"))) (Filter (Disj (v "a") (v "b"))) ]
     [ Term (Parallel (Filter (v "a")) (Filter (v "b"))) ].
 
 (* Filter(a) ; Filter(b) -> Filter(a /\ b) *)
 Definition r_filter_conj : rule :=
-  normal_rule
+  rule.impl
     [ Term (Filter (Conj (v "a") (v "b")));
       rw (Seq (Filter (v "a")) (Filter (v "b"))) (Filter (Conj (v "a") (v "b"))) ]
     [ Term (Seq (Filter (v "a")) (Filter (v "b"))) ].
 
 (* Filter(a /\ b) -> Filter(a) ; Filter(b) *)
 Definition r_seq_filter : rule :=
-  normal_rule
+  rule.impl
     [ Term (Seq (Filter (v "a")) (Filter (v "b")));
       rw (Filter (Conj (v "a") (v "b"))) (Seq (Filter (v "a")) (Filter (v "b"))) ]
     [ Term (Seq (Filter (v "a")) (Filter (v "b"))) ].
 
 Definition r_backwards_congruence : rule :=
-  normal_rule
+  rule.impl
     [ rw (v "a") (v "b") ]
     [ rw (Filter (v "a")) (Filter (v "b")) ].
 
 Definition r_rewrite_transitive : rule :=
-  normal_rule
+  rule.impl
     [ rw (v "a") (v "c") ]
     [ rw (v "a") (v "b");
       rw (v "b") (v "c") ].
@@ -333,37 +333,37 @@ Definition r_rewrite_transitive : rule :=
 
 (* If Disj(a, b) is a term, then a and b are terms *)
 Definition r_disj_subterms : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "a"); Term (v "b") ]
     [ Term (Disj (v "a") (v "b")) ].
 
 (* If Conj(a, b) is a term, then a and b are terms *)
 Definition r_conj_subterms : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "a"); Term (v "b") ]
     [ Term (Conj (v "a") (v "b")) ].
 
 (* If Seq(p, q) is a term, then p and q are terms *)
 Definition r_seq_subterms : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "p"); Term (v "q") ]
     [ Term (Seq (v "p") (v "q")) ].
 
 (* If Parallel(p, q) is a term, then p and q are terms *)
 Definition r_parallel_subterms : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "p"); Term (v "q") ]
     [ Term (Parallel (v "p") (v "q")) ].
 
 (* If Filter(a) is a term, then a is a term *)
 Definition r_filter_subterm : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "a") ]
     [ Term (Filter (v "a")) ].
 
 (* If Not(a) is a term, then a is a term *)
 Definition r_not_subterm : rule :=
-  normal_rule
+  rule.impl
     [ Term (v "a") ]
     [ Term (Not (v "a")) ].
 

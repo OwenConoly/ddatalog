@@ -76,10 +76,10 @@ Definition grid_equiv :=
 
 (* J(x, y) :- A(x, y), B(y, x). *)
 Definition ruleJ : rule :=
-  Datalog.normal_rule
-    [ {| Datalog.clause_rel := "J"; Datalog.clause_args := [Datalog.var_expr "x"; Datalog.var_expr "y"] |} ]
-    [ {| Datalog.clause_rel := "A"; Datalog.clause_args := [Datalog.var_expr "x"; Datalog.var_expr "y"] |} ;
-      {| Datalog.clause_rel := "B"; Datalog.clause_args := [Datalog.var_expr "y"; Datalog.var_expr "x"] |} ].
+  Datalog.rule.impl
+    [ {| Datalog.clause.rel := "J"; Datalog.clause.args := [Datalog.expr.var "x"; Datalog.expr.var "y"] |} ]
+    [ {| Datalog.clause.rel := "A"; Datalog.clause.args := [Datalog.expr.var "x"; Datalog.expr.var "y"] |} ;
+      {| Datalog.clause.rel := "B"; Datalog.clause.args := [Datalog.expr.var "y"; Datalog.expr.var "x"] |} ].
 
 Definition P : list rule := [ruleJ].
 Definition idx_layout : list (node_id * list nat) := [ ([0; 0]%nat, [0]%nat) ].  (* rule 0 -> node (0,0) *)
@@ -113,12 +113,12 @@ Theorem end_to_end_equiv
     (ninfos : list (@DistributedHardwareProgram.node_info node_id (SortedListNat.map (list destination))))
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
-  (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels P)) ->
+  (forall f, Qsrc f -> In (fact.rel f) (program_rels P)) ->
   edb_routable NFPS (relabel_Q (encode_rel (program_rels P) P) Qsrc) ->
-  (exists n, In n (get_or_default NFPS (Datalog.rel_of (nattify_rel_fact (program_rels P) P fsrc)))) ->
+  (exists n, In n (get_or_default NFPS (fact.rel (nattify_rel_fact (program_rels P) P fsrc)))) ->
   run_ninfos ninfos
     (fun n f0 => relabel_Q (encode_rel (program_rels P) P) Qsrc f0 /\
-                 In n (get_or_default NFPS (Datalog.rel_of f0)))
+                 In n (get_or_default NFPS (fact.rel f0)))
     (fun n R  => In n (get_or_default NFPS R))
     (nattify_rel_fact (program_rels P) P fsrc)
   <-> Datalog.prog_impl P Qsrc fsrc.
@@ -139,12 +139,12 @@ Qed.
 (*  [grid_equiv] is program/layout-agnostic, so it is reused verbatim.         *)
 (*==========================================================================*)
 Definition Path (x y : string) : @Datalog.clause string string string :=
-  {| Datalog.clause_rel := "Path"; Datalog.clause_args := [Datalog.var_expr x; Datalog.var_expr y] |}.
+  {| Datalog.clause.rel := "Path"; Datalog.clause.args := [Datalog.expr.var x; Datalog.expr.var y] |}.
 Definition Edge (x y : string) : @Datalog.clause string string string :=
-  {| Datalog.clause_rel := "Edge"; Datalog.clause_args := [Datalog.var_expr x; Datalog.var_expr y] |}.
+  {| Datalog.clause.rel := "Edge"; Datalog.clause.args := [Datalog.expr.var x; Datalog.expr.var y] |}.
 
-Definition r0 : rule := Datalog.normal_rule [Path "x" "y"] [Edge "x" "y"].
-Definition r1 : rule := Datalog.normal_rule [Path "x" "z"] [Edge "x" "y"; Path "y" "z"].
+Definition r0 : rule := Datalog.rule.impl [Path "x" "y"] [Edge "x" "y"].
+Definition r1 : rule := Datalog.rule.impl [Path "x" "z"] [Edge "x" "y"; Path "y" "z"].
 Definition Preach : list rule := [r0; r1].
 Definition idx_layout_r : list (node_id * list nat) :=
   [ ([0; 0]%nat, [0]%nat); ([1; 0]%nat, [1]%nat) ].
@@ -167,12 +167,12 @@ Theorem end_to_end_equiv_reach
     (ninfos : list (@DistributedHardwareProgram.node_info node_id (SortedListNat.map (list destination))))
     (Qsrc : @Datalog.fact string string -> Prop) (fsrc : @Datalog.fact string string) :
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
-  (forall f, Qsrc f -> In (Datalog.rel_of f) (program_rels Preach)) ->
+  (forall f, Qsrc f -> In (fact.rel f) (program_rels Preach)) ->
   edb_routable NFPS_r (relabel_Q (encode_rel (program_rels Preach) Preach) Qsrc) ->
-  (exists n, In n (get_or_default NFPS_r (Datalog.rel_of (nattify_rel_fact (program_rels Preach) Preach fsrc)))) ->
+  (exists n, In n (get_or_default NFPS_r (fact.rel (nattify_rel_fact (program_rels Preach) Preach fsrc)))) ->
   run_ninfos ninfos
     (fun n f0 => relabel_Q (encode_rel (program_rels Preach) Preach) Qsrc f0 /\
-                 In n (get_or_default NFPS_r (Datalog.rel_of f0)))
+                 In n (get_or_default NFPS_r (fact.rel f0)))
     (fun n R  => In n (get_or_default NFPS_r R))
     (nattify_rel_fact (program_rels Preach) Preach fsrc)
   <-> Datalog.prog_impl Preach Qsrc fsrc.
