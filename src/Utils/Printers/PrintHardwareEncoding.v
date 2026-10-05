@@ -14,11 +14,11 @@ Section PrintHardwareEncoding.
 Context {node_id : Type}.
 Context `{JEncode node_id}.
 
-Notation destination := (@DistributedHardwareProgram.destination node_id).
+Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 
 Context {forwarding_table : map.map rel_id (list destination)}.
 
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 #[global] Instance JEncode__pair A B `{JEncode A} `{JEncode B} : JEncode (A * B) :=
   fun '(a, b) => JSON__Array [encode a; encode b].

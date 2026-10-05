@@ -120,7 +120,7 @@ Section GridGraph.
           econstructor; eauto.
     - induction 1.
       + apply is_mth_neighbor_self.
-      + simpl. subst. assert (prev_diff + abs c1 c2 <? abs c1 c2 = false).
+      + simpl. subst. assert ((prev_diff + abs c1 c2 <? abs c1 c2) = false).
         { apply Nat.ltb_ge. lia. }
         rewrite H0. rewrite Nat.add_sub; try lia.
         apply IHmanhattan_distance.

@@ -12,13 +12,13 @@ From coqutil Require Import Map.Interface Map.SortedListString Result.
 Import ListNotations.
 Import StringDatalogParams.
 
-Notation node_id     := GridGraph.Node.
-Notation node_id_map := GridTopology.node_id_map.
-Notation destination := (@DistributedHardwareProgram.destination node_id).
+Abbreviation node_id     := GridGraph.Node.
+Abbreviation node_id_map := GridTopology.node_id_map.
+Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 
 (* concrete fact-location tables: [rel]/[rel_id]-keyed maps to node lists. *)
-Notation rel_locs_map   := (SortedListString.map (list node_id)).
-Notation relid_locs_map  := (SortedListNat.map (list node_id)).
+Abbreviation rel_locs_map   := (SortedListString.map (list node_id)).
+Abbreviation relid_locs_map  := (SortedListNat.map (list node_id)).
 
 (* [make_layout_map program layout] : a [node -> rules] map from an indexed layout
    (a list of [(node_id, rule_index_list)] pairs over the [program]). *)

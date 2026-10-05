@@ -35,7 +35,7 @@ Context {node_id : Type}
         {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 
 (* ground/runtime facts at this (numeric-id) layer *)
-Notation dl_fact := (Datalog.fact (_rel := rel_id)).
+Abbreviation dl_fact := (Datalog.fact (_rel := rel_id)).
 
 (*============================================================================*)
 (*  OPERATIONAL hardware semantics: a standalone small-step machine that just  *)
@@ -81,7 +81,7 @@ End Run.
 (*----Running the compiler's output [ninfos] directly----*)
 
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 (* read a node's compiled data off the returned [ninfos] (empty default if the node is absent). *)
 Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=
@@ -139,8 +139,8 @@ Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
         (forward : node_id -> rel_id -> list node_id)
         (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop).
 
-Notation step  := (dstep prog tries forward input).
-Notation reach := (dreach prog tries forward input).
+Abbreviation step  := (dstep prog tries forward input).
+Abbreviation reach := (dreach prog tries forward input).
 
 (* a fact is operationally PRESENT at a node when some reachable config holds it. *)
 Definition present (n : node_id) (f : dl_fact) : Prop := exists c, reach c /\ c n f.

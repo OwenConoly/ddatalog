@@ -44,8 +44,8 @@ Proof. exact (@SortedListList.ok string String.ltb SortedListString.string_stric
 
 Local Abbreviation rules_only p := {| program.rules := p; program.meta_rules := [] |}.
 
-Notation node_id     := GridGraph.Node.
-Notation destination := (@DistributedHardwareProgram.destination node_id).
+Abbreviation node_id     := GridGraph.Node.
+Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 
 (*==========================================================================*)
 (*  [grid_equiv]: [nattify_and_compile_correct] with every instance pinned to  *)

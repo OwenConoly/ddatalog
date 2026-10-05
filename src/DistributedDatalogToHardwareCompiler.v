@@ -19,7 +19,7 @@ Context {node_id : Type} {node_id_eqb : Eqb node_id}.
 
 #[local] Existing Instance rel_id.
 
-Notation destination := (@DistributedHardwareProgram.destination node_id).
+Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 
 Context {node_id_set : map.map node_id unit}.
 Context {forwarding_table : map.map rel_id (list destination)}.
@@ -28,7 +28,7 @@ Context {fact_locations : map.map rel_id (list node_id)}.
 
 (* [node_info] now lives in [DistributedHardwareProgram] (the distributed AST); this is the
    compiler's view of it, with the topology's [node_id] and forwarding-table map fixed. *)
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 Record node_context := {
   nctries : list trie;
@@ -56,7 +56,7 @@ Definition node_graph := @ComputableGraph node_id node_id_set node_id_edge_set.
 Definition source_program (layout : layout_map) : program :=
   concat (values layout).
 
-(* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([prog_impl] of a
+(* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([program.interp] of a
    bare program depends only on its rule set, so the compiled network then implements [P].) *)
 Definition layout_distributes_program (P : program) (layout : layout_map) : Prop :=
   incl (source_program layout) P /\ incl P (source_program layout).

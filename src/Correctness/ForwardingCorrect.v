@@ -17,20 +17,20 @@ Context {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 Context {node_id_set : map.map node_id unit} {node_id_set_ok : map.ok node_id_set}.
 Context {node_id_edge_set : map.map node_id node_id_set} {node_id_edge_set_ok : map.ok node_id_edge_set}.
 
-Notation node_graph := (@ComputableGraph.ComputableGraph node_id node_id_set node_id_edge_set).
-Notation cg_edge := (@ComputableGraph.cg_edge node_id node_id_set node_id_edge_set).
-Notation is_path := (@ComputableGraph.is_path node_id node_id_set node_id_edge_set).
+Abbreviation node_graph := (@ComputableGraph.ComputableGraph node_id node_id_set node_id_edge_set).
+Abbreviation cg_edge := (@ComputableGraph.cg_edge node_id node_id_set node_id_edge_set).
+Abbreviation is_path := (@ComputableGraph.is_path node_id node_id_set node_id_edge_set).
 
-Notation destination := (@DistributedHardwareProgram.destination node_id).
+Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 Context {forwarding_table : map.map rel_id (list destination)}
         {forwarding_table_ok : map.ok forwarding_table}.
 Context {node_ftable_map : map.map node_id forwarding_table}
         {node_ftable_map_ok : map.ok node_ftable_map}.
 
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
-Notation get_node_ftable node ftables := (get_or_default ftables node).
-Notation add_trie_dest := (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
-Notation add_path := (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation get_node_ftable node ftables := (get_or_default ftables node).
+Abbreviation add_trie_dest := (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
+Abbreviation add_path := (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 
 (* the [DestEdge] targets among a destination list *)
 Definition dest_edges (ds : list destination) : list node_id :=
@@ -61,7 +61,7 @@ Lemma dest_edges_map_trie {A : Type} (f : A -> trie_id) (l : list A) :
   dest_edges (List.map (fun t => DistributedHardwareProgram.DestTrie (f t)) l) = [].
 Proof. induction l as [|t l IH]; cbn [List.map dest_edges flat_map]; [reflexivity | exact IH]. Qed.
 
-Notation node_id_eqb_spec := (@eqb_boolspec node_id node_id_eqb node_id_eqb_ok).
+Abbreviation node_id_eqb_spec := (@eqb_boolspec node_id node_id_eqb node_id_eqb_ok).
 
 (* the forwarding edges node [node] has for relation [rel] in [ftables] *)
 Definition node_rel_dests (ftables : node_ftable_map) (node : node_id) (rel : rel_id) : list destination :=

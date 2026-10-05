@@ -28,11 +28,11 @@ Context {node_set_ok : map.ok node_set}.
 Context {edge_set : map.map Node node_set}.
 Context {edge_set_ok : map.ok edge_set}.
 
-Local Notation ComputableGraph := (@ComputableGraph Node node_set edge_set).
-Local Notation bfs_state := (@bfs_state Node node_set).
-Local Notation bfs_step := (@bfs_step Node node_eqb node_set edge_set).
-Local Notation bfs_aux := (@bfs_aux Node node_eqb node_set edge_set).
-Local Notation bfs := (@bfs Node node_eqb node_set edge_set).
+Local Abbreviation ComputableGraph := (@ComputableGraph Node node_set edge_set).
+Local Abbreviation bfs_state := (@bfs_state Node node_set).
+Local Abbreviation bfs_step := (@bfs_step Node node_eqb node_set edge_set).
+Local Abbreviation bfs_aux := (@bfs_aux Node node_eqb node_set edge_set).
+Local Abbreviation bfs := (@bfs Node node_eqb node_set edge_set).
 
 (* ----- node-set cardinality (for the potential) ----- *)
 

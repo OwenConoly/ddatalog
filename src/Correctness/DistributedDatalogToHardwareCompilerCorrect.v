@@ -7,7 +7,7 @@
    The chain is:
 
      source datalog  --(rename, DistributedDatalogToHardwareCompiler)-->  lowered_program
-        |  Datalog.prog_impl_fact                     |  NodeHardwareSemantics.lprog_impl_fact (= Datalog on ids)
+        |  program.interp                             |  NodeHardwareSemantics.lprog_impl_fact (= Datalog on ids)
         |                                             |  ===  NodeHardwareSemantics.hw_prog_impl_fact
         +---------------------------------------------+      (this file: per-rule bridge)
 
@@ -57,11 +57,11 @@ Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
 Context {var_idx_map : map.map var nat}.   (* used by compute_permutation *)
 Context {var_idx_map_ok : map.ok var_idx_map}.
 
-Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
-Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
-Notation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var fn var_eqb fn_eqb).
-Notation generate_join := (@DistributedDatalogToHardwareCompiler.generate_join var fn var_eqb fn_eqb).
-Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
+Abbreviation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Abbreviation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
+Abbreviation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var fn var_eqb fn_eqb).
+Abbreviation generate_join := (@DistributedDatalogToHardwareCompiler.generate_join var fn var_eqb fn_eqb).
+Abbreviation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
 
 (* the tuple of a (normal) ground fact; meta facts (never produced by the bare fragment)
    read as []. *)
@@ -317,9 +317,9 @@ Qed.
 (*  compute_permutation is a NoDup permutation list of the right length        *)
 (*============================================================================*)
 
-Notation cperm_aux := (@DistributedDatalogToHardwareCompiler.compute_perm_aux var var_idx_map).
-Notation cperm := (@DistributedDatalogToHardwareCompiler.compute_permutation var var_eqb var_idx_map).
-Notation bbm := (@DistributedDatalogToHardwareCompiler.build_base_map var var_eqb var_idx_map).
+Abbreviation cperm_aux := (@DistributedDatalogToHardwareCompiler.compute_perm_aux var var_idx_map).
+Abbreviation cperm := (@DistributedDatalogToHardwareCompiler.compute_permutation var var_eqb var_idx_map).
+Abbreviation bbm := (@DistributedDatalogToHardwareCompiler.build_base_map var var_eqb var_idx_map).
 
 Definition mget0 (m : var_idx_map) (v : var) : nat :=
   match map.get m v with Some n => n | None => 0 end.
@@ -986,13 +986,13 @@ Qed.
 (*----per-hypothesis relation/arity facts----*)
 
 (* the per-clause [hsig] shape check, exactly as in [NodeHardwareSemantics.hw_rule_impl]. *)
-Notation hsig_ok := (fun (sg : rel_id * nat) (fct : Datalog.fact (_rel := rel_id)) =>
+Abbreviation hsig_ok := (fun (sg : rel_id * nat) (fct : Datalog.fact (_rel := rel_id)) =>
   match fct with
   | nfact R args => R = fst sg /\ length args = snd sg
   | fact.meta _ => False
   end).
 
-(* Each hypothesis fact is the [normal_fact] with the clause's relation and arity, read off
+(* Each hypothesis fact is the normal fact with the clause's relation and arity, read off
    from [interp_fact]. *)
 Lemma interp_hyp_arity (ctx : context) (rule_hyps : list lowered_fact)
     (hyps' : list (Datalog.fact (_rel := rel_id))) (dh : lowered_fact) (i : nat) :
@@ -1221,21 +1221,21 @@ Context {node_id_set : map.map node_id unit}.
 #[local] Existing Instance rel_id.
 Context {var_idx_map : map.map var nat}.
 
-Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
-Notation lowered_expr := (@HardwareProgram.lowered_expr var fn).
-Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
-Notation generate_trie :=
+Abbreviation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Abbreviation lowered_expr := (@HardwareProgram.lowered_expr var fn).
+Abbreviation node_context := DistributedDatalogToHardwareCompiler.node_context.
+Abbreviation generate_trie :=
   (@DistributedDatalogToHardwareCompiler.generate_trie var fn var_eqb var_idx_map).
-Notation compile_hyps :=
+Abbreviation compile_hyps :=
   (@DistributedDatalogToHardwareCompiler.compile_hyps var fn var_eqb fn_eqb var_idx_map).
-Notation compile_concl :=
+Abbreviation compile_concl :=
   (@DistributedDatalogToHardwareCompiler.compile_concl var fn var_eqb).
-Notation compile_concls :=
+Abbreviation compile_concls :=
   (@DistributedDatalogToHardwareCompiler.compile_concls var fn var_eqb).
-Notation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var fn var_eqb fn_eqb).
-Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
-Notation compute_permutation := (@DistributedDatalogToHardwareCompiler.compute_permutation var var_eqb var_idx_map).
-Notation get_rule_var_index := (@DistributedDatalogToHardwareCompiler.get_rule_var_index var var_eqb).
+Abbreviation generate_query := (@DistributedDatalogToHardwareCompiler.generate_query var fn var_eqb fn_eqb).
+Abbreviation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
+Abbreviation compute_permutation := (@DistributedDatalogToHardwareCompiler.compute_permutation var var_eqb var_idx_map).
+Abbreviation get_rule_var_index := (@DistributedDatalogToHardwareCompiler.get_rule_var_index var var_eqb).
 
 (* [generate_trie] always returns a trie indexing the hypothesis's relation by the
    permutation computed for that hypothesis -- whether it freshly allocates one or
@@ -1500,12 +1500,12 @@ Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 Context {var_node_set : map.map var unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map var var_node_set}.
 
-Notation ordering_context := (@DistributedDatalogToHardwareCompiler.ordering_context var var_node_set var_edge_set).
-Notation var_graph := (@DistributedDatalogToHardwareCompiler.var_graph var var_node_set var_edge_set).
-Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
-Notation choose := (@DistributedDatalogToHardwareCompiler.choose_next_var_ordered var var_node_set var_edge_set).
-Notation visit_node := (@DistributedDatalogToHardwareCompiler.visit_node var var_node_set var_edge_set).
-Notation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
+Abbreviation ordering_context := (@DistributedDatalogToHardwareCompiler.ordering_context var var_node_set var_edge_set).
+Abbreviation var_graph := (@DistributedDatalogToHardwareCompiler.var_graph var var_node_set var_edge_set).
+Abbreviation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Abbreviation choose := (@DistributedDatalogToHardwareCompiler.choose_next_var_ordered var var_node_set var_edge_set).
+Abbreviation visit_node := (@DistributedDatalogToHardwareCompiler.visit_node var var_node_set var_edge_set).
+Abbreviation compute_var_order := (@DistributedDatalogToHardwareCompiler.compute_var_order var fn).
 
 (* The generic per-candidate step shared by both max-degree folds: a candidate
    is considered only if it is still a graph node. *)
@@ -1613,7 +1613,7 @@ Qed.
 
 (*----the greedy loop: NoDup + subset + full coverage----*)
 
-Notation cvo_h := (@DistributedDatalogToHardwareCompiler.compute_variable_ordering_ordered_h var var_node_set var_edge_set).
+Abbreviation cvo_h := (@DistributedDatalogToHardwareCompiler.compute_variable_ordering_ordered_h var var_node_set var_edge_set).
 
 (* [innode]/[node_count]: how many candidates are still graph nodes (the loop's measure). *)
 Definition innode (ns : var_node_set) (v : var) : bool :=
@@ -1827,11 +1827,11 @@ Qed.
 Lemma length_filter_le {A} (f : A -> bool) (l : list A) : length (filter f l) <= length l.
 Proof. induction l as [|x l IH]; simpl; [lia | destruct (f x); simpl; lia]. Qed.
 
-Notation compute_variable_ordering_ordered :=
+Abbreviation compute_variable_ordering_ordered :=
   (@DistributedDatalogToHardwareCompiler.compute_variable_ordering_ordered var fn var_eqb var_node_set var_edge_set).
-Notation create_dependency_graph :=
+Abbreviation create_dependency_graph :=
   (@DistributedDatalogToHardwareCompiler.create_dependency_graph var fn var_node_set var_edge_set).
-Notation initial_ordering_context :=
+Abbreviation initial_ordering_context :=
   (@DistributedDatalogToHardwareCompiler.initial_ordering_context var var_node_set var_edge_set).
 
 (* MAIN ordering correctness: for bare hypotheses, the variable ordering computed over the
@@ -1902,13 +1902,13 @@ Context {var_node_set : map.map var unit}.
 Context {var_edge_set : map.map var var_node_set}.
 Context {var_idx_map : map.map var nat}.
 
-Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
-Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
-Notation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
-Notation compile_rule :=
+Abbreviation node_context := DistributedDatalogToHardwareCompiler.node_context.
+Abbreviation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
+Abbreviation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation compile_rule :=
   (@DistributedDatalogToHardwareCompiler.compile_rule var fn aggregator var_eqb fn_eqb var_node_set var_edge_set var_idx_map).
-Notation compile_node :=
+Abbreviation compile_node :=
   (@DistributedDatalogToHardwareCompiler.compile_node var fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 
 (* [compile_rule] = [compile_hyps] (which threads the trie context) then [compile_concls]
@@ -2011,14 +2011,14 @@ Context {node_id_set : map.map node_id unit}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
 #[local] Existing Instance rel_id.
 
-Notation node_context := DistributedDatalogToHardwareCompiler.node_context.
-Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
-Notation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
-Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
-Notation compile_rule :=
+Abbreviation node_context := DistributedDatalogToHardwareCompiler.node_context.
+Abbreviation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
+Abbreviation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Abbreviation compile_rule :=
   (@DistributedDatalogToHardwareCompiler.compile_rule var fn aggregator var_eqb fn_eqb var_node_set var_edge_set var_idx_map).
-Notation compile_node :=
+Abbreviation compile_node :=
   (@DistributedDatalogToHardwareCompiler.compile_node var fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
 
 (* PER-RULE: a compiled rule (whose post-context tries are all in the node table [tries], which
@@ -2182,29 +2182,29 @@ Context {fact_locations_map : map.map rel_id (list node_id)}
 Context {rels_at_node : map.map node_id (list rel_id)}
         {rels_at_node_ok : map.ok rels_at_node}.
 
-Notation program := (@HardwareProgram.lowered_program var fn aggregator).
-Notation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
-Notation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
-Notation compile_node :=
+Abbreviation program := (@HardwareProgram.lowered_program var fn aggregator).
+Abbreviation lowered_program := (@HardwareProgram.lowered_program var fn aggregator).
+Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Abbreviation compile_node :=
   (@DistributedDatalogToHardwareCompiler.compile_node var fn aggregator var_eqb fn_eqb node_id forwarding_table var_node_set var_edge_set var_idx_map).
-Notation compile_all_nodes :=
+Abbreviation compile_all_nodes :=
   (@DistributedDatalogToHardwareCompiler.compile_all_nodes var fn aggregator var_eqb fn_eqb node_id forwarding_table layout_map var_node_set var_edge_set var_idx_map).
-Notation attach_forwarding_tables :=
+Abbreviation attach_forwarding_tables :=
   (@DistributedDatalogToHardwareCompiler.attach_forwarding_tables node_id node_id_eqb forwarding_table node_ftable_map).
-Notation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
-Notation compile :=
+Abbreviation node_graph := (@DistributedDatalogToHardwareCompiler.node_graph node_id node_id_set node_id_edge_set).
+Abbreviation compile :=
   (@DistributedDatalogToHardwareCompiler.compile var fn aggregator var_eqb fn_eqb node_id node_id_eqb node_id_set forwarding_table layout_map fact_locations_map var_node_set var_edge_set node_id_edge_set var_idx_map node_ftable_map rels_at_node).
-Notation get_internal_producers_of :=
+Abbreviation get_internal_producers_of :=
   (@DistributedDatalogToHardwareCompiler.get_internal_producers_of var fn aggregator node_id layout_map fact_locations_map rels_at_node).
-Notation get_internal_consumers_of :=
+Abbreviation get_internal_consumers_of :=
   (@DistributedDatalogToHardwareCompiler.get_internal_consumers_of var fn aggregator node_id layout_map fact_locations_map rels_at_node).
-Notation all_rules_fed :=
+Abbreviation all_rules_fed :=
   (@DistributedDatalogToHardwareCompiler.all_rules_fed node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
-Notation producers_go_out :=
+Abbreviation producers_go_out :=
   (@DistributedDatalogToHardwareCompiler.producers_go_out node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
-Notation check_layout_routable :=
+Abbreviation check_layout_routable :=
   (@DistributedDatalogToHardwareCompiler.check_layout_routable node_id node_id_eqb node_id_set fact_locations_map node_id_edge_set).
-Notation generate_forwarding_table :=
+Abbreviation generate_forwarding_table :=
   (@DistributedDatalogToHardwareCompiler.generate_forwarding_table node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 
 (* [all_producers]/[all_consumers] are the merged (internal + external) location maps the compiler's
@@ -2213,7 +2213,7 @@ Definition all_producers (layout : layout_map) (ext : fact_locations_map) : fact
   union_with (list_union eqb) (get_internal_producers_of layout) ext.
 Definition all_consumers (layout : layout_map) (ext : fact_locations_map) : fact_locations_map :=
   union_with (list_union eqb) (get_internal_consumers_of layout) ext.
-Notation DNet := (@DistributedDatalog.DataflowNetwork rel_id var fn aggregator T value_eqb value_set node_id).
+Abbreviation DNet := (@DistributedDatalog.DataflowNetwork rel_id var fn aggregator T value_eqb value_set node_id).
 
 (* Every node_info produced by [compile_all_nodes] is the [compile_node] result for some node
    in the lowered layout. *)
@@ -2381,8 +2381,8 @@ Qed.
 (*  (e.g. [GridLayout.check_layout]) discharges.                             *)
 (*===========================================================================*)
 
-Notation lowered_fact := (@HardwareProgram.lowered_fact var fn).
-Notation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
+Abbreviation lowered_fact := (@HardwareProgram.lowered_fact var fn).
+Abbreviation lowered_rule := (@HardwareProgram.lowered_rule var fn aggregator).
 
 (* Boolean version of [bare_fact]: every argument is a plain variable.  PARAMETRIC over the relation
    and function types -- bareness inspects only [expr.var]/[expr.app], never the relation/function
@@ -2511,9 +2511,9 @@ Context {node_ftable_map_ok : map.ok node_ftable_map}.
 Context {node_id_set_ok : map.ok node_id_set}.
 Context {node_id_edge_set_ok : map.ok node_id_edge_set}.
 
-Notation ftable_edges_sound :=
+Abbreviation ftable_edges_sound :=
   (@ForwardingCorrect.ftable_edges_sound node_id node_id_set node_id_edge_set forwarding_table node_ftable_map).
-Notation update_forwarding_table_for_rel :=
+Abbreviation update_forwarding_table_for_rel :=
   (@DistributedDatalogToHardwareCompiler.update_forwarding_table_for_rel node_id node_id_eqb node_id_set forwarding_table fact_locations_map node_id_edge_set node_ftable_map).
 
 (* one relation's worth of routing keeps the table edge-sound: every producer/consumer pair is
@@ -2550,11 +2550,11 @@ Qed.
 (*  the producer/consumer/relation folds by the [*_adds]/[*_pres] combinators.   *)
 (*============================================================================*)
 
-Notation has_fwd_edge := (@ForwardingCorrect.has_fwd_edge node_id forwarding_table node_ftable_map).
-Notation get_path := (@ComputableGraph.get_path node_id node_id_eqb node_id_set node_id_edge_set).
-Notation add_trie_dest :=
+Abbreviation has_fwd_edge := (@ForwardingCorrect.has_fwd_edge node_id forwarding_table node_ftable_map).
+Abbreviation get_path := (@ComputableGraph.get_path node_id node_id_eqb node_id_set node_id_edge_set).
+Abbreviation add_trie_dest :=
   (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
-Notation add_path :=
+Abbreviation add_path :=
   (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
 
 (* routing one relation only adds forwarding edges *)
@@ -2785,7 +2785,7 @@ Proof.
   - exact Hreach.
 Qed.
 
-Notation cg2g := (@ComputableGraph.computable_graph_to_graph node_id node_id_set node_id_edge_set).
+Abbreviation cg2g := (@ComputableGraph.computable_graph_to_graph node_id node_id_set node_id_edge_set).
 
 (*============================================================================*)
 (*  FULLY DECIDABLE top theorem: every side condition is a [bool] checker.      *)
@@ -2826,7 +2826,7 @@ Qed.
 
 (* Decidable check that every node a layout assigns rules to is a real graph node.  Now a GATE inside
    [compile_lowered]; aliased here so the existing lemmas / top theorems refer to the same function. *)
-Notation layout_in_graphb :=
+Abbreviation layout_in_graphb :=
   (@DistributedDatalogToHardwareCompiler.layout_in_graphb var fn aggregator node_id node_id_set
      layout_map node_id_edge_set).
 
@@ -3251,10 +3251,10 @@ Context (net : DNet) (prog : node_id -> hardware_program) (tries : node_id -> li
 Context (Hmatch : forall n, Forall2 (hw_rule_matches (tries n))
                               (net.(DistributedDatalog.layout) n) (prog n)).
 
-Local Notation Fwd := (net.(DistributedDatalog.forward)).
-Local Notation Inp := (net.(DistributedDatalog.input)).
-Local Notation Outp := (net.(DistributedDatalog.output)).
-Local Notation present := (DistributedHardwareSemantics.present prog tries Fwd Inp).
+Local Abbreviation Fwd := (net.(DistributedDatalog.forward)).
+Local Abbreviation Inp := (net.(DistributedDatalog.input)).
+Local Abbreviation Outp := (net.(DistributedDatalog.output)).
+Local Abbreviation present := (DistributedHardwareSemantics.present prog tries Fwd Inp).
 
 (* per-node firing bridge: a node's hardware rules fire iff its matching datalog rules fire *)
 Lemma node_fires_iff (n : node_id) (f : Datalog.fact (_rel := rel_id)) (hyps' : list (Datalog.fact (_rel := rel_id))) :

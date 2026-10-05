@@ -46,11 +46,11 @@ Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
    AST: the hardware program is compared directly to a [Datalog] program.  (Turning a compiled
    [lowered_rule] into such a [dl_rule], and proving the compiled hardware matches it, is the
    compiler's job in [DistributedDatalogToHardwareCompilerCorrect].) *)
-Notation dl_rule := (rule (_rel := rel_id)).
-Notation dl_program := (list dl_rule).
+Abbreviation dl_rule := (rule (_rel := rel_id)).
+Abbreviation dl_program := (list dl_rule).
 (* Ground/runtime facts are [Datalog.fact]s ([fact.normal nf]); the bare fragment
    never produces [fact.meta]s. *)
-Notation dl_fact := (Datalog.fact (_rel := rel_id)).
+Abbreviation dl_fact := (Datalog.fact (_rel := rel_id)).
 
 (*============================================================================*)
 (*  Trie-join (hardware) semantics on a single node                           *)
