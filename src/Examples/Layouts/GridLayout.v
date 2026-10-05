@@ -5,7 +5,7 @@ From coqutil Require Import Map.Interface Eqb.
 Import ListNotations.
 
 Section GridLayout.
-  Context `{params : datalog_params} `{query_sig : query_signature rel}.
+  Context `{params : datalog_params}.
   Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
   Context {rel_eqb : Eqb rel} {rel_eqb_ok : Eqb_ok rel_eqb}.
   Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.

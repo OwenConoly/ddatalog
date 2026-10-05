@@ -17,7 +17,6 @@ Section SmallExample.
   Context {context : map.map var T}.
   Context {context_ok : map.ok context}.
   Context {sig : signature fn aggregator T}.
-  Context {query_sig : query_signature rel}.
 
   Definition dims : list nat := [3; 3].
 
