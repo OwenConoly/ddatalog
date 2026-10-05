@@ -5,7 +5,7 @@
    the compiled network's own forwarding tables. *)
 
 From Stdlib Require Import List Bool Lia PeanoNat.
-From coqutil Require Import Map.Interface Map.Properties Datatypes.ListSet Eqb.
+From coqutil Require Import Map.Interface Map.Properties Datatypes.List Datatypes.ListSet Eqb.
 From Datalog.Util Require Import Map Default.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
 Import ListNotations.
@@ -326,34 +326,12 @@ Proof.
   - apply IH. exact Hin.
 Qed.
 
-(* lift a per-step preservation through the [fold_left] over the relation ids that assembles the
-   whole forwarding table. *)
-Lemma fold_left_pres_sound {A : Type} (g : node_graph) (f : node_ftable_map -> A -> node_ftable_map)
-    (l : list A) (init : node_ftable_map) :
-  ftable_edges_sound g init ->
-  (forall acc x, ftable_edges_sound g acc -> ftable_edges_sound g (f acc x)) ->
-  ftable_edges_sound g (fold_left f l init).
-Proof.
-  revert init. induction l as [|x l IH]; intros init Hinit Hstep; cbn; [exact Hinit|].
-  apply IH; [apply Hstep; exact Hinit | exact Hstep].
-Qed.
-
 (*============================================================================*)
 (*  Phase C2 (completeness engine): a forwarding edge laid down by some step    *)
 (*  of the construction survives to the final table.  Generic over an arbitrary *)
 (*  monotone table-predicate [P] (instantiated with [fun ft => has_fwd_edge     *)
 (*  ft a r b] at the use site), threaded through the [fold_left] over rels.     *)
 (*============================================================================*)
-
-Lemma fold_left_pres {A : Type} (P : node_ftable_map -> Prop) (f : node_ftable_map -> A -> node_ftable_map)
-    (l : list A) (init : node_ftable_map) :
-  P init ->
-  (forall acc x, P acc -> P (f acc x)) ->
-  P (fold_left f l init).
-Proof.
-  revert init. induction l as [|x l IH]; intros init Hinit Hstep; cbn; [exact Hinit|].
-  apply IH; [apply Hstep; exact Hinit | exact Hstep].
-Qed.
 
 (* if some element [x0] of [l] has a step that always establishes [P], and every step is
    monotone for [P], then the whole [fold_left] establishes [P]. *)
@@ -367,7 +345,7 @@ Proof.
   intros Hin Hmono Hx0. revert init Hin.
   induction l as [|x l IH]; intros init Hin; cbn; [destruct Hin|].
   destruct Hin as [-> | Hin].
-  - apply fold_left_pres; [apply Hx0 | exact Hmono].
+  - apply fold_left_inv; [apply Hx0 | intros acc x _; apply Hmono].
   - apply (IH (f init x) Hin).
 Qed.
 

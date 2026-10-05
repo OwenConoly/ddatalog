@@ -2413,9 +2413,9 @@ Lemma generate_forwarding_table_sound (g : node_graph) (all_rels : list rel_id)
     (ninfos : list node_info) (lfc lfp : fact_locations_map) :
   ftable_edges_sound g (fold_left (update_forwarding_table_for_rel g lfc lfp ninfos) all_rels map.empty).
 Proof.
-  apply ForwardingCorrect.fold_left_pres_sound.
+  apply fold_left_inv.
   - apply ForwardingCorrect.ftable_edges_sound_empty.
-  - intros acc rel0 Hacc. apply update_rel_pres_sound. exact Hacc.
+  - intros acc rel0 _ Hacc. apply update_rel_pres_sound. exact Hacc.
 Qed.
 
 (*============================================================================*)
