@@ -18,7 +18,7 @@ Context {node_id : node_idT} {node_id_eqb : Eqb node_id}.
 Context {node_id_set : map.map node_id unit}.
 Context {layout_map : map.map node_id lowered_program}.
 Context {fact_locations : map.map rel_id (list node_id)}.
-Context {_fwd_tbl : map.map fwd_from fwd_to}.
+Context {_fwd_tbl : map.map (rel_id * fwd_from) (list fwd_to)}.
 
 Record node_context := {
   nctries : list trie;
