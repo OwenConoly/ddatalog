@@ -425,11 +425,11 @@ Definition all_consumers_fed (g : rel_id -> graph vnode)
 
 Definition check_layout_routable ftables
   (input_locations : partial_map rel_id (list node_id))
-  (all_consumers_of all_producers_of : partial_map rel_id (list vnode)) : Result.result unit :=
+  (all_producers_of all_consumers_of : partial_map rel_id (list vnode)) : Result.result unit :=
   let vnode_graph R := graph.of_edges (graph_of_ftables_at (get_or_default input_locations R) ftables R) in
   if all_consumers_fed vnode_graph all_producers_of all_consumers_of
   then Success tt
-  else error:("compile: bad layout---some producer cannot reach some internal consumer").
+  else error:("compile: the forwarding tables do not route some relation from one of its producers to one of its consumers").
 
 (*----Final Compilation----*)
 
@@ -504,14 +504,14 @@ Definition compile
    else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
   (if ftables_in_graphb output_locations g ftables
    then Success tt
-   else error:("compile: the forwarding table routes over a link the topology graph does not have")) ;;
+   else error:("compile: the forwarding table routes over a link the topology graph does not have, or outputs a relation at a node that is not one of its output locations")) ;;
   (*here is an assumption:*)
   let output_relations := map.keys output_locations in
   (*here is another assumption:*)
   let input_relations := map.keys input_locations in
-  let all_consumers_of := get_all_consumers_of layout output_relations in
   let all_producers_of := get_all_producers_of layout input_relations in
-  check_layout_routable ftables input_locations all_consumers_of all_producers_of ;;
+  let all_consumers_of := get_all_consumers_of layout output_relations in
+  check_layout_routable ftables input_locations all_producers_of all_consumers_of ;;
   ninfos <- compile_all_nodes layout ;;
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
