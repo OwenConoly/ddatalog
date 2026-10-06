@@ -1,6 +1,6 @@
 From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb Tactics.fwd.
-From Datalog Require Import Datalog Interpreter.
+From Datalog Require Import Datalog Eqb.
 From Datalog.Util Require Import List Map Default.
 From DatalogRocq Require Import Topologies.Graph DependencyGenerator SortedListNat ComputableGraph.
 From GraphSearch Require Import GraphInterface Examples.
@@ -25,7 +25,14 @@ Module vnode.
     | fwd_to.self => vnode.fact_dst n
     | fwd_to.node n' ch => vnode.input_port n' (fwd_from.node n ch)
     end.
-End vnode. Abbreviation vnode := vnode.vnode.
+
+  Scheme Boolean Equality for vnode.
+  Section eqb.
+    Context {node_id : node_idT} {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
+    #[export] Instance eqb : Eqb vnode := vnode_beq _ eqb.
+    #[export] Instance eqb_ok : Eqb_ok eqb. Proof. eqb_ok. Qed.
+  End eqb.
+End vnode. Export (hints) vnode. Abbreviation vnode := vnode.vnode.
 
 Module Import RM := ResultMonadNotations.
 Section DistributedDatalogToHardwareCompiler.
@@ -37,6 +44,7 @@ Context {map_node_id_lowered_program : map.map node_id lowered_program}.
 Context {map_rel_id_list_node_id : map.map rel_id (list node_id)}.
 Context {map_rel_id_fwd_from_list_fwd_to : map.map (rel_id * fwd_from) (list fwd_to)}.
 Context {graph_vnode : graph.graph vnode}.
+Context {graph_node_id : graph.graph node_id}.
 
 Record node_context := {
   nctries : list trie;
@@ -48,10 +56,7 @@ Context {var_node_set : map.map exprvar unit}.
 Context {var_node_set_ok : map.ok var_node_set}.
 Context {var_graph_impl : graph.graph exprvar} {var_graph_impl_ok : graph.ok var_graph_impl}.
 
-(*---- node_graph as ComputableGraph over node_id ----*)
 Context {map_vnode_unit : map.map vnode unit} {map_vnode_unit_ok : map.ok map_vnode_unit}.
-
-Definition node_graph := ComputableGraph vnode.
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
 Definition source_program (layout : partial_map node_id (list lowered_rule)) : list lowered_rule :=
@@ -372,12 +377,26 @@ Definition get_internal_producers_of (layout : partial_map node_id (list lowered
   (*maps rel R to set of nodes which may (internally) produce R*)
   invert internally_produced_at_node.
 
+Definition get_all_producers_of layout (input_relations : list rel_id) : partial_map rel_id (list vnode) :=
+  let internal_producers := get_internal_producers_of layout in
+  map_values' (fun R nodes =>
+                 (if inb R input_relations then [vnode.ext_input] else []) ++
+                   List.map (fun n => vnode.input_port n fwd_from.self) nodes)
+    internal_producers.
+
 Definition get_internal_consumers_of (layout : partial_map node_id (list lowered_rule)) :=
   let internally_consumed_at_node :=
     (*maps node n to set of rels which may be (internally) consumed at n*)
     map.map_values (fun p => dedup (flat_map rule.hyp_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
+
+Definition get_all_consumers_of layout (output_relations : list rel_id) : partial_map rel_id (list vnode) :=
+  let internal_consumers := get_internal_consumers_of layout in
+  map_values' (fun R nodes =>
+                 (if inb R output_relations then [vnode.ext_output] else []) ++
+                   List.map vnode.fact_dst nodes)
+    internal_consumers.
 
 Definition graph_of_ftable_at (n : node_id) (ft : forwarding_table) (R : rel_id) : list (vnode * vnode) :=
   flat_map
@@ -397,37 +416,20 @@ Definition all_consumers_fed_for_relation (g : ComputableGraph vnode)
   (all_producers : list vnode) (all_consumers : list vnode) :=
   forallb (fun '(p, ic) => graph.reachesb g.(edges) p ic) (list_prod all_producers all_consumers).
 
-Definition all_rules_fed (g : node_graph)
-  (all_producers_of : partial_map rel_id (list node_id)) (internal_consumers_of : partial_map rel_id (list node_id)) :=
+Definition all_consumers_fed (g : rel_id -> ComputableGraph vnode)
+  (all_producers_of : partial_map rel_id (list vnode))
+  (all_consumers_of : partial_map rel_id (list vnode)) :=
   map.forallb (fun R internal_consumers =>
                  let all_producers := get_or_default all_producers_of R in
-                 all_rules_fed_for_relation g all_producers internal_consumers)
-    internal_consumers_of.
+                 all_consumers_fed_for_relation (g R) all_producers internal_consumers)
+    all_consumers_of.
 
-(*all rule_producers(R) -> some external rule_consumer(R)*)
-Definition producers_go_out_for_relation (g : node_graph)
-  (all_producers : list node_id) (external_consumers : list node_id) :=
-  forallb
-    (fun producer => existsb (graph.reachesb g.(edges) producer) external_consumers)
-    all_producers.
-
-(*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
-Definition producers_go_out (g : node_graph)
-  (all_producers_of : partial_map rel_id (list node_id)) (external_consumers_of : partial_map rel_id (list node_id)) :=
-  map.forallb (fun R external_consumers =>
-                 let all_producers := get_or_default all_producers_of R in
-                 producers_go_out_for_relation g all_producers external_consumers)
-    external_consumers_of.
-
-Definition check_layout_routable (g : node_graph)
-  (external_consumers_of internal_consumers_of all_producers_of : partial_map rel_id (list node_id)) : Result.result unit :=
-  (if all_rules_fed g all_producers_of internal_consumers_of
-   then Success tt
-   else error:("compile: bad layout---some producer cannot reach some internal consumer")) ;;
-  (if producers_go_out g all_producers_of external_consumers_of
-   then Success tt
-   else error:("compile: bad layout---some producer of an output relation cannot reach any external sink")).
-
+Definition check_layout_routable ftables
+  (all_consumers_of all_producers_of : partial_map rel_id (list vnode)) : Result.result unit :=
+  if all_consumers_fed (fun R =>  all_producers_of all_consumers_of
+  then Success tt
+  else error:("compile: bad layout---some producer cannot reach some internal consumer").
+Check check_layout_routable.
 (*----Final Compilation----*)
 
 Definition compile_node (node : node_id) (program : lowered_program) : Result.result node_info :=
@@ -468,19 +470,39 @@ Definition attach_forwarding_tables (ninfos : list node_info)
         (map.keys ftables)).
 
 (* every node the layout assigns to is a real graph node. *)
-Definition layout_in_graphb (g : node_graph) (llayout : partial_map node_id (list lowered_rule)) :=
+Definition layout_in_graphb (g : ComputableGraph node_id) (llayout : partial_map node_id (list lowered_rule)) :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
-Definition compile (layout : partial_map node_id (list lowered_rule))
-  (external_producers_of external_consumers_of : partial_map rel_id (list node_id))
+Definition hops_in_graphb (g : ComputableGraph node_id) (n : node_id) (hops : list fwd_to) :=
+  forallb (fun dst => match dst with
+                   | fwd_to.output => true
+                   | fwd_to.self => true
+                   | fwd_to.node dst_node _ =>
+                       check_edge_exists n dst_node (ComputableGraph.edges g)
+                   end) hops.
+
+Definition ftable_in_graphb (g : ComputableGraph node_id) (n : node_id) (ft : forwarding_table) :=
+  map.forallb (fun _ hops => hops_in_graphb g n hops) ft.
+
+Definition ftables_in_graphb (g : ComputableGraph node_id) (ftables : node_ftable_map) : bool :=
+  map.forallb (ftable_in_graphb g) ftables.
+
+(*TODO should also pass a list of nodes where we're allowed to output stuff.
+  currently we just assume that output can happen at any node.*)
+Definition compile
+  (layout : partial_map node_id (list lowered_rule))
+  (output_relations input_relations : list rel_id)
   (ftables : node_ftable_map)
-  (g : node_graph) : Result.result (list node_info) :=
+  (g : ComputableGraph node_id) : Result.result (list node_info) :=
   (if check_graph_valid g
    then Success tt
    else error:("compile: the topology graph is not valid (edges reference missing nodes)")) ;;
   (if layout_in_graphb g layout
    then Success tt
    else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
+  (if ftables_in_graphb g ftables
+   then Success tt
+   else error:("compile: the forwarding table routes over a link the topology graph does not have")) ;;
   let internal_consumers_of := get_internal_consumers_of layout in
   let internal_producers_of := get_internal_producers_of layout in
   let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in

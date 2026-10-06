@@ -17,6 +17,7 @@ Module fwd_from.
     #[export] Instance eqb_ok : Eqb_ok eqb. Proof. eqb_ok. Qed.
   End eqb.
 End fwd_from. Export (hints) fwd_from. Abbreviation fwd_from := fwd_from.fwd_from.
+#[export] Register Scheme fwd_from.eqb as beq for fwd_from.fwd_from.
 
 Module fwd_to.
   Variant fwd_to {node_id : node_idT} :=
@@ -30,6 +31,7 @@ Module fwd_to.
     #[export] Instance eqb_ok : Eqb_ok eqb. Proof. eqb_ok. Qed.
   End eqb.
 End fwd_to. Export (hints) fwd_to. Abbreviation fwd_to := fwd_to.fwd_to.
+#[export] Register Scheme fwd_to.eqb as beq for fwd_to.fwd_to.
 
 Section DistributedHardwareProgram.
   Context {node_id : node_idT}.
