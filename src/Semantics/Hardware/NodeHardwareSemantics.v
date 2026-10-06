@@ -34,7 +34,6 @@ Section NodeHardwareSemantics.
 (* Relation names are already numeric ([rel_id] = [nat]) at this stage; functions,
    variables, and the value type stay abstract. *)
 Context `{params : datalog_params (_rel := rel_id)}.
-Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
 
 (* The reference programs this node is verified against are ordinary [Datalog] programs over
    the numeric ids the hardware uses.  NodeHardwareSemantics never mentions the compiler's [lowered_rule]

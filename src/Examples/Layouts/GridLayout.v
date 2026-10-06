@@ -7,7 +7,6 @@ Import ListNotations.
 
 Section GridLayout.
   Context `{params : datalog_params}.
-  Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 
   Definition mk_grid_graph (dims : list nat) : Graph := GridGraph dims.
 

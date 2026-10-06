@@ -30,9 +30,7 @@ Local Abbreviation nfact R args := (fact.normal {| normal_fact.rel := R; normal_
 
 Section DistributedDatalogToHardwareCompilerCorrect.
 
-Context `{params : datalog_params (_rel := rel_id)}.
-Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
-Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+Context `{params : datalog_params (_rel := rel_id) (rel_eqb := nat_eqb) (rel_eqb_ok := nat_eqb_ok)}.
 Context {var_idx_map : map.map exprvar nat}.   (* used by compute_permutation *)
 Context {var_idx_map_ok : map.ok var_idx_map}.
 
@@ -1924,9 +1922,7 @@ Section NodeCorrect.
 Import ResultMonadNotations.
 Open Scope result_monad_scope.
 
-Context `{params : datalog_params (_rel := rel_id)}.
-Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
-Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+Context `{params : datalog_params (_rel := rel_id) (rel_eqb := nat_eqb) (rel_eqb_ok := nat_eqb_ok)}.
 Context {var_idx_map : map.map exprvar nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map exprvar unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map exprvar var_node_set}.
@@ -2075,16 +2071,13 @@ Section CompileTop.
 Import ResultMonadNotations.
 Open Scope result_monad_scope.
 
-Context `{params : datalog_params (_rel := rel_id)}.
-Context {var_eqb : Eqb exprvar} {var_eqb_ok : Eqb_ok var_eqb}.
-Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
+Context `{params : datalog_params (_rel := rel_id) (rel_eqb := nat_eqb) (rel_eqb_ok := nat_eqb_ok)}.
 Context {var_idx_map : map.map exprvar nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map exprvar unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map exprvar var_node_set}.
 Context {node_id : Type}
         {node_id_eqb : Eqb node_id} {node_id_eqb_spec : Eqb_ok node_id_eqb}.
 #[local] Existing Instance rel_id.
-Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Context {node_id_set : map.map node_id unit}.
 Context {node_id_edge_set : map.map node_id node_id_set}.
 Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
