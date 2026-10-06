@@ -13,9 +13,8 @@ Import ListNotations.
 
 Module vnode.
   Variant vnode {node_id : node_idT} :=
-    (* | fact_src (_ : node_id) (* note: we do not need this; it is represented as input_port n fwd_from.self*) *)
     | fact_dst (_ : node_id)
-    | input_port (_ : node_id) (src : fwd_from)
+    | at_port (_ : node_id) (src : fwd_from)
     | ext_input
     | ext_output.
 
@@ -23,7 +22,7 @@ Module vnode.
     match dst with
     | fwd_to.output => vnode.ext_output
     | fwd_to.self => vnode.fact_dst n
-    | fwd_to.node n' ch => vnode.input_port n' (fwd_from.node n ch)
+    | fwd_to.node n' ch => vnode.at_port n' (fwd_from.node n ch)
     end.
 
   Scheme Boolean Equality for vnode.
@@ -55,8 +54,6 @@ Record node_context := {
 Context {var_node_set : map.map exprvar unit}.
 Context {var_node_set_ok : map.ok var_node_set}.
 Context {var_graph_impl : graph.graph exprvar} {var_graph_impl_ok : graph.ok var_graph_impl}.
-
-Context {map_vnode_unit : map.map vnode unit} {map_vnode_unit_ok : map.ok map_vnode_unit}.
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
 Definition source_program (layout : partial_map node_id (list lowered_rule)) : list lowered_rule :=
@@ -379,10 +376,10 @@ Definition get_internal_producers_of (layout : partial_map node_id (list lowered
 
 Definition get_all_producers_of layout (input_relations : list rel_id) : partial_map rel_id (list vnode) :=
   let internal_producers := get_internal_producers_of layout in
-  map_values' (fun R nodes =>
-                 (if inb R input_relations then [vnode.ext_input] else []) ++
-                   List.map (fun n => vnode.input_port n fwd_from.self) nodes)
-    internal_producers.
+  union_with
+    (list_union eqb)
+    (map.map_values (fun nodes => List.map (fun n => vnode.at_port n fwd_from.self) nodes) internal_producers)
+    (map.of_list (List.map (fun R => (R, [vnode.ext_input])) input_relations)).
 
 Definition get_internal_consumers_of (layout : partial_map node_id (list lowered_rule)) :=
   let internally_consumed_at_node :=
@@ -393,23 +390,25 @@ Definition get_internal_consumers_of (layout : partial_map node_id (list lowered
 
 Definition get_all_consumers_of layout (output_relations : list rel_id) : partial_map rel_id (list vnode) :=
   let internal_consumers := get_internal_consumers_of layout in
-  map_values' (fun R nodes =>
-                 (if inb R output_relations then [vnode.ext_output] else []) ++
-                   List.map vnode.fact_dst nodes)
-    internal_consumers.
+  union_with
+    (list_union eqb)
+    (map.map_values (fun nodes => List.map vnode.fact_dst nodes) internal_consumers)
+    (map.of_list (List.map (fun R => (R, [vnode.ext_output])) output_relations)).
 
 Definition graph_of_ftable_at (n : node_id) (ft : forwarding_table) (R : rel_id) : list (vnode * vnode) :=
   flat_map
     (fun '((R', src), dsts) =>
        if eqb R R' then
          (*add src -> dst for each dst *)
-         List.map (pair (vnode.input_port n src)) (List.map (vnode.target_of n) dsts)
+         List.map (pair (vnode.at_port n src)) (List.map (vnode.target_of n) dsts)
        else [])
     (map.tuples ft).
 
-Definition graph_of_ftables_at (external_producers : list node_id) (ftables : partial_map node_id forwarding_table) (R : rel_id) : list (vnode * vnode) :=
-  flat_map (fun '(n, ft) => graph_of_ftable_at n ft R) (map.tuples ftables) ++
-           List.map (fun ext_prod => (vnode.ext_input, vnode.input_port ext_prod fwd_from.input)) external_producers.
+Definition graph_of_ftables_at (input_locations : list node_id) (ftables : partial_map node_id forwarding_table) (R : rel_id) : list (vnode * vnode) :=
+  flat_map
+    (fun '(n, ft) => graph_of_ftable_at n ft R) (map.tuples ftables) ++
+    List.map (fun ext_prod => (vnode.ext_input, vnode.at_port ext_prod fwd_from.input))
+    input_locations.
 
 (*all rule_producers(R) -> all rule_consumers(R)*)
 Definition all_consumers_fed_for_relation (g : graph vnode)
@@ -419,15 +418,15 @@ Definition all_consumers_fed_for_relation (g : graph vnode)
 Definition all_consumers_fed (g : rel_id -> graph vnode)
   (all_producers_of : partial_map rel_id (list vnode))
   (all_consumers_of : partial_map rel_id (list vnode)) :=
-  map.forallb (fun R internal_consumers =>
+  map.forallb (fun R consumers =>
                  let all_producers := get_or_default all_producers_of R in
-                 all_consumers_fed_for_relation (g R) all_producers internal_consumers)
+                 all_consumers_fed_for_relation (g R) all_producers consumers)
     all_consumers_of.
 
 Definition check_layout_routable ftables
-  (output_locations : partial_map rel_id (list node_id))
+  (input_locations : partial_map rel_id (list node_id))
   (all_consumers_of all_producers_of : partial_map rel_id (list vnode)) : Result.result unit :=
-  let vnode_graph R := graph.of_edges (graph_of_ftables_at (get_or_default output_locations R) ftables R) in
+  let vnode_graph R := graph.of_edges (graph_of_ftables_at (get_or_default input_locations R) ftables R) in
   if all_consumers_fed vnode_graph all_producers_of all_consumers_of
   then Success tt
   else error:("compile: bad layout---some producer cannot reach some internal consumer").
@@ -512,7 +511,7 @@ Definition compile
   let input_relations := map.keys input_locations in
   let all_consumers_of := get_all_consumers_of layout output_relations in
   let all_producers_of := get_all_producers_of layout input_relations in
-  check_layout_routable ftables output_locations all_consumers_of all_producers_of ;;
+  check_layout_routable ftables input_locations all_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
