@@ -400,7 +400,7 @@ Definition graph_of_ftable_at (n : node_id) (ft : forwarding_table) (R : rel_id)
     (fun '((R', src), dsts) =>
        if eqb R R' then
          (*add src -> dst for each dst *)
-         List.map (pair (vnode.at_port n src)) (List.map (vnode.target_of n) dsts)
+         List.map (fun dst => (vnode.at_port n src, vnode.target_of n dst)) dsts
        else [])
     (map.tuples ft).
 
@@ -413,7 +413,7 @@ Definition graph_of_ftables_at (input_locations : list node_id) (ftables : parti
 (*all rule_producers(R) -> all rule_consumers(R)*)
 Definition all_consumers_fed_for_relation (g : graph vnode)
   (all_producers : list vnode) (all_consumers : list vnode) :=
-  forallb (fun '(p, ic) => graph.reachesb g p ic) (list_prod all_producers all_consumers).
+  forallb (fun '(p, c) => graph.reachesb g p c) (list_prod all_producers all_consumers).
 
 Definition all_consumers_fed (g : rel_id -> graph vnode)
   (all_producers_of : partial_map rel_id (list vnode))
@@ -423,7 +423,7 @@ Definition all_consumers_fed (g : rel_id -> graph vnode)
                  all_consumers_fed_for_relation (g R) all_producers consumers)
     all_consumers_of.
 
-Definition check_layout_routable ftables
+Definition check_ftables_routable ftables
   (input_locations : partial_map rel_id (list node_id))
   (all_producers_of all_consumers_of : partial_map rel_id (list vnode)) : Result.result unit :=
   let vnode_graph R := graph.of_edges (graph_of_ftables_at (get_or_default input_locations R) ftables R) in
@@ -511,7 +511,7 @@ Definition compile
   let input_relations := map.keys input_locations in
   let all_producers_of := get_all_producers_of layout input_relations in
   let all_consumers_of := get_all_consumers_of layout output_relations in
-  check_layout_routable ftables input_locations all_producers_of all_consumers_of ;;
+  check_ftables_routable ftables input_locations all_producers_of all_consumers_of ;;
   ninfos <- compile_all_nodes layout ;;
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
