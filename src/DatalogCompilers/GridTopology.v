@@ -10,8 +10,9 @@
 
 From Stdlib Require Import List ZArith.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridGraph SortedListList SortedListNat ComputableGraph.
-From coqutil Require Import Map.Interface.
+From coqutil Require Import Map.Interface Eqb Decidable Datatypes.List.
 From Datalog.Util Require Import Map.
+From GraphSearch Require Import GraphInterface GraphImpl.
 Import ListNotations.
 
 (* Build the grid topology graph (node set + neighbor edges) from dimensions.  Since a node id
@@ -22,18 +23,13 @@ Definition build_topo_node_set (dims : GridGraph.Dimensions) : partial_map Node 
     (GridGraph.all_nodes_h dims)
     map.empty.
 
-Definition build_topo_edge_set (dims : GridGraph.Dimensions)
-    : partial_map Node (partial_map Node unit) :=
+Definition build_topo_edges (dims : GridGraph.Dimensions) : @graph.rep Node _ :=
   let nodes := GridGraph.all_nodes_h dims in
   List.fold_left
     (fun acc n =>
-      let neighbors :=
-        List.filter (fun n2 => GridGraph.is_neighbor dims n n2) nodes in
-      let neighbor_map :=
-        List.fold_left (fun m nb => map.put m nb tt) neighbors map.empty in
-      map.put acc n neighbor_map)
-    nodes map.empty.
+      graph.put_edges acc n (List.filter (fun n2 => GridGraph.is_neighbor dims n n2) nodes))
+    nodes graph.empty.
 
 Definition make_topo_graph (dims : GridGraph.Dimensions) : ComputableGraph Node :=
-  {| nodes := build_topo_node_set dims;
-     edges := build_topo_edge_set dims |}.
+  {| ComputableGraph.nodes := build_topo_node_set dims;
+     ComputableGraph.edges := build_topo_edges dims |}.
