@@ -211,10 +211,12 @@ Proof.
     eapply dreachS; [eapply dreachS; [eapply dreachS; [apply dreach0 |] |] |].
     + apply dstep_input. split; [reflexivity | left;  reflexivity].
     + apply dstep_input. split; [reflexivity | right; reflexivity].
-    + (* the node runs and derives J from the A,B it now holds *)
-      apply dstep_run. rewrite HTr, HP. apply node_run_from.
-      * (* A(7,8) is present *) unfold cadd. left; right; split; reflexivity.
-      * (* B(8,7) is present *) unfold cadd. right; split; reflexivity.
+    + (* the node fires its one rule on the A,B it now holds *)
+      eapply dstep_run with (hyps := [factA; factB]).
+      * rewrite HTr, HP. apply Exists_cons_hd. exact J_fires.
+      * apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]].
+        -- (* A(7,8) is present *) unfold cadd. left; right; split; reflexivity.
+        -- (* B(8,7) is present *) unfold cadd. right; split; reflexivity.
   - (* J(7,8) is present at node (0,0) *) unfold cadd. right; split; reflexivity.
   - (* node (0,0) is the output sink for J (relation 2) *) split; reflexivity.
 Qed.

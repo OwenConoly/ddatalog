@@ -191,7 +191,7 @@ Variant hw_step (tries : list trie) (hp : hardware_program) : dl_fact -> list dl
 (* THE SINGLE-NODE RUN: from a set of input/base facts [inputs] delivered to this node, the hardware
    program [hp] (with trie table [tries]) derives more facts -- the proof-tree closure where every
    internal node fires some hardware rule and every leaf is an input fact.  "Run the node's program
-   on its inputs."  This is the per-node building block of the distributed operational semantics. *)
+   on its inputs." *)
 Definition node_run (tries : list trie) (hp : hardware_program) (inputs : dl_fact -> Prop)
   : dl_fact -> Prop :=
   pftree (hw_step tries hp) inputs.

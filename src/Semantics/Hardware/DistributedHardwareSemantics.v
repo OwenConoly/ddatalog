@@ -1,8 +1,7 @@
 (* OPERATIONAL distributed hardware semantics: a standalone small-step machine that just RUNS the
-   compiled program.  Each step either delivers an EDB fact at an input node, runs a node's hardware
-   program over the facts it currently holds ([NodeHardwareSemantics.node_run]), or forwards a fact
-   to a neighbour per that node's forwarding table.  [run_ninfos] runs the compiler's returned
-   [ninfos] directly.
+   compiled program.  Each step either delivers an EDB fact at an input node, fires one of a node's
+   hardware rules on facts it currently holds, or forwards a fact to a neighbour per that node's
+   forwarding table.  [run_ninfos] runs the compiler's returned [ninfos] directly.
 
    This file deliberately does NOT depend on [DistributedDatalog]: the operational semantics is
    defined purely from the compiled data (per-node program / tries / forwarding) plus the runtime
@@ -15,7 +14,6 @@
    uses to prove adequacy. *)
 
 From Datalog Require Import Datalog.
-From Datalog.Util Require Import Pftree.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
 From DatalogRocq Require Import HardwareProgram DistributedHardwareProgram NodeHardwareSemantics.
@@ -51,14 +49,16 @@ Context (prog : node_id -> hardware_program) (tries : node_id -> list trie)
         (forward : node_id -> rel_id -> list node_id)
         (input : node_id -> dl_fact -> Prop) (output : node_id -> rel_id -> Prop).
 
-(* one operational step: an EDB fact ENTERS at an input node; a node RUNS its hardware program over
-   the facts it currently holds ([node_run]); or a fact is FORWARDED to a neighbour per that node's
-   forwarding table. *)
+(* one operational step: an EDB fact ENTERS at an input node; a node FIRES one hardware rule on
+   facts it currently holds; or a fact is FORWARDED to a neighbour per that node's forwarding
+   table. *)
 Inductive dstep (c : config) : config -> Prop :=
 | dstep_input n f :
     input n f -> dstep c (cadd c n f)
-| dstep_run n f :
-    node_run (tries n) (prog n) (c n) f -> dstep c (cadd c n f)
+| dstep_run n nf hyps :
+    Exists (fun hr => hw_rule_impl (tries n) hr nf hyps) (prog n) ->
+    Forall (c n) hyps ->
+    dstep c (cadd c n (fact.normal nf))
 | dstep_forward n n' f :
     c n f -> In n' (forward n (fact.rel f)) -> dstep c (cadd c n' f).
 
@@ -132,10 +132,10 @@ Lemma dstep_replay (c d c' : config) :
   (forall n f, c n f -> d n f) -> step c c' ->
   exists d', step d d' /\ (forall n f, c' n f -> d' n f) /\ (forall n f, d n f -> d' n f).
 Proof.
-  intros Hsub Hstep. inversion Hstep as [n f Hin | n f Hrun | n n' f Hcnf Hfwd]; subst;
+  intros Hsub Hstep. inversion Hstep as [n f Hin | n nf hyps Hfire Hhyps | n n' f Hcnf Hfwd]; subst;
     [ exists (cadd d n f); split; [apply dstep_input; exact Hin |]
-    | exists (cadd d n f); split;
-        [apply dstep_run; exact (pftree.weaken_hyp _ _ _ _ Hrun (Hsub n)) |]
+    | exists (cadd d n (fact.normal nf)); split;
+        [eapply dstep_run; [exact Hfire | exact (Forall_impl _ (Hsub n) Hhyps)] |]
     | exists (cadd d n' f); split;
         [apply (dstep_forward prog tries forward input d n n' f (Hsub n f Hcnf) Hfwd) |] ];
     (split; intros n0 f0; unfold cadd; [intros [H|H]; [left; apply Hsub; exact H | right; exact H]

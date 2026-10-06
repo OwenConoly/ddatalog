@@ -3053,24 +3053,6 @@ Local Abbreviation Inp := (net.(DistributedDatalog.input)).
 Local Abbreviation Outp := (net.(DistributedDatalog.output)).
 Local Abbreviation present := (DistributedHardwareSemantics.present prog tries Fwd Inp).
 
-(* a single node's [node_run] re-plays as a network proof tree of [FactOnNode]s *)
-Lemma node_run_to_netpft (c : DistributedHardwareSemantics.config) (n : node_id) (f : Datalog.fact (_rel := rel_id)) :
-  (forall h, c n h -> network_pftree net (FactOnNode n h)) ->
-  node_run (tries n) (prog n) (c n) f ->
-  network_pftree net (FactOnNode n f).
-Proof.
-  intros Hleaf. unfold node_run. revert f.
-  apply (pftree.ind (hw_step (tries n) (prog n)) (c n) (fun f => network_pftree net (FactOnNode n f))).
-  - intros f0 HQ. apply Hleaf, HQ.
-  - intros f0 hyps' [nf hyps'' Hex] _ HR.
-    apply (matches_step _ _ _ _ _ (Hmatch n)) in Hex. apply Exists_exists in Hex. destruct Hex as [r [Hin Hr]].
-    unfold network_pftree. eapply pftree.step with (l := map (FactOnNode n) hyps'').
-    + eapply DistributedDatalog.RuleApp;
-        [ exact Hin | apply facts_on_node_map_fst | rewrite facts_on_node_map_snd; exact Hr ].
-    + apply Forall_forall. intros p Hp. apply in_map_iff in Hp.
-      destruct Hp as [g [<- Hg]]. rewrite Forall_forall in HR. apply HR, Hg.
-Qed.
-
 (* SOUNDNESS of the operational run: every reachable fact is derivable by the network *)
 Lemma reach_to_netpft (c : DistributedHardwareSemantics.config) :
   DistributedHardwareSemantics.dreach prog tries Fwd Inp c ->
@@ -3078,13 +3060,19 @@ Lemma reach_to_netpft (c : DistributedHardwareSemantics.config) :
 Proof.
   intros Hr. induction Hr as [| c c' Hr IH Hstep]; intros n f Hcf.
   - destruct Hcf.
-  - inversion Hstep as [a g Hi | a g Hru | a a' g Hag Hfwd]; subst c'.
+  - inversion Hstep as [a g Hi | a nf hyps Hfire Hhyps | a a' g Hag Hfwd]; subst c'.
     + destruct Hcf as [Hold | [-> ->]].
       * apply IH; exact Hold.
       * unfold network_pftree. eapply pftree.step with (l := []); [apply DistributedDatalog.Input; exact Hi | constructor].
     + destruct Hcf as [Hold | [-> ->]].
       * apply IH; exact Hold.
-      * apply (node_run_to_netpft c a g); [intros h Hch; apply IH; exact Hch | exact Hru].
+      * apply (matches_step _ _ _ _ _ (Hmatch a)) in Hfire. apply Exists_exists in Hfire.
+        destruct Hfire as [r [Hin Hri]].
+        unfold network_pftree. eapply pftree.step with (l := map (FactOnNode a) hyps).
+        -- eapply DistributedDatalog.RuleApp;
+             [ exact Hin | apply facts_on_node_map_fst | rewrite facts_on_node_map_snd; exact Hri ].
+        -- apply Forall_forall. intros p Hp. apply in_map_iff in Hp.
+           destruct Hp as [g [<- Hg]]. rewrite Forall_forall in Hhyps. apply IH, Hhyps, Hg.
     + destruct Hcf as [Hold | [-> ->]].
       * apply IH; exact Hold.
       * unfold network_pftree. eapply pftree.step with (l := [FactOnNode a g]);
@@ -3132,14 +3120,10 @@ Proof.
         rewrite Forall_forall in HR. exact (HR _ HinFact). }
       destruct (DistributedHardwareSemantics.present_list prog tries Fwd Inp n _ Hpres)
         as [c [Hrc Hcfacts]].
-      assert (Hnr : node_run (tries n) (prog n) (c n) (fact.normal nf)).
-      { unfold node_run. eapply pftree.step with (l := map snd (get_facts_on_node hyps)).
-        - constructor. apply (matches_step _ _ _ _ _ (Hmatch n)). apply Exists_exists. exists r. split; [exact Hin | exact Hr].
-        - apply Forall_forall. intros g Hg. apply pftree.leaf.
-          rewrite Forall_forall in Hcfacts. apply Hcfacts, Hg. }
       exists (DistributedHardwareSemantics.cadd c n (fact.normal nf)). split.
-      * eapply DistributedHardwareSemantics.dreachS;
-          [exact Hrc | apply DistributedHardwareSemantics.dstep_run; exact Hnr].
+      * eapply DistributedHardwareSemantics.dreachS; [exact Hrc |].
+        eapply DistributedHardwareSemantics.dstep_run; [| exact Hcfacts].
+        apply (matches_step _ _ _ _ _ (Hmatch n)). apply Exists_exists. exists r. split; [exact Hin | exact Hr].
       * right; split; reflexivity.
     + pose proof (Forall_inv HR) as Hpres. destruct Hpres as [c [Hrc Hcnf]].
       exists (DistributedHardwareSemantics.cadd c n' f). split.
