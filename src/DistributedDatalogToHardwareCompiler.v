@@ -11,6 +11,15 @@ Open Scope error_scope.
 Open Scope bool_scope.
 Import ListNotations.
 
+Module vnode.
+  Variant vnode {node_id : node_idT} :=
+    | fact_src (_ : node_id)
+    | fact_dst (_ : node_id)
+    | input_port (_ : node_id) (src : node_id) (src_channel : channel_id)
+    | ext_input
+    | ext_output.
+End vnode. Abbreviation vnode := vnode.vnode.
+
 Module Import RM := ResultMonadNotations.
 Section DistributedDatalogToHardwareCompiler.
 Context `{params : datalog_params}.
@@ -368,6 +377,18 @@ Definition get_internal_consumers_of (layout : layout_map) :=
     map.map_values (fun p => dedup (flat_map rule.hyp_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
+
+Definition graph_of_ftables_at (ftables : partial_map node_id forwarding_table) (R : rel_id) : graph vnode :=
+  graph.of_edges
+    (flat_map
+       (fun '(n, ft) =>
+          flat_map
+            (fun '((R', src), dsts) =>
+               if eqb R R' then
+                 List.map (pair src) dsts
+               else [])
+            (map.tuples ft))
+       (map.tuples ftables)).
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 Definition all_rules_fed_for_relation (g : node_graph)

@@ -3,7 +3,7 @@ From DatalogRocq Require Import HardwareProgram Topologies.Graph.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
 From Datalog.Util Require Import Map Eqb.
 
-#[local] Abbreviation channel_id := nat.
+#[export] Abbreviation channel_id := nat (only parsing).
 
 Module fwd_from.
   Variant fwd_from {node_id : node_idT} :=
