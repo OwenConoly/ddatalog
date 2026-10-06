@@ -15,9 +15,16 @@ Module vnode.
   Variant vnode {node_id : node_idT} :=
     | fact_src (_ : node_id)
     | fact_dst (_ : node_id)
-    | input_port (_ : node_id) (src : node_id) (src_channel : channel_id)
+    | input_port (_ : node_id) (src : fwd_from)
     | ext_input
     | ext_output.
+
+  Definition target_of {node_id : node_idT} (n : node_id) (dst : fwd_to) :=
+    match dst with
+    | fwd_to.output => vnode.ext_output
+    | fwd_to.self => vnode.fact_dst n
+    | fwd_to.node n' ch => vnode.input_port n' (fwd_from.node n ch)
+    end.
 End vnode. Abbreviation vnode := vnode.vnode.
 
 Module Import RM := ResultMonadNotations.
@@ -25,10 +32,11 @@ Section DistributedDatalogToHardwareCompiler.
 Context `{params : datalog_params}.
 Context {node_id : node_idT} {node_id_eqb : Eqb node_id}.
 
-Context {node_id_set : map.map node_id unit}.
-Context {layout_map : map.map node_id lowered_program}.
-Context {fact_locations : map.map rel_id (list node_id)}.
-Context {_fwd_tbl : map.map (rel_id * fwd_from) (list fwd_to)}.
+Context {map_node_id_unit : map.map node_id unit} {map_node_id_unit_ok : map.ok map_node_id_unit}.
+Context {map_node_id_lowered_program : map.map node_id lowered_program}.
+Context {map_rel_id_list_node_id : map.map rel_id (list node_id)}.
+Context {map_rel_id_fwd_from_list_fwd_to : map.map (rel_id * fwd_from) (list fwd_to)}.
+Context {graph_vnode : graph.graph vnode}.
 
 Record node_context := {
   nctries : list trie;
@@ -41,7 +49,6 @@ Context {var_node_set_ok : map.ok var_node_set}.
 Context {var_graph_impl : graph.graph exprvar} {var_graph_impl_ok : graph.ok var_graph_impl}.
 
 (*---- node_graph as ComputableGraph over node_id ----*)
-Context {node_id_set_ok : map.ok node_id_set}.
 Context {node_id_graph : graph.graph node_id} {node_id_graph_ok : graph.ok node_id_graph}.
 
 Definition node_graph := ComputableGraph node_id.
@@ -49,20 +56,19 @@ Definition node_graph := ComputableGraph node_id.
 (*----The program a layout represents, and a checker that a layout distributes a given program----*)
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
-Definition source_program (layout : layout_map) : list lowered_rule :=
+Definition source_program (layout : partial_map node_id (list lowered_rule)) : list lowered_rule :=
   concat (values layout).
 
 (* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([program.interp] of a
    bare program depends only on its rule set, so the compiled network then implements [P].) *)
-Definition layout_distributes_program (P : list lowered_rule) (layout : layout_map) : Prop :=
+Definition layout_distributes_program (P : list lowered_rule) layout :=
   incl (source_program layout) P /\ incl P (source_program layout).
 
 Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
-Definition layout_distributes_programb
-    (P : list lowered_rule) (layout : layout_map) : bool :=
-  inclb (source_program layout) P && inclb P (source_program layout).
-Lemma layout_distributes_programb_spec (P : list lowered_rule) (layout : layout_map) :
-  layout_distributes_programb P layout = true -> layout_distributes_program P layout.
+Definition layout_distributes_programb p layout :=
+  inclb (source_program layout) p && inclb p (source_program layout).
+Lemma layout_distributes_programb_spec p layout :
+  layout_distributes_programb p layout = true -> layout_distributes_program p layout.
 Proof. intros. fwd. cbv [layout_distributes_program]. auto. Qed.
 
 (*----Stuff to keep default ordering (if desired) ----*)
@@ -364,31 +370,31 @@ Context {node_ftable_map : map.map node_id forwarding_table}.
 
 Context {rels_at_node : map.map node_id (list rel_id)}.
 
-Definition get_internal_producers_of (layout : layout_map) :=
+Definition get_internal_producers_of (layout : partial_map node_id (list lowered_rule)) :=
   let internally_produced_at_node :=
     (*maps node n to set of rels which may be (internally) produced at n*)
     map.map_values (fun p => dedup (flat_map rule.concl_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) produce R*)
   invert internally_produced_at_node.
 
-Definition get_internal_consumers_of (layout : layout_map) :=
+Definition get_internal_consumers_of (layout : partial_map node_id (list lowered_rule)) :=
   let internally_consumed_at_node :=
     (*maps node n to set of rels which may be (internally) consumed at n*)
     map.map_values (fun p => dedup (flat_map rule.hyp_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
 
+Definition graph_of_ftable_at (n : node_id) (ft : forwarding_table) (R : rel_id) : list (vnode * vnode) :=
+  flat_map
+    (fun '((R', src), dsts) =>
+       if eqb R R' then
+         (*add src -> dst for each dst *)
+         List.map (pair (vnode.input_port n src)) (List.map (vnode.target_of n) dsts)
+       else [])
+    (map.tuples ft).
+
 Definition graph_of_ftables_at (ftables : partial_map node_id forwarding_table) (R : rel_id) : graph vnode :=
-  graph.of_edges
-    (flat_map
-       (fun '(n, ft) =>
-          flat_map
-            (fun '((R', src), dsts) =>
-               if eqb R R' then
-                 List.map (pair src) dsts
-               else [])
-            (map.tuples ft))
-       (map.tuples ftables)).
+  graph.of_edges (flat_map (fun '(n, ft) => graph_of_ftable_at n ft R) (map.tuples ftables)).
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 Definition all_rules_fed_for_relation (g : node_graph)
@@ -396,7 +402,7 @@ Definition all_rules_fed_for_relation (g : node_graph)
   forallb (fun '(p, ic) => graph.reachesb g.(edges) p ic) (list_prod all_producers internal_consumers).
 
 Definition all_rules_fed (g : node_graph)
-  (all_producers_of : fact_locations) (internal_consumers_of : fact_locations) :=
+  (all_producers_of : partial_map rel_id (list node_id)) (internal_consumers_of : partial_map rel_id (list node_id)) :=
   map.forallb (fun R internal_consumers =>
                  let all_producers := get_or_default all_producers_of R in
                  all_rules_fed_for_relation g all_producers internal_consumers)
@@ -411,14 +417,14 @@ Definition producers_go_out_for_relation (g : node_graph)
 
 (*assumption: the rels that we're supposed to output are precisely the rels that we have some place to output---i.e., the rels that are keys of external_consumers.*)
 Definition producers_go_out (g : node_graph)
-  (all_producers_of : fact_locations) (external_consumers_of : fact_locations) :=
+  (all_producers_of : partial_map rel_id (list node_id)) (external_consumers_of : partial_map rel_id (list node_id)) :=
   map.forallb (fun R external_consumers =>
                  let all_producers := get_or_default all_producers_of R in
                  producers_go_out_for_relation g all_producers external_consumers)
     external_consumers_of.
 
 Definition check_layout_routable (g : node_graph)
-  (external_consumers_of internal_consumers_of all_producers_of : fact_locations) : Result.result unit :=
+  (external_consumers_of internal_consumers_of all_producers_of : partial_map rel_id (list node_id)) : Result.result unit :=
   (if all_rules_fed g all_producers_of internal_consumers_of
    then Success tt
    else error:("compile: bad layout---some producer cannot reach some internal consumer")) ;;
@@ -440,7 +446,7 @@ Definition compile_node (node : node_id) (program : lowered_program) : Result.re
              nforwarding := map.empty;
              ntries := rev ncontext.(nctries) |}.
 
-Definition compile_all_nodes (llayout : layout_map) : Result.result (list node_info) :=
+Definition compile_all_nodes (llayout : partial_map node_id (list lowered_rule)) : Result.result (list node_info) :=
   List.all_success (List.map (fun '(node, program) => compile_node node program) (map.tuples llayout)).
 
 (* Attach the compiled forwarding tables to node_infos -- now for EVERY node that forwards, not
@@ -466,11 +472,11 @@ Definition attach_forwarding_tables (ninfos : list node_info)
         (map.keys ftables)).
 
 (* every node the layout assigns to is a real graph node. *)
-Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
+Definition layout_in_graphb (g : node_graph) (llayout : partial_map node_id (list lowered_rule)) :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
-Definition compile (layout : layout_map)
-  (external_producers_of external_consumers_of : fact_locations)
+Definition compile (layout : partial_map node_id (list lowered_rule))
+  (external_producers_of external_consumers_of : partial_map rel_id (list node_id))
   (ftables : node_ftable_map)
   (g : node_graph) : Result.result (list node_info) :=
   (if check_graph_valid g
