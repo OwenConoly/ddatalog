@@ -7,28 +7,26 @@
 From Stdlib Require Import List Bool Lia PeanoNat.
 From coqutil Require Import Map.Interface Map.Properties Datatypes.List Datatypes.ListSet Eqb.
 From Datalog.Util Require Import Map Default.
-From DatalogRocq Require Import DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
+From DatalogRocq Require Import Topologies.Graph DistributedDatalogToHardwareCompiler HardwareProgram DistributedHardwareProgram ComputableGraph.
 Import ListNotations.
 
 Section ForwardingCorrect.
 
-Context {node_id : Type}.
+Context {node_id : node_idT}.
 Context {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 Context {node_id_set : map.map node_id unit} {node_id_set_ok : map.ok node_id_set}.
 Context {node_id_edge_set : map.map node_id node_id_set} {node_id_edge_set_ok : map.ok node_id_edge_set}.
 
 Abbreviation node_graph := (@ComputableGraph.ComputableGraph node_id node_id_set node_id_edge_set).
 
-Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
 Context {forwarding_table : map.map rel_id (list destination)}
         {forwarding_table_ok : map.ok forwarding_table}.
 Context {node_ftable_map : map.map node_id forwarding_table}
         {node_ftable_map_ok : map.ok node_ftable_map}.
 
-Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 Abbreviation get_node_ftable node ftables := (get_or_default ftables node).
-Abbreviation add_trie_dest := (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
-Abbreviation add_path := (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
+Abbreviation add_trie_dest := DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table.
+Abbreviation add_path := DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table.
 
 (* the [DestEdge] targets among a destination list *)
 Definition dest_edges (ds : list destination) : list node_id :=

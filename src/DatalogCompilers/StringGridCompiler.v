@@ -13,8 +13,7 @@ From Datalog.Util Require Import Map.
 Import ListNotations.
 Import StringDatalogParams.
 
-Abbreviation node_id     := GridGraph.Node.
-Abbreviation destination := (@DistributedHardwareProgram.destination node_id).
+Abbreviation node_id := GridGraph.Node.
 
 (* [make_layout_map program layout] : a [node -> rules] map from an indexed layout
    (a list of [(node_id, rule_index_list)] pairs over the [program]). *)

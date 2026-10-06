@@ -16,7 +16,7 @@
 From Datalog Require Import Datalog.
 From Stdlib Require Import List Bool ZArith.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
-From DatalogRocq Require Import HardwareProgram DistributedHardwareProgram NodeHardwareSemantics.
+From DatalogRocq Require Import Topologies.Graph HardwareProgram DistributedHardwareProgram NodeHardwareSemantics.
 
 Import ListNotations.
 
@@ -24,7 +24,7 @@ Section DistributedHardwareSemantics.
 
 (* Relations are numeric ids at this layer; functions, variables, and values are abstract. *)
 Context `{params : datalog_params (_rel := rel_id)}.
-Context {node_id : Type}
+Context {node_id : node_idT}
         {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
 
 (* ground/runtime facts at this (numeric-id) layer *)
@@ -75,8 +75,7 @@ End Run.
 
 (*----Running the compiler's output [ninfos] directly----*)
 
-Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
-Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
+Context {forwarding_table : map.map rel_id (list destination)}.
 
 (* read a node's compiled data off the returned [ninfos] (empty default if the node is absent). *)
 Definition find_ninfo (ninfos : list node_info) (n : node_id) : node_info :=

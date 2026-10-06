@@ -20,7 +20,7 @@ From Stdlib Require Import List Bool ZArith Lia Relation_Operators.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Datatypes.Result Eqb.
 From Datalog Require Import Datalog NattifyRel RelMap.
 From Datalog.Util Require Import List Map Default Pftree Eqb.
-From DatalogRocq Require Import HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
+From DatalogRocq Require Import Topologies.Graph HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
 From DatalogRocq Require Import DistributedDatalog DistributedHardwareSemantics.
 From DatalogRocq Require Import ForwardingCorrect.
 
@@ -1175,7 +1175,7 @@ Open Scope result_monad_scope.
 Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT} {T : valueT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-Context {node_id : Type}
+Context {node_id : node_idT}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
@@ -1827,17 +1827,15 @@ Open Scope result_monad_scope.
 Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
 Context {var_eqb : Eqb var} {var_eqb_ok : Eqb_ok var_eqb}.
 Context {fn_eqb : Eqb fn} {fn_eqb_ok : Eqb_ok fn_eqb}.
-Context {node_id : Type}
+Context {node_id : node_idT}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
-Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
+Context {forwarding_table : map.map rel_id (list destination)}.
 #[local] Existing Instance rel_id.
 Context {var_node_set : map.map var unit}.
 Context {var_edge_set : map.map var var_node_set}.
 Context {var_idx_map : map.map var nat}.
-
-Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 (* [compile_rule] = [compile_hyps] (which threads the trie context) then [compile_concls]
    (which leaves the context untouched), so it preserves [wf_nc] and grows [nctries]. *)
@@ -1926,14 +1924,12 @@ Context `{params : datalog_params (_rel := rel_id) (rel_eqb := nat_eqb) (rel_eqb
 Context {var_idx_map : map.map exprvar nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map exprvar unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map exprvar var_node_set}.
-Context {node_id : Type}
+Context {node_id : node_idT}
         {node_id_eqb : node_id -> node_id -> bool}
         {node_id_eqb_spec : forall x y : node_id, BoolSpec (x = y) (x <> y) (node_id_eqb x y)}.
 Context {node_id_set : map.map node_id unit}.
-Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
+Context {forwarding_table : map.map rel_id (list destination)}.
 #[local] Existing Instance rel_id.
-
-Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 (* PER-RULE: a compiled rule (whose post-context tries are all in the node table [tries], which
    has unique ids) matches its lowered datalog rule -- by discharging every hypothesis of
@@ -2075,12 +2071,12 @@ Context `{params : datalog_params (_rel := rel_id) (rel_eqb := nat_eqb) (rel_eqb
 Context {var_idx_map : map.map exprvar nat} {var_idx_map_ok : map.ok var_idx_map}.
 Context {var_node_set : map.map exprvar unit} {var_node_set_ok : map.ok var_node_set}.
 Context {var_edge_set : map.map exprvar var_node_set}.
-Context {node_id : Type}
+Context {node_id : node_idT}
         {node_id_eqb : Eqb node_id} {node_id_eqb_spec : Eqb_ok node_id_eqb}.
 #[local] Existing Instance rel_id.
 Context {node_id_set : map.map node_id unit}.
 Context {node_id_edge_set : map.map node_id node_id_set}.
-Context {forwarding_table : map.map rel_id (list (@DistributedHardwareProgram.destination node_id))}.
+Context {forwarding_table : map.map rel_id (list destination)}.
 Context {layout_map : map.map node_id (@HardwareProgram.lowered_program exprvar fn aggregator)}
         {layout_map_ok : map.ok layout_map}.
 Context {node_ftable_map : map.map node_id forwarding_table}.
@@ -2088,8 +2084,6 @@ Context {fact_locations_map : map.map rel_id (list node_id)}
         {fact_locations_map_ok : map.ok fact_locations_map}.
 Context {rels_at_node : map.map node_id (list rel_id)}
         {rels_at_node_ok : map.ok rels_at_node}.
-
-Abbreviation node_info := (@DistributedHardwareProgram.node_info node_id forwarding_table).
 
 (* [all_producers]/[all_consumers] are the merged (internal + external) location maps the compiler's
    [generate_forwarding_table] now computes inline; recompute them here for the correctness reasoning. *)
@@ -2419,10 +2413,8 @@ Qed.
 (*  the producer/consumer/relation folds by the [*_adds]/[*_pres] combinators.   *)
 (*============================================================================*)
 
-Abbreviation add_trie_dest :=
-  (@DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
-Abbreviation add_path :=
-  (@DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table node_id node_id_eqb forwarding_table node_ftable_map).
+Abbreviation add_trie_dest := DistributedDatalogToHardwareCompiler.add_trie_dest_to_forwarding_table.
+Abbreviation add_path := DistributedDatalogToHardwareCompiler.add_path_to_forwarding_table.
 
 (* routing one relation only adds forwarding edges *)
 Lemma update_rel_mono (g : node_graph) (rel0 : rel_id)
@@ -2487,8 +2479,7 @@ Qed.
 (* the forwarding function a compiled node exposes for a relation: the [DestEdge] targets
    recorded in its forwarding table.  [In n2 (fwd_list ft n r)] is exactly [has_fwd_edge]. *)
 Definition fwd_list (ftables : node_ftable_map) (n : node_id) (r : rel_id) : list node_id :=
-  @ForwardingCorrect.dest_edges node_id
-    (@ForwardingCorrect.node_rel_dests node_id forwarding_table node_ftable_map ftables n r).
+  ForwardingCorrect.dest_edges (ForwardingCorrect.node_rel_dests ftables n r).
 
 (*----Forwarding read off the returned [ninfos]----*)
 
