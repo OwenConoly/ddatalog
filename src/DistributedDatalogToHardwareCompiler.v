@@ -13,7 +13,7 @@ Import ListNotations.
 
 Module vnode.
   Variant vnode {node_id : node_idT} :=
-    | fact_src (_ : node_id)
+    (* | fact_src (_ : node_id) (* note: we do not need this; it is represented as input_port n fwd_from.self*) *)
     | fact_dst (_ : node_id)
     | input_port (_ : node_id) (src : fwd_from)
     | ext_input
@@ -393,8 +393,9 @@ Definition graph_of_ftable_at (n : node_id) (ft : forwarding_table) (R : rel_id)
        else [])
     (map.tuples ft).
 
-Definition graph_of_ftables_at (ftables : partial_map node_id forwarding_table) (R : rel_id) : graph vnode :=
-  graph.of_edges (flat_map (fun '(n, ft) => graph_of_ftable_at n ft R) (map.tuples ftables)).
+Definition graph_of_ftables_at (external_producers : list node_id) (ftables : partial_map node_id forwarding_table) (R : rel_id) : list (vnode * vnode) :=
+  flat_map (fun '(n, ft) => graph_of_ftable_at n ft R) (map.tuples ftables) ++
+           List.map (fun ext_prod => (vnode.ext_input, vnode.input_port ext_prod fwd_from.input)) external_producers.
 
 (*all rule_producers(R) -> all internal rule_consumers(R)*)
 Definition all_rules_fed_for_relation (g : node_graph)
