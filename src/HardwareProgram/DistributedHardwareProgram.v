@@ -8,6 +8,7 @@ From Datalog.Util Require Import Map Eqb.
 Module fwd_from.
   Variant fwd_from {node_id : node_idT} :=
     | input
+    | self
     | node (_ : node_id) (_ : channel_id).
   Scheme Boolean Equality for fwd_from.
   Section eqb.
@@ -20,6 +21,7 @@ End fwd_from. Export (hints) fwd_from. Abbreviation fwd_from := fwd_from.fwd_fro
 Module fwd_to.
   Variant fwd_to {node_id : node_idT} :=
     | output
+    | self
     | node (_ : node_id) (_ : channel_id).
   Scheme Boolean Equality for fwd_to.
   Section eqb.
@@ -31,9 +33,9 @@ End fwd_to. Export (hints) fwd_to. Abbreviation fwd_to := fwd_to.fwd_to.
 
 Section DistributedHardwareProgram.
   Context {node_id : node_idT}.
-  Context {_fwd_tbl : map.map fwd_from fwd_to}.
+  Context {_fwd_tbl : map.map (rel_id * fwd_from) (list fwd_to)}.
 
-  Definition forwarding_table := partial_map fwd_from fwd_to.
+  Definition forwarding_table := partial_map (rel_id * fwd_from) (list fwd_to).
 
   (* A compiled node's program: its trie-join rules ([nprogram]), the tries they read ([ntries]),
    and the forwarding table ([nforwarding]).  This is the per-node piece of the *distributed*
