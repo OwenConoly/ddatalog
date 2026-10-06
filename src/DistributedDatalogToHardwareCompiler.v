@@ -412,11 +412,11 @@ Definition graph_of_ftables_at (external_producers : list node_id) (ftables : pa
            List.map (fun ext_prod => (vnode.ext_input, vnode.input_port ext_prod fwd_from.input)) external_producers.
 
 (*all rule_producers(R) -> all rule_consumers(R)*)
-Definition all_consumers_fed_for_relation (g : ComputableGraph vnode)
+Definition all_consumers_fed_for_relation (g : graph vnode)
   (all_producers : list vnode) (all_consumers : list vnode) :=
-  forallb (fun '(p, ic) => graph.reachesb g.(edges) p ic) (list_prod all_producers all_consumers).
+  forallb (fun '(p, ic) => graph.reachesb g p ic) (list_prod all_producers all_consumers).
 
-Definition all_consumers_fed (g : rel_id -> ComputableGraph vnode)
+Definition all_consumers_fed (g : rel_id -> graph vnode)
   (all_producers_of : partial_map rel_id (list vnode))
   (all_consumers_of : partial_map rel_id (list vnode)) :=
   map.forallb (fun R internal_consumers =>
@@ -425,11 +425,13 @@ Definition all_consumers_fed (g : rel_id -> ComputableGraph vnode)
     all_consumers_of.
 
 Definition check_layout_routable ftables
+  (output_locations : partial_map rel_id (list node_id))
   (all_consumers_of all_producers_of : partial_map rel_id (list vnode)) : Result.result unit :=
-  if all_consumers_fed (fun R =>  all_producers_of all_consumers_of
+  let vnode_graph R := graph.of_edges (graph_of_ftables_at (get_or_default output_locations R) ftables R) in
+  if all_consumers_fed vnode_graph all_producers_of all_consumers_of
   then Success tt
   else error:("compile: bad layout---some producer cannot reach some internal consumer").
-Check check_layout_routable.
+
 (*----Final Compilation----*)
 
 Definition compile_node (node : node_id) (program : lowered_program) : Result.result node_info :=
@@ -473,25 +475,26 @@ Definition attach_forwarding_tables (ninfos : list node_info)
 Definition layout_in_graphb (g : ComputableGraph node_id) (llayout : partial_map node_id (list lowered_rule)) :=
   map.forallb (fun n _ => check_node_valid n (ComputableGraph.nodes g)) llayout.
 
-Definition hops_in_graphb (g : ComputableGraph node_id) (n : node_id) (hops : list fwd_to) :=
+Definition hops_in_graphb R
+  (output_locations : partial_map rel_id (list node_id))
+  (g : ComputableGraph node_id)
+  (n : node_id) (hops : list fwd_to) :=
   forallb (fun dst => match dst with
-                   | fwd_to.output => true
+                   | fwd_to.output => inb n (get_or_default output_locations R)
                    | fwd_to.self => true
                    | fwd_to.node dst_node _ =>
                        check_edge_exists n dst_node (ComputableGraph.edges g)
                    end) hops.
 
-Definition ftable_in_graphb (g : ComputableGraph node_id) (n : node_id) (ft : forwarding_table) :=
-  map.forallb (fun _ hops => hops_in_graphb g n hops) ft.
+Definition ftable_in_graphb (output_locations : partial_map rel_id (list node_id)) (g : ComputableGraph node_id) (n : node_id) (ft : forwarding_table) :=
+  map.forallb (fun '(R, _) hops => hops_in_graphb R output_locations g n hops) ft.
 
-Definition ftables_in_graphb (g : ComputableGraph node_id) (ftables : node_ftable_map) : bool :=
-  map.forallb (ftable_in_graphb g) ftables.
+Definition ftables_in_graphb output_locations (g : ComputableGraph node_id) (ftables : node_ftable_map) : bool :=
+  map.forallb (ftable_in_graphb output_locations g) ftables.
 
-(*TODO should also pass a list of nodes where we're allowed to output stuff.
-  currently we just assume that output can happen at any node.*)
 Definition compile
   (layout : partial_map node_id (list lowered_rule))
-  (output_relations input_relations : list rel_id)
+  (output_locations input_locations : partial_map rel_id (list node_id))
   (ftables : node_ftable_map)
   (g : ComputableGraph node_id) : Result.result (list node_info) :=
   (if check_graph_valid g
@@ -500,14 +503,16 @@ Definition compile
   (if layout_in_graphb g layout
    then Success tt
    else error:("compile: a node the layout assigns rules to is not in the topology graph")) ;;
-  (if ftables_in_graphb g ftables
+  (if ftables_in_graphb output_locations g ftables
    then Success tt
    else error:("compile: the forwarding table routes over a link the topology graph does not have")) ;;
-  let internal_consumers_of := get_internal_consumers_of layout in
-  let internal_producers_of := get_internal_producers_of layout in
-  let all_producers_of := union_with (list_union eqb) internal_producers_of external_producers_of in
-  let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
-  check_layout_routable g external_consumers_of internal_consumers_of all_producers_of ;;
+  (*here is an assumption:*)
+  let output_relations := map.keys output_locations in
+  (*here is another assumption:*)
+  let input_relations := map.keys input_locations in
+  let all_consumers_of := get_all_consumers_of layout output_relations in
+  let all_producers_of := get_all_producers_of layout input_relations in
+  check_layout_routable ftables output_locations all_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
