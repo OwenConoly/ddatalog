@@ -1,5 +1,5 @@
 From Stdlib Require Import String List Bool ZArith.
-From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb.
+From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb Tactics.fwd.
 From Datalog Require Import Datalog Interpreter.
 From Datalog.Util Require Import List Map Default.
 From DatalogRocq Require Import Topologies.Graph DependencyGenerator SortedListNat ComputableGraph.
@@ -12,17 +12,13 @@ Import ListNotations.
 
 Module Import RM := ResultMonadNotations.
 Section DistributedDatalogToHardwareCompiler.
-
-Context {var : exprvarT} {fn : fnT} {aggregator : aggregatorT}.
-Context {var_eqb : Eqb var} {fn_eqb : Eqb fn}.
+Context `{params : datalog_params}.
 Context {node_id : node_idT} {node_id_eqb : Eqb node_id}.
 
-#[local] Existing Instance rel_id.
-
 Context {node_id_set : map.map node_id unit}.
-Context {forwarding_table : map.map rel_id (list destination)}.
 Context {layout_map : map.map node_id lowered_program}.
 Context {fact_locations : map.map rel_id (list node_id)}.
+Context {_fwd_tbl : map.map fwd_from fwd_to}.
 
 Record node_context := {
   nctries : list trie;
@@ -30,12 +26,10 @@ Record node_context := {
 }.
 
 (*---- var_graph as ComputableGraph over var ----*)
-Context {var_node_set : map.map var unit}.
+Context {var_node_set : map.map exprvar unit}.
 Context {var_node_set_ok : map.ok var_node_set}.
-Context {var_edge_set : map.map var var_node_set}.
+Context {var_edge_set : map.map exprvar var_node_set}.
 Context {var_edge_set_ok : map.ok var_edge_set}.
-
-Definition var_graph := @ComputableGraph var var_node_set var_edge_set.
 
 (*---- node_graph as ComputableGraph over node_id ----*)
 Context {node_id_set_ok : map.ok node_id_set}.
@@ -47,37 +41,33 @@ Definition node_graph := @ComputableGraph node_id node_id_set node_id_edge_set.
 (*----The program a layout represents, and a checker that a layout distributes a given program----*)
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
-Definition source_program (layout : layout_map) : list rule :=
+Definition source_program (layout : layout_map) : list lowered_rule :=
   concat (values layout).
 
 (* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([program.interp] of a
    bare program depends only on its rule set, so the compiled network then implements [P].) *)
-Definition layout_distributes_program (P : list rule) (layout : layout_map) : Prop :=
+Definition layout_distributes_program (P : list lowered_rule) (layout : layout_map) : Prop :=
   incl (source_program layout) P /\ incl P (source_program layout).
 
 Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Definition layout_distributes_programb
-    (P : list rule) (layout : layout_map) : bool :=
+    (P : list lowered_rule) (layout : layout_map) : bool :=
   inclb (source_program layout) P && inclb P (source_program layout).
-Lemma layout_distributes_programb_spec (P : list rule) (layout : layout_map) :
+Lemma layout_distributes_programb_spec (P : list lowered_rule) (layout : layout_map) :
   layout_distributes_programb P layout = true -> layout_distributes_program P layout.
-Proof.
-  unfold layout_distributes_programb, layout_distributes_program. intros H.
-  apply andb_true_iff in H. destruct H as [H1 H2].
-  split; [exact (proj1 (inclb_incl _ _) H1) | exact (proj1 (inclb_incl _ _) H2)].
-Qed.
+Proof. intros. fwd. cbv [layout_distributes_program]. auto. Qed.
 
 (*----Stuff to keep default ordering (if desired) ----*)
 
-Definition hyp_var_order (hyps : list lowered_fact) : list var :=
+Definition hyp_var_order (hyps : list lowered_fact) : list exprvar :=
   dedup (flat_map clause.vars hyps).
 
 (*----Variable ordering----*)
 
-Definition vg_neighbors (g : var_graph) (v : var) : var_node_set :=
+Definition vg_neighbors (g : ComputableGraph exprvar) (v : exprvar) : var_node_set :=
   get_or_default g.(edges) v.
 
-Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_node_set) : var_graph :=
+Fixpoint add_arg_edges (arg : lowered_expr) (g : ComputableGraph exprvar) (clause_vars : var_node_set) : ComputableGraph exprvar :=
   match arg with
   | expr.var v =>
     let new_neighbors := map.putmany (vg_neighbors g v) clause_vars in
@@ -92,7 +82,7 @@ Fixpoint add_arg_edges (arg : lowered_expr) (g : var_graph) (clause_vars : var_n
     fold_left (fun acc arg => add_arg_edges arg acc clause_vars) args g
   end.
 
-Fixpoint add_args_edges (args : list lowered_expr) (g : var_graph) (seen : var_node_set) : var_graph :=
+Fixpoint add_args_edges (args : list lowered_expr) (g : ComputableGraph exprvar) (seen : var_node_set) : ComputableGraph exprvar :=
   match args with
   | [] => g
   | arg :: rest =>
@@ -104,27 +94,27 @@ Fixpoint add_args_edges (args : list lowered_expr) (g : var_graph) (seen : var_n
     add_args_edges rest g' seen'
   end.
 
-Definition add_hyp_edges (hyp : lowered_fact) (g : var_graph) : var_graph :=
+Definition add_hyp_edges (hyp : lowered_fact) (g : ComputableGraph exprvar) : ComputableGraph exprvar :=
   add_args_edges hyp.(clause.args) g map.empty.
 
-Definition empty_var_graph : var_graph :=
+Definition empty_ComputableGraph : ComputableGraph exprvar :=
   {| nodes := map.empty; edges := map.empty |}.
 
-Definition create_dependency_graph (hyps : list lowered_fact) : var_graph :=
-  fold_left (fun acc hyp => add_hyp_edges hyp acc) hyps empty_var_graph.
+Definition create_dependency_graph (hyps : list lowered_fact) : ComputableGraph exprvar :=
+  fold_left (fun acc hyp => add_hyp_edges hyp acc) hyps empty_ComputableGraph.
 
-Definition compute_degree (g : var_graph) (v : var) : nat :=
+Definition compute_degree (g : ComputableGraph exprvar) (v : exprvar) : nat :=
   map.fold (fun acc _ _ => S acc) 0 (vg_neighbors g v).
 
-Definition compute_degree_to_visited_set (g : var_graph) (visited : var_node_set) (v : var) : nat :=
+Definition compute_degree_to_visited_set (g : ComputableGraph exprvar) (visited : var_node_set) (v : exprvar) : nat :=
   map.fold (fun acc neighbor _ =>
     match map.get visited neighbor with
     | Some _ => S acc
     | None => acc
     end) 0 (vg_neighbors g v).
 
-Definition compute_max_degree_var_to_visited_set (g : var_graph) (visited : var_node_set)
-    : option (var * nat) :=
+Definition compute_max_degree_var_to_visited_set (g : ComputableGraph exprvar) (visited : var_node_set)
+    : option (exprvar * nat) :=
   map.fold (fun acc v _ =>
     let degree := compute_degree_to_visited_set g visited v in
     match acc with
@@ -132,7 +122,7 @@ Definition compute_max_degree_var_to_visited_set (g : var_graph) (visited : var_
     | Some (_, max_degree) => if Nat.ltb max_degree degree then Some (v, degree) else acc
     end) None g.(nodes).
 
-Definition compute_max_degree_var (g : var_graph) : option (var * nat) :=
+Definition compute_max_degree_var (g : ComputableGraph exprvar) : option (exprvar * nat) :=
   map.fold (fun acc v _ =>
     let degree := compute_degree g v in
     match acc with
@@ -142,8 +132,8 @@ Definition compute_max_degree_var (g : var_graph) : option (var * nat) :=
 
 (* If we want to enforce a specific order for tie breaks *)
 Definition compute_max_degree_var_to_visited_set_ordered
-    (g : var_graph) (visited : var_node_set) (candidates : list var)
-    : option (var * nat) :=
+    (g : ComputableGraph exprvar) (visited : var_node_set) (candidates : list exprvar)
+    : option (exprvar * nat) :=
   fold_left (fun acc v =>
     (* Only consider vars still in the dep_graph *)
     match map.get g.(nodes) v with
@@ -158,7 +148,7 @@ Definition compute_max_degree_var_to_visited_set_ordered
     end) candidates None.
 
 Definition compute_max_degree_var_ordered
-    (g : var_graph) (candidates : list var) : option (var * nat) :=
+    (g : ComputableGraph exprvar) (candidates : list exprvar) : option (exprvar * nat) :=
   fold_left (fun acc v =>
     match map.get g.(nodes) v with
     | None => acc
@@ -171,30 +161,30 @@ Definition compute_max_degree_var_ordered
       end
     end) candidates None.
 
-Definition remove_edge_from_graph (g : var_graph) (v1 v2 : var) : var_graph :=
+Definition remove_edge_from_graph (g : ComputableGraph exprvar) (v1 v2 : exprvar) : ComputableGraph exprvar :=
   {| nodes := g.(nodes);
      edges := map.put (map.put g.(edges) v1 (map.remove (vg_neighbors g v1) v2))
                                            v2 (map.remove (vg_neighbors g v2) v1) |}.
 
-Definition remove_edges_touching_var (g : var_graph) (v : var) : var_graph :=
+Definition remove_edges_touching_var (g : ComputableGraph exprvar) (v : exprvar) : ComputableGraph exprvar :=
   map.fold (fun acc neighbor _ => remove_edge_from_graph acc v neighbor) g (vg_neighbors g v).
 
 Record ordering_context := {
-  dep_graph : var_graph;
-  order : list var;
+  dep_graph : ComputableGraph exprvar;
+  order : list exprvar;
   visited : var_node_set;
 }.
 
-Definition visit_node (v : var) (ctx : ordering_context) : ordering_context :=
+Definition visit_node (v : exprvar) (ctx : ordering_context) : ordering_context :=
   {| dep_graph := {| nodes := map.remove ctx.(dep_graph).(nodes) v;
                      edges := (remove_edges_touching_var ctx.(dep_graph) v).(edges) |};
      order := v :: ctx.(order);
      visited := map.put ctx.(visited) v tt |}.
 
-Definition initial_ordering_context (g : var_graph) : ordering_context :=
+Definition initial_ordering_context (g : ComputableGraph exprvar) : ordering_context :=
   {| dep_graph := g; order := []; visited := map.empty |}.
 
-Definition choose_next_var (ctx : ordering_context) : option var :=
+Definition choose_next_var (ctx : ordering_context) : option exprvar :=
   match compute_max_degree_var_to_visited_set ctx.(dep_graph) ctx.(visited) with
   | Some (v, _) => Some v
   | None =>
@@ -204,7 +194,7 @@ Definition choose_next_var (ctx : ordering_context) : option var :=
     end
   end.
 
-Definition choose_next_var_ordered (ctx : ordering_context) (candidates : list var) : option var :=
+Definition choose_next_var_ordered (ctx : ordering_context) (candidates : list exprvar) : option exprvar :=
   match compute_max_degree_var_to_visited_set_ordered ctx.(dep_graph) ctx.(visited) candidates with
   | Some (v, _) => Some v
   | None =>
@@ -225,7 +215,7 @@ Fixpoint compute_variable_ordering_h (ctx : ordering_context) (fuel : nat) : ord
   end.
 
 Fixpoint compute_variable_ordering_ordered_h (ctx : ordering_context)
-  (candidates : list var) (fuel : nat) : ordering_context :=
+  (candidates : list exprvar) (fuel : nat) : ordering_context :=
   match fuel with
   | O => ctx
   | S fuel' =>
@@ -235,7 +225,7 @@ Fixpoint compute_variable_ordering_ordered_h (ctx : ordering_context)
     end
   end.
 
-Definition compute_variable_ordering_ordered (g : var_graph) (hyps : list lowered_fact) : list var :=
+Definition compute_variable_ordering_ordered (g : ComputableGraph exprvar) (hyps : list lowered_fact) : list exprvar :=
   let candidates := hyp_var_order hyps in
   rev
     (compute_variable_ordering_ordered_h (initial_ordering_context g)
@@ -243,18 +233,18 @@ Definition compute_variable_ordering_ordered (g : var_graph) (hyps : list lowere
 
 (*----Trie Allocation----*)
 
-Definition vars_of_arg (arg : lowered_expr) : list var :=
+Definition vars_of_arg (arg : lowered_expr) : list exprvar :=
   match arg with
   | expr.var v => [v]
   | expr.app _ _ => []
   end.
 
-Definition compute_var_order (lf : lowered_fact) : list var :=
+Definition compute_var_order (lf : lowered_fact) : list exprvar :=
   flat_map vars_of_arg lf.(clause.args).
 
-Context {var_idx_map : map.map var nat}.
+Context {var_idx_map : map.map exprvar nat}.
 
-Fixpoint build_base_map (desired_order : list var) (original_order : list var)
+Fixpoint build_base_map (desired_order : list exprvar) (original_order : list exprvar)
     (offset : nat) (m : var_idx_map) : var_idx_map :=
   match desired_order with
   | [] => m
@@ -264,7 +254,7 @@ Fixpoint build_base_map (desired_order : list var) (original_order : list var)
       (map.put m v offset)
   end.
 
-Fixpoint compute_perm_aux (original_order : list var) (base_map occ_map : var_idx_map) : list nat :=
+Fixpoint compute_perm_aux (original_order : list exprvar) (base_map occ_map : var_idx_map) : list nat :=
   match original_order with
   | [] => []
   | v :: vs =>
@@ -273,7 +263,7 @@ Fixpoint compute_perm_aux (original_order : list var) (base_map occ_map : var_id
     (base + occ) :: compute_perm_aux vs base_map (map.put occ_map v (occ + 1))
   end.
 
-Definition compute_permutation (original_order desired_order : list var) : permutation :=
+Definition compute_permutation (original_order desired_order : list exprvar) : permutation :=
   compute_perm_aux original_order
     (build_base_map desired_order original_order 0 map.empty) map.empty.
 
@@ -283,7 +273,7 @@ Definition update_node_context_with_trie (t : trie) (ncontext : node_context) : 
   {| nctries := t :: ncontext.(nctries);
      last_trie_id := S ncontext.(last_trie_id) |}.
 
-Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
+Definition generate_trie (hyp : lowered_fact) (rule_var_order : list exprvar)
     (existing_tries : list trie)
     (ncontext : node_context) : trie * node_context :=
   let perm := compute_permutation (compute_var_order hyp) rule_var_order in
@@ -296,13 +286,13 @@ Definition generate_trie (hyp : lowered_fact) (rule_var_order : list var)
     (new_trie, update_node_context_with_trie new_trie ncontext)
   end.
 
-Definition get_rule_var_index (rule_var_order : list var) (v : var) : Result.result nat :=
+Definition get_rule_var_index (rule_var_order : list exprvar) (v : exprvar) : Result.result nat :=
   match index_of v rule_var_order with
   | Some idx => Success idx
   | None => error:("get_rule_var_index: variable not found in rule_var_order")
   end.
 
-Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lowered_fact) : join :=
+Definition generate_join (tries_by_hyp : list trie) (v : exprvar) (hyps : list lowered_fact) : join :=
   let entries :=
     flat_map (fun '(clause, t, hyp) =>
                 List.map (fun arg_idx => (t.(tid), nth arg_idx t.(tperm) 0, clause))
@@ -312,11 +302,11 @@ Definition generate_join (tries_by_hyp : list trie) (v : var) (hyps : list lower
      trie_levels := List.map snd3 entries;
      clauses := List.map thd3 entries |}.
 
-Definition generate_query (tries : list trie) (rule_var_order : list var)
+Definition generate_query (tries : list trie) (rule_var_order : list exprvar)
     (hyps : list lowered_fact) : query :=
   List.map (fun v => generate_join tries v hyps) rule_var_order.
 
-Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list var)
+Definition compile_hyps (hyps : list lowered_fact) (rule_var_order : list exprvar)
     (existing_tries : list trie) (ncontext : node_context)
     : query * node_context :=
   (* [pool] is the dedup pool threaded into [generate_trie] (existing tries followed by
@@ -334,7 +324,7 @@ Definition initial_node_context : node_context :=
   {| nctries := []; last_trie_id := 0 |}.
 
 Definition compile_concl (concl : lowered_fact)
-    (rule_var_order : list var) : Result.result join_output :=
+    (rule_var_order : list exprvar) : Result.result join_output :=
   var_indices <- List.all_success (List.map (fun arg =>
     match arg with
     | expr.var v => get_rule_var_index rule_var_order v
@@ -344,7 +334,7 @@ Definition compile_concl (concl : lowered_fact)
              output_var_indices := var_indices |}.
 
 Definition compile_concls (concls : list lowered_fact)
-    (rule_var_order : list var) : Result.result (list join_output) :=
+    (rule_var_order : list exprvar) : Result.result (list join_output) :=
   List.all_success (List.map (fun concl => compile_concl concl rule_var_order) concls).
 
 (* Version that tries to keep original ordering.  Bare fragment: only
@@ -367,37 +357,6 @@ Definition compile_rule (rule : lowered_rule)
 
 Context {node_ftable_map : map.map node_id forwarding_table}.
 
-Definition add_trie_dest_to_forwarding_table (node : node_id) (rel : rel_id)
-    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
-  let ft := get_or_default ftables node in
-  let matching_tries :=
-    match find (fun n => eqb n.(nid) node) ninfos with
-    | None => []
-    | Some ninfo => filter (fun t => Nat.eqb t.(trel) rel) ninfo.(ntries)
-    end in
-  let existing := get_or_default ft rel in
-  let updated_ft :=
-    map.put ft rel
-      (list_union eqb (List.map (fun t => DestTrie t.(tid)) matching_tries) existing) in
-  map.put ftables node updated_ft.
-
-(* TODO later maybe do edges by which node it connects to instead of direction? *)
-Fixpoint add_path_to_forwarding_table (ninfos : list node_info) (rel : rel_id)
-    (ftables : node_ftable_map) (path : list node_id) : node_ftable_map :=
-  match path with
-  | [] => ftables
-  | [node] => add_trie_dest_to_forwarding_table node rel ftables ninfos
-  | node :: ((next :: _) as rest) =>
-    let ft := get_or_default ftables node in
-    let existing := get_or_default ft rel in
-    let ft' := map.put ft rel (list_union eqb [DestEdge next] existing) in
-    add_path_to_forwarding_table ninfos rel (map.put ftables node ft') rest
-  end.
-
-Definition add_paths_to_forwarding_table (rel : rel_id) (paths : list (list node_id))
-    (ftables : node_ftable_map) (ninfos : list node_info) : node_ftable_map :=
-  fold_left (add_path_to_forwarding_table ninfos rel) paths ftables.
-
 Context {rels_at_node : map.map node_id (list rel_id)}.
 
 Definition get_internal_producers_of (layout : layout_map) :=
@@ -413,30 +372,6 @@ Definition get_internal_consumers_of (layout : layout_map) :=
     map.map_values (fun p => dedup (flat_map rule.hyp_rels p)) layout in
   (*maps rel R to set of nodes which may (internally) consume R*)
   invert internally_consumed_at_node.
-
-Definition update_forwarding_table_for_rel
-  (g : node_graph) lfc lfp (ninfos : list node_info)
-  (ftables : node_ftable_map) (rel : rel_id) : node_ftable_map :=
-  let producers := get_or_default lfp rel in
-  let consumers := get_or_default lfc rel in
-  let paths :=
-    flat_map (fun '(producer, consumer) =>
-                match get_path g producer consumer with
-                | None => []
-                | Some path => [path]
-                end)
-      (list_prod producers consumers) in
-  add_paths_to_forwarding_table rel paths ftables ninfos.
-
-(*note: this is suboptimal.
-  first: we add a path from each producer to every external consumer, where it would suffice to add a path from each producer to one external consumer.
-  this would not be too hard to fix.
-  second: we are making no effort to do any load-balancing etc.
- *)
-Definition generate_forwarding_table (g : node_graph) (ninfos : list node_info)
-  (all_producers_of all_consumers_of : fact_locations)
-  : node_ftable_map :=
-  fold_left (update_forwarding_table_for_rel g all_consumers_of all_producers_of ninfos) (map.keys all_consumers_of) map.empty.
 
 Definition path_exists (g : node_graph) (source dest : node_id) :=
   is_Some (get_path g source dest).
@@ -522,6 +457,7 @@ Definition layout_in_graphb (g : node_graph) (llayout : layout_map) : bool :=
 
 Definition compile (layout : layout_map)
   (external_producers_of external_consumers_of : fact_locations)
+  (ftables : node_ftable_map)
   (g : node_graph) : Result.result (list node_info) :=
   (if check_graph_valid g
    then Success tt
@@ -535,7 +471,6 @@ Definition compile (layout : layout_map)
   let all_consumers_of := union_with (list_union eqb) internal_consumers_of external_consumers_of in
   check_layout_routable g external_consumers_of internal_consumers_of all_producers_of ;;
   ninfos <- compile_all_nodes layout ;;
-  let ftables := generate_forwarding_table g ninfos all_producers_of all_consumers_of in
   Success (attach_forwarding_tables ninfos ftables).
 End DistributedDatalogToHardwareCompiler.
 
