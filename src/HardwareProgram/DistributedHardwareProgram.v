@@ -1,40 +1,48 @@
 From Stdlib Require Import List String Bool ZArith.
 From DatalogRocq Require Import HardwareProgram Topologies.Graph.
 From coqutil Require Import Datatypes.List Map.Interface Map.Properties Eqb.
-From Datalog.Util Require Import Eqb.
+From Datalog.Util Require Import Map Eqb.
+
+#[local] Abbreviation channel_id := nat.
+
+Module fwd_from.
+  Variant fwd_from {node_id : node_idT} :=
+    | input
+    | node (_ : node_id) (_ : channel_id).
+  Scheme Boolean Equality for fwd_from.
+  Section eqb.
+    Context {node_id : node_idT} {nid_eqb : Eqb node_id} {nid_eqb_ok : Eqb_ok nid_eqb}.
+    #[export] Instance eqb {node_id : node_idT} `{Eqb node_id} : Eqb fwd_from := fwd_from_beq _ eqb.
+    #[export] Instance eqb_ok : Eqb_ok eqb. Proof. eqb_ok. Qed.
+  End eqb.
+End fwd_from. Export (hints) fwd_from. Abbreviation fwd_from := fwd_from.fwd_from.
+
+Module fwd_to.
+  Variant fwd_to {node_id : node_idT} :=
+    | output
+    | node (_ : node_id) (_ : channel_id).
+  Scheme Boolean Equality for fwd_to.
+  Section eqb.
+    Context {node_id : node_idT} {nid_eqb : Eqb node_id} {nid_eqb_ok : Eqb_ok nid_eqb}.
+    #[export] Instance eqb {node_id : node_idT} `{Eqb node_id} : Eqb fwd_to := fwd_to_beq _ eqb.
+    #[export] Instance eqb_ok : Eqb_ok eqb. Proof. eqb_ok. Qed.
+  End eqb.
+End fwd_to. Export (hints) fwd_to. Abbreviation fwd_to := fwd_to.fwd_to.
 
 Section DistributedHardwareProgram.
+  Context {node_id : node_idT}.
+  Context {_fwd_tbl : map.map fwd_from fwd_to}.
 
-Context {node_id : node_idT}.
+  Definition forwarding_table := partial_map fwd_from fwd_to.
 
-Inductive destination :=
-| DestEdge (e : node_id)
-| DestTrie (t : trie_id).
-
-End DistributedHardwareProgram.
-Scheme Boolean Equality for destination.
-
-Section DistributedHardwareProgram.
-
-Context {node_id : node_idT}
-        {node_id_eqb : Eqb node_id} {node_id_eqb_ok : Eqb_ok node_id_eqb}.
-
-#[global] Instance destination_eqb : Eqb destination := destination_beq _ eqb.
-
-#[global] Instance destination_eqb_ok : Eqb_ok destination_eqb.
-Proof. eqb_ok. Qed.
-
-(* The forwarding table routes each relation's facts to a set of destinations (edges/tries). *)
-Context {forwarding_table : map.map rel_id (list destination)}.
-
-(* A compiled node's program: its trie-join rules ([nprogram]), the tries they read ([ntries]),
+  (* A compiled node's program: its trie-join rules ([nprogram]), the tries they read ([ntries]),
    and the forwarding table ([nforwarding]).  This is the per-node piece of the *distributed*
    hardware program; the compiler ([DistributedDatalogToHardwareCompiler]) is what produces it. *)
-Record node_info := {
-  nid : node_id;
-  nprogram : hardware_program;
-  nforwarding : forwarding_table;
-  ntries : list trie;
-}.
+  Record node_info := {
+      nid : node_id;
+      nprogram : hardware_program;
+      nforwarding : forwarding_table;
+      ntries : list trie;
+    }.
 
 End DistributedHardwareProgram.
