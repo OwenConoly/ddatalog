@@ -49,22 +49,17 @@ Context {var_node_set_ok : map.ok var_node_set}.
 Context {var_graph_impl : graph.graph exprvar} {var_graph_impl_ok : graph.ok var_graph_impl}.
 
 (*---- node_graph as ComputableGraph over node_id ----*)
-Context {node_id_graph : graph.graph node_id} {node_id_graph_ok : graph.ok node_id_graph}.
+Context {map_vnode_unit : map.map vnode unit} {map_vnode_unit_ok : map.ok map_vnode_unit}.
 
-Definition node_graph := ComputableGraph node_id.
-
-(*----The program a layout represents, and a checker that a layout distributes a given program----*)
+Definition node_graph := ComputableGraph vnode.
 
 (* the reference program a layout induces: every rule placed on any node, unioned. *)
 Definition source_program (layout : partial_map node_id (list lowered_rule)) : list lowered_rule :=
   concat (values layout).
 
-(* the layout is a valid DISTRIBUTION of program [P] when their rule SETS coincide.  ([program.interp] of a
-   bare program depends only on its rule set, so the compiled network then implements [P].) *)
-Definition layout_distributes_program (P : list lowered_rule) layout :=
-  incl (source_program layout) P /\ incl P (source_program layout).
+Definition layout_distributes_program (p : list lowered_rule) layout :=
+  incl (source_program layout) p /\ incl p (source_program layout).
 
-Context {rule_eqb : Eqb rule} {rule_eqb_ok : Eqb_ok rule_eqb}.
 Definition layout_distributes_programb p layout :=
   inclb (source_program layout) p && inclb p (source_program layout).
 Lemma layout_distributes_programb_spec p layout :
@@ -397,10 +392,10 @@ Definition graph_of_ftables_at (external_producers : list node_id) (ftables : pa
   flat_map (fun '(n, ft) => graph_of_ftable_at n ft R) (map.tuples ftables) ++
            List.map (fun ext_prod => (vnode.ext_input, vnode.input_port ext_prod fwd_from.input)) external_producers.
 
-(*all rule_producers(R) -> all internal rule_consumers(R)*)
-Definition all_rules_fed_for_relation (g : node_graph)
-  (all_producers : list node_id) (internal_consumers : list node_id) :=
-  forallb (fun '(p, ic) => graph.reachesb g.(edges) p ic) (list_prod all_producers internal_consumers).
+(*all rule_producers(R) -> all rule_consumers(R)*)
+Definition all_consumers_fed_for_relation (g : ComputableGraph vnode)
+  (all_producers : list vnode) (all_consumers : list vnode) :=
+  forallb (fun '(p, ic) => graph.reachesb g.(edges) p ic) (list_prod all_producers all_consumers).
 
 Definition all_rules_fed (g : node_graph)
   (all_producers_of : partial_map rel_id (list node_id)) (internal_consumers_of : partial_map rel_id (list node_id)) :=
