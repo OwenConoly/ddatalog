@@ -525,8 +525,6 @@ Definition dumb_ftable_at_node' (output_locations : partial_map rel_id (list nod
 Definition dumb_ftable_at_node output_locations all_rels node neighbors : forwarding_table :=
   map.of_list (flat_map (fun R => List.map (fun '(from, to) => ((R, from), to)) (dumb_ftable_at_node' output_locations R node neighbors)) all_rels).
 
-Definition option_to_list {X} (x : option X) := match x with | None => [] | Some x' => [x'] end.
-
 Fixpoint dumb_ftables_for_tree output_locations all_rels (parent : option node_id) (t : tree node_id) : list (node_id * forwarding_table) :=
   match t with
   | tree_cons rt children => (rt, dumb_ftable_at_node output_locations all_rels rt (option_to_list parent ++ List.map root children)) :: flat_map (dumb_ftables_for_tree output_locations all_rels (Some rt)) children
