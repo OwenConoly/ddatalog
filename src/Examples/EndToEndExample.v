@@ -95,7 +95,6 @@ Theorem end_to_end_equiv
   run_ninfos ninfos
     (fun n f0 => relabel_Q (encode_rel (program_rels P) (rules_only P)) Qsrc f0 /\
                  In n (get_or_default NFPS (fact.rel f0)))
-    (fun n R  => In n (get_or_default NFPS R))
     (nattify_rel_fact (program_rels P) (rules_only P) fsrc)
   <-> program.interp (rules_only P) Qsrc fsrc.
 Proof.
@@ -146,7 +145,6 @@ Theorem end_to_end_equiv_reach
   run_ninfos ninfos
     (fun n f0 => relabel_Q (encode_rel (program_rels Preach) (rules_only Preach)) Qsrc f0 /\
                  In n (get_or_default NFPS_r (fact.rel f0)))
-    (fun n R  => In n (get_or_default NFPS_r R))
     (nattify_rel_fact (program_rels Preach) (rules_only Preach) fsrc)
   <-> program.interp (rules_only Preach) Qsrc fsrc.
 Proof.

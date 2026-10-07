@@ -53,9 +53,10 @@ Definition compile_program
     (topo_dims      : GridGraph.Dimensions)
     : _ :=
   let enc := rel_ids program in
-  compile
+  compile_with_dumb_ftables
     (nattify_layout enc (make_layout_map program layout))
-    (nattify_fact_locs enc fact_producers) (nattify_fact_locs enc fact_consumers)
+    (nattify_fact_locs enc fact_consumers)
+    (nattify_fact_locs enc fact_producers)
     (GridTopology.make_topo_graph topo_dims).
 
 (* The rel-name <-> rel-id table the frontend assigns (via [NattifyRel]'s [rel_table] / [encode_rel]),

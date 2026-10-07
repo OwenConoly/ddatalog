@@ -184,39 +184,31 @@ Definition ninfos : list (@node_info node_id _) :=
 
 Definition node00 : node_id := [0; 0]%nat.
 
-(* The runtime EDB: deliver A(7,8) and B(8,7) at node (0,0).  The output sink: node (0,0)
-   answers for J (relation id 0). *)
+(* The runtime EDB: deliver A(7,8) and B(8,7) at node (0,0). *)
 Definition dinput : node_id -> nat_fact -> Prop :=
   fun n f => n = node00 /\ (f = factA \/ f = factB).
-Definition doutput : node_id -> rel_id -> Prop :=
-  fun n r => n = node00 /\ r = 0.
 
-(* The distributed operational semantics, run on the compiled [ninfos], parks J(7,8) at the
-   output node.  Steps: deliver A, deliver B, then the node runs its hardware program. *)
-Example J_run_distributed :
-  @run_ninfos nat _ _ node_id _ _
-             ninfos dinput doutput factJ.
+(* The distributed operational semantics, run on the compiled [ninfos], outputs J(7,8).  Steps:
+   deliver A, deliver B, then the node fires its rule; its forwarding table stores the inputs for
+   its own rules and outputs the J it derives. *)
+Example J_run_distributed : run_ninfos ninfos dinput factJ.
 Proof.
   (* the compiled node's tries / trie-join program are exactly our literals *)
-  assert (HTr : @node_tries node_id _ _
-                  ninfos node00 = tries) by (vm_compute; reflexivity).
-  assert (HP  : @node_prog  node_id _ _
-                  ninfos node00 = hp)    by (vm_compute; reflexivity).
+  assert (HTr : node_tries ninfos node00 = tries) by (vm_compute; reflexivity).
+  assert (HP  : node_prog ninfos node00 = hp) by (vm_compute; reflexivity).
   unfold run_ninfos, hw_run_output.
-  (* the answer lives at node (0,0), in the config reached after delivering A,B and running *)
-  exists node00,
-    (cadd (cadd (cadd (fun _ _ => False) node00 factA) node00 factB) node00 factJ).
+  exists node00, fwd_from.self,
+    (cadd (cadd (cadd (fun _ _ _ => False) node00 fwd_from.input factA) node00 fwd_from.input factB)
+       node00 fwd_from.self factJ).
   split; [| split].
-  - (* reachable: deliver A, deliver B, then run the node's program *)
+  - (* reachable: deliver A, deliver B, then fire the node's rule *)
     eapply dreachS; [eapply dreachS; [eapply dreachS; [apply dreach0 |] |] |].
     + apply dstep_input. split; [reflexivity | left;  reflexivity].
     + apply dstep_input. split; [reflexivity | right; reflexivity].
-    + (* the node fires its one rule on the A,B it now holds *)
-      eapply dstep_run with (hyps := [factA; factB]).
+    + eapply dstep_run with (hyps := [factA; factB]).
       * rewrite HTr, HP. apply Exists_cons_hd. exact J_fires.
-      * apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]].
-        -- (* A(7,8) is present *) unfold cadd. left; right; split; reflexivity.
-        -- (* B(8,7) is present *) unfold cadd. right; split; reflexivity.
-  - (* J(7,8) is present at node (0,0) *) unfold cadd. right; split; reflexivity.
-  - (* node (0,0) is the output sink for J (relation 2) *) split; reflexivity.
+      * apply Forall_cons; [| apply Forall_cons; [| apply Forall_nil]];
+          exists fwd_from.input; (split; [unfold cadd; auto | vm_compute; auto]).
+  - (* J(7,8) is present at node (0,0), from the node itself *) unfold cadd. auto.
+  - (* node (0,0)'s table outputs the J facts it derives *) vm_compute. auto.
 Qed.
