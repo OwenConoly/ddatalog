@@ -517,29 +517,27 @@ Definition compile
 
 Definition dumb_ftable_at_node' neighbors : list (fwd_from * (list fwd_to)) :=
   let neighbor_picks := picks neighbors in
-  (fwd_from.input, fwd_to.self :: List.map (fun neighbor => fwd_to.node neighbor O) neighbors)
-    :: (fwd_from.self, fwd_to.self :: List.map (fun neighbor => fwd_to.node neighbor O) neighbors)
+  (fwd_from.input, fwd_to.output :: fwd_to.self :: List.map (fun neighbor => fwd_to.node neighbor O) neighbors)
+    :: (fwd_from.self, fwd_to.output :: fwd_to.self :: List.map (fun neighbor => fwd_to.node neighbor O) neighbors)
     :: List.map
-    (fun '(picked, rest) => (fwd_from.node picked O, fwd_to.self :: List.map (fun other => fwd_to.node other O) rest))
+    (fun '(picked, rest) => (fwd_from.node picked O, fwd_to.output :: fwd_to.self :: List.map (fun other => fwd_to.node other O) rest))
     neighbor_picks.
-Abbreviation partial_map A B := (@map.rep A B _).
-Fixpoint dumb_ftable_at_node neighbors all_rels : forwarding_table :=
+
+Definition dumb_ftable_at_node neighbors all_rels : forwarding_table :=
   map.of_list (flat_map (fun R => List.map (fun '(from, to) => ((R, from), to)) (dumb_ftable_at_node' neighbors)) all_rels).
 
-Print tree_cons. Search tree.
-Search (option _ -> list _).
 Definition option_to_list {X} (x : option X) := match x with | None => [] | Some x' => [x'] end.
 
 Fixpoint dumb_ftables_for_tree all_rels (parent : option node_id) (t : tree node_id) : list (node_id * forwarding_table) :=
   match t with
   | tree_cons rt children => (rt, dumb_ftable_at_node (option_to_list parent ++ List.map root children) all_rels) :: flat_map (dumb_ftables_for_tree all_rels (Some rt)) children
-                                                                                                                end.
+  end.
 
-  Definition dumb_ftables (g : ComputableGraph node_id) (all_rels : list rel_id) : node_ftable_map :=
-    match graph.sources g.(edges) with
-    | [] => map.empty
-    | root :: _ => map.of_list (dumb_ftables_for_tree all_rels None (tree_of g.(edges) root))
-    end.
+Definition dumb_ftables (g : ComputableGraph node_id) (all_rels : list rel_id) : node_ftable_map :=
+  match map.keys g.(nodes) with
+  | [] => map.empty
+  | root :: _ => map.of_list (dumb_ftables_for_tree all_rels None (tree_of g.(edges) root))
+  end.
 
 End DistributedDatalogToHardwareCompiler.
 
