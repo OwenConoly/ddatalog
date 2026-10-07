@@ -32,8 +32,8 @@ Definition make_layout_map
    nattified here first (via [NattifyRel.encode_rel] over the program's own relations -- matching
    [nattify_and_compile_correct]'s [input_rels := program_rels p]). *)
 Definition rel_ids (program : list rule) : string -> rel_id :=
-  encode_rel (List.flat_map rule.all_rels program)
-    {| program.rules := program; program.meta_rules := [] |}.
+  encode_rel (rel_table (List.flat_map rule.all_rels program)
+    {| program.rules := program; program.meta_rules := [] |}).
 
 Definition nattify_layout (enc : string -> rel_id)
     (slayout : partial_map node_id (list rule)) : partial_map node_id (list HardwareProgram.lowered_rule) :=

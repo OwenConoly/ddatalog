@@ -85,10 +85,10 @@ Theorem end_to_end_equiv
     (Qsrc : Datalog.fact -> Prop) (fsrc : Datalog.fact) :
   compile_program P idx_layout FPS FPS topo = Success ninfos ->
   (forall f, Qsrc f -> In (fact.rel f) (program_rels P)) ->
-  edb_routable NFPS (relabel_Q (encode_rel (program_rels P) (rules_only P)) Qsrc) ->
+  edb_routable NFPS (relabel_Q (encode_rel (rel_table (program_rels P) (rules_only P))) Qsrc) ->
   (exists n, In n (get_or_default NFPS (fact.rel (nattify_rel_fact (program_rels P) (rules_only P) fsrc)))) ->
   run_ninfos ninfos
-    (fun n f0 => relabel_Q (encode_rel (program_rels P) (rules_only P)) Qsrc f0 /\
+    (fun n f0 => relabel_Q (encode_rel (rel_table (program_rels P) (rules_only P))) Qsrc f0 /\
                  In n (get_or_default NFPS (fact.rel f0)))
     (nattify_rel_fact (program_rels P) (rules_only P) fsrc)
   <-> program.interp (rules_only P) Qsrc fsrc.
@@ -135,10 +135,10 @@ Theorem end_to_end_equiv_reach
     (Qsrc : Datalog.fact -> Prop) (fsrc : Datalog.fact) :
   compile_program Preach idx_layout_r FPS_r FPS_r topo_r = Success ninfos ->
   (forall f, Qsrc f -> In (fact.rel f) (program_rels Preach)) ->
-  edb_routable NFPS_r (relabel_Q (encode_rel (program_rels Preach) (rules_only Preach)) Qsrc) ->
+  edb_routable NFPS_r (relabel_Q (encode_rel (rel_table (program_rels Preach) (rules_only Preach))) Qsrc) ->
   (exists n, In n (get_or_default NFPS_r (fact.rel (nattify_rel_fact (program_rels Preach) (rules_only Preach) fsrc)))) ->
   run_ninfos ninfos
-    (fun n f0 => relabel_Q (encode_rel (program_rels Preach) (rules_only Preach)) Qsrc f0 /\
+    (fun n f0 => relabel_Q (encode_rel (rel_table (program_rels Preach) (rules_only Preach))) Qsrc f0 /\
                  In n (get_or_default NFPS_r (fact.rel f0)))
     (nattify_rel_fact (program_rels Preach) (rules_only Preach) fsrc)
   <-> program.interp (rules_only Preach) Qsrc fsrc.

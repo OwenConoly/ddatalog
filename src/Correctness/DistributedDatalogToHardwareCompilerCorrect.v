@@ -2756,10 +2756,10 @@ Theorem nattify_and_compile_correct
   DistributedDatalogToHardwareCompiler.layout_distributes_program
     (NattifyRel.nattify_rel_prog (program_rels p) (rules_only p)).(program.rules) layout ->
   (forall f, Qsrc f -> In (fact.rel f) (program_rels p)) ->
-  edb_routable ins (relabel_Q (encode_rel (program_rels p) (rules_only p)) Qsrc) ->
+  edb_routable ins (relabel_Q (encode_rel (rel_table (program_rels p) (rules_only p))) Qsrc) ->
   (exists n, In n (get_or_default outs (fact.rel (nattify_rel_fact (program_rels p) (rules_only p) fsrc)))) ->
   ( run_ninfos ninfos
-      (fun n f0 => relabel_Q (encode_rel (program_rels p) (rules_only p)) Qsrc f0
+      (fun n f0 => relabel_Q (encode_rel (rel_table (program_rels p) (rules_only p))) Qsrc f0
                    /\ In n (get_or_default ins (fact.rel f0)))
       (nattify_rel_fact (program_rels p) (rules_only p) fsrc)
     <-> program.interp (rules_only p) Qsrc fsrc ).
@@ -2769,10 +2769,10 @@ Proof.
                    (NattifyRel.nattify_rel_prog (program_rels p) (rules_only p)).(program.rules)).
   { destruct Hdist as [Hsub1 Hsub2]. intros r. split; [apply Hsub1 | apply Hsub2]. }
   assert (HB : program.interp (rules_only (source_program layout))
-                 (relabel_Q (encode_rel (program_rels p) (rules_only p)) Qsrc)
+                 (relabel_Q (encode_rel (rel_table (program_rels p) (rules_only p))) Qsrc)
                  (nattify_rel_fact (program_rels p) (rules_only p) fsrc)
                <-> program.interp (NattifyRel.nattify_rel_prog (program_rels p) (rules_only p))
-                 (relabel_Q (encode_rel (program_rels p) (rules_only p)) Qsrc)
+                 (relabel_Q (encode_rel (rel_table (program_rels p) (rules_only p))) Qsrc)
                  (nattify_rel_fact (program_rels p) (rules_only p) fsrc)).
   { split; intro H'.
     - eapply program.interp_same_set; [| | exact H']; [exact Hset | intros x; reflexivity].
@@ -2780,7 +2780,7 @@ Proof.
         [exact (fun r => iff_sym (Hset r)) | intros x; reflexivity]. }
   eapply iff_trans;
     [ exact (compile_distributed_correct layout outs ins ftables g ninfos
-               (relabel_Q (encode_rel (program_rels p) (rules_only p)) Qsrc)
+               (relabel_Q (encode_rel (rel_table (program_rels p) (rules_only p))) Qsrc)
                Hcomp Hbare Hedb
                (nattify_rel_fact (program_rels p) (rules_only p) fsrc) Houtrel)
     | ].
