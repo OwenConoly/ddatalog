@@ -2,7 +2,7 @@ From JSON Require Import Encode Printer.
 From Stdlib Require Import String List ZArith.
 From coqutil Require Import Map.Interface Result.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler PrintHardwareEncoding.
-From DatalogRocq Require Import StringDatalogParams GridTopology GridGraph SortedListNat.
+From DatalogRocq Require Import StringDatalogParams GridTopology GridGraph MapInstances.
 From DatalogRocq Require Import FamilyCompiler BasicProgramCompiler GraphCompiler CsdaCompiler CspaCompiler Po1Compiler Po2Compiler Po3Compiler Po4Compiler Po5Compiler PointstoCompiler RanpoCompiler ReachCompiler TcCompiler TransCompiler TriangleCompiler X9Compiler Unitprop1Compiler.
 
 Abbreviation node_id := GridGraph.Node.

@@ -16,7 +16,7 @@ Proof. intros. unfold pair_order.
         destruct p2_order_spec. auto.
 Qed.
 
-#[global] Instance pair_strict_order: SortedList.parameters.strict_order pair_order.
+#[export] Instance pair_strict_order: SortedList.parameters.strict_order pair_order.
 Proof. constructor.
   - intros [x y]. apply (pair_order_irrefl x y).
   - intros [x1 x2] [y1 y2] [z1 z2] Hxy Hyz. unfold pair_order in *.
@@ -52,10 +52,5 @@ Proof. constructor.
       pose proof (ltb_total x1 y1 Hx1y1 Hy1x1). subst.
       pose proof (ltb_total0 x2 y2 Hxy Hyz). subst. auto.
 Qed.
-
-Definition Build_parameters T := SortedList.parameters.Build_parameters (p1 * p2) T pair_order.
-#[global] Instance map T : map.map (p1 * p2) T := SortedList.map (Build_parameters T) pair_strict_order.
-#[global] Instance ok T: map.ok (map T).
-Proof. exact (@SortedList.map_ok (Build_parameters T) pair_strict_order). Qed.
 
 End ___.

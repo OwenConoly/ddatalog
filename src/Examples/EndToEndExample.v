@@ -20,14 +20,14 @@
    A successful build IS the test. *)
 
 From Stdlib Require Import List String.
-From coqutil Require Import Map.Interface Map.SortedListString Result.
+From coqutil Require Import Map.Interface Result.
 From Datalog Require Import Datalog NattifyRel RelMap.
 From Datalog.Util Require Import Map Default.
 From DatalogRocq Require Import
   DistributedDatalogToHardwareCompilerCorrect
   DistributedDatalogToHardwareCompiler
   StringDatalogParams StringDatalog StringGridCompiler
-  GridTopology GridGraph SortedListNat SortedListList
+  GridTopology GridGraph MapInstances
   DistributedHardwareProgram DistributedHardwareSemantics.
 Import ListNotations.
 Open Scope string_scope.
@@ -36,11 +36,6 @@ Open Scope string_scope.
 #[local] Instance sig_src : datalog_semantics string unit string :=
   {| interp_fun := fun _ _ => None;
      get_nat := fun _ => 0; agg_bop := fun _ x _ => x; agg_id := fun _ => "" |}.
-
-#[local] Instance value_set_src : map.map (list string) unit :=
-  @SortedListList.map string String.ltb SortedListString.string_strict_order unit.
-#[local] Instance value_set_src_ok : map.ok value_set_src.
-Proof. exact (@SortedListList.ok string String.ltb SortedListString.string_strict_order unit). Qed.
 
 Local Abbreviation rules_only p := {| program.rules := p; program.meta_rules := [] |}.
 

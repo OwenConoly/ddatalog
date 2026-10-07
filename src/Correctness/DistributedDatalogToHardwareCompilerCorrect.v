@@ -20,7 +20,7 @@ From Stdlib Require Import List Bool ZArith Lia Relation_Operators.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Datatypes.Result Eqb.
 From Datalog Require Import Datalog NattifyRel RelMap.
 From Datalog.Util Require Import List Map Default Pftree Eqb.
-From DatalogRocq Require Import Topologies.Graph HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph.
+From DatalogRocq Require Import Topologies.Graph HardwareProgram DistributedDatalogToHardwareCompiler NodeHardwareSemantics ComputableGraph MapInstances.
 From DatalogRocq Require Import DistributedHardwareSemantics.
 From GraphSearch Require Import GraphInterface Examples.
 

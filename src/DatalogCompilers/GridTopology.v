@@ -9,7 +9,7 @@
    with no extra encoding.  This works for grids of any dimension, not just 2D. *)
 
 From Stdlib Require Import List ZArith.
-From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridGraph SortedListList SortedListNat SortedListPair SortedListInj ComputableGraph.
+From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridGraph MapInstances SortedListInj ComputableGraph.
 From coqutil Require Import Map.Interface Eqb Decidable Datatypes.List.
 From Datalog.Util Require Import Map.
 From GraphSearch Require Import GraphInterface GraphImpl.
@@ -45,7 +45,7 @@ Lemma encode_fwd_from_inj (x y : @fwd_from.fwd_from Node) :
   encode_fwd_from x = encode_fwd_from y -> x = y.
 Proof. destruct x, y; cbn; congruence. Qed.
 
-#[global] Instance fwd_from_strict_order : SortedList.parameters.strict_order (SortedListInj.inj_order encode_fwd_from) :=
+#[export] Instance fwd_from_strict_order : SortedList.parameters.strict_order (SortedListInj.inj_order encode_fwd_from) :=
   SortedListInj.inj_strict_order encode_fwd_from encode_fwd_from_inj.
 
 Definition encode_vnode (v : @vnode.vnode Node) : nat * (list nat * (nat * (list nat * nat))) :=
@@ -62,5 +62,5 @@ Proof.
   f_equal. apply encode_fwd_from_inj. assumption.
 Qed.
 
-#[global] Instance vnode_map T : map.map (@vnode.vnode Node) T := SortedListInj.map encode_vnode encode_vnode_inj T.
-#[global] Instance vnode_map_ok T : map.ok (vnode_map T) := SortedListInj.ok encode_vnode encode_vnode_inj T.
+#[export] Instance vnode_strict_order : SortedList.parameters.strict_order (SortedListInj.inj_order encode_vnode) :=
+  SortedListInj.inj_strict_order encode_vnode encode_vnode_inj.

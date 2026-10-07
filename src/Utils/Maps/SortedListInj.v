@@ -14,9 +14,4 @@ Proof.
   - intros k1 k2 H1 H2. apply f_inj, Htot; assumption.
 Qed.
 
-Definition Build_parameters T := SortedList.parameters.Build_parameters A T inj_order.
-Definition map T : map.map A T := SortedList.map (Build_parameters T) inj_strict_order.
-Lemma ok T : map.ok (map T).
-Proof. exact (@SortedList.map_ok (Build_parameters T) inj_strict_order). Qed.
-
 End ___.

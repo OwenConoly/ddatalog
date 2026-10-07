@@ -4,10 +4,7 @@
    combine it with a topology backend (e.g. GridTopology) to get a concrete compiler. *)
 
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler StringDatalogParams.
-From coqutil Require Import Map.Interface Map.SortedListString Eqb Decidable.
+From DatalogRocq Require Export MapInstances.
+From coqutil Require Import Map.Interface Eqb Decidable.
 From GraphSearch Require Import GraphInterface GraphImpl.
 Import StringDatalogParams.
-
-(* Variables and functions are strings; string-keyed sorted-list maps resolve for all of them. *)
-Existing Instance SortedListString.map.
-Existing Instance SortedListString.ok.

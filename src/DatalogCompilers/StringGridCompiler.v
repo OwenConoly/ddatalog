@@ -7,7 +7,7 @@
 From Stdlib Require Import List ZArith String.
 From Datalog Require Import Datalog NattifyRel RelMap.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler GridTopology StringDatalog StringDatalogParams
-  GridGraph SortedListNat DistributedHardwareProgram.
+  GridGraph MapInstances DistributedHardwareProgram.
 From coqutil Require Import Map.Interface Map.SortedListString Result.
 From Datalog.Util Require Import Map.
 Import ListNotations.

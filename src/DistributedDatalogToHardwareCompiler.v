@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb Tactics.fwd.
 From Datalog Require Import Datalog Eqb.
 From Datalog.Util Require Import List Map Default.
-From DatalogRocq Require Import Topologies.Graph DependencyGenerator SortedListNat ComputableGraph.
+From DatalogRocq Require Import Topologies.Graph DependencyGenerator MapInstances ComputableGraph.
 From GraphSearch Require Import GraphInterface Examples Trees.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 

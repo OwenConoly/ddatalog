@@ -23,7 +23,7 @@ From Datalog.Util Require Import Pftree.
 From coqutil Require Import Map.Interface.
 From DatalogRocq Require Import HardwareProgram NodeHardwareSemantics DistributedHardwareProgram
   DistributedHardwareSemantics StringDatalogParams StringGridCompiler DistributedDatalogToHardwareCompiler
-  GridGraph GridTopology SortedListNat SortedListList.
+  GridGraph GridTopology MapInstances.
 Import ListNotations.
 
 (*==========================================================================*)
