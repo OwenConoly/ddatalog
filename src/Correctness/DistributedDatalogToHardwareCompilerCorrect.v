@@ -2550,8 +2550,8 @@ Proof.
   unfold DistributedDatalogToHardwareCompiler.all_consumers_fed in Hfed.
   eapply map.get_forallb in Hfed; [|exact Hget].
   unfold DistributedDatalogToHardwareCompiler.all_consumers_fed_for_relation in Hfed.
-  rewrite forallb_forall in Hfed. specialize (Hfed (p, c) (in_prod _ _ _ _ Hp Hcs)).
-  cbv beta iota in Hfed. revert Hfed. destruct (graph.reachesb_spec (g R) p c); [auto | discriminate].
+  rewrite forallb_forall in Hfed. specialize (Hfed p Hp). cbv beta in Hfed.
+  apply inclb_incl in Hfed. apply graph.get_reachable_nodes_spec, Hfed, Hcs.
 Qed.
 
 Lemma check_ftables_routable_fed (ftables : node_ftable_map) (ins : fact_locations_map)
