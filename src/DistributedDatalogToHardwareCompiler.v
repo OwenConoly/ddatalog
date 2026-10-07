@@ -536,6 +536,12 @@ Definition dumb_ftables (g : ComputableGraph node_id) output_locations (all_rels
   | root :: _ => map.of_list (dumb_ftables_for_tree output_locations all_rels None (tree_of g.(edges) root))
   end.
 
+Definition compile_with_dumb_ftables
+  (layout : partial_map node_id (list lowered_rule))
+  (output_locations input_locations : partial_map rel_id (list node_id))
+  (g : ComputableGraph node_id) : Result.result (list node_info) :=
+  let ftables := dumb_ftables g output_locations (map.keys (get_all_producers_of layout (map.keys input_locations))) in
+  compile layout output_locations input_locations ftables g.
 End DistributedDatalogToHardwareCompiler.
 
 Compute compute_permutation [2;3;1;1] [1;2;3].
