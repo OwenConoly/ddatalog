@@ -515,28 +515,27 @@ Definition compile
   ninfos <- compile_all_nodes layout ;;
   Success (attach_forwarding_tables ninfos ftables).
 
-Definition dumb_ftable_at_node' neighbors : list (fwd_from * (list fwd_to)) :=
-  let neighbor_picks := picks neighbors in
-  (fwd_from.input, fwd_to.output :: fwd_to.self :: List.map (fun neighbor => fwd_to.node neighbor O) neighbors)
-    :: (fwd_from.self, fwd_to.output :: fwd_to.self :: List.map (fun neighbor => fwd_to.node neighbor O) neighbors)
-    :: List.map
-    (fun '(picked, rest) => (fwd_from.node picked O, fwd_to.output :: fwd_to.self :: List.map (fun other => fwd_to.node other O) rest))
-    neighbor_picks.
+Definition dumb_ftable_at_node' (output_locations : partial_map rel_id (list node_id)) R node neighbors :
+  list (fwd_from * (list fwd_to)) :=
+  let to_all neighbors0 := (if inb node (get_or_default output_locations R) then [fwd_to.output] else []) ++
+                             fwd_to.self :: List.map (fun neighbor => fwd_to.node neighbor O) neighbors0 in
+  (fwd_from.input, to_all neighbors) :: (fwd_from.self, to_all neighbors)
+    :: List.map (fun '(picked, rest) => (fwd_from.node picked O, to_all rest)) (picks neighbors).
 
-Definition dumb_ftable_at_node neighbors all_rels : forwarding_table :=
-  map.of_list (flat_map (fun R => List.map (fun '(from, to) => ((R, from), to)) (dumb_ftable_at_node' neighbors)) all_rels).
+Definition dumb_ftable_at_node output_locations all_rels node neighbors : forwarding_table :=
+  map.of_list (flat_map (fun R => List.map (fun '(from, to) => ((R, from), to)) (dumb_ftable_at_node' output_locations R node neighbors)) all_rels).
 
 Definition option_to_list {X} (x : option X) := match x with | None => [] | Some x' => [x'] end.
 
-Fixpoint dumb_ftables_for_tree all_rels (parent : option node_id) (t : tree node_id) : list (node_id * forwarding_table) :=
+Fixpoint dumb_ftables_for_tree output_locations all_rels (parent : option node_id) (t : tree node_id) : list (node_id * forwarding_table) :=
   match t with
-  | tree_cons rt children => (rt, dumb_ftable_at_node (option_to_list parent ++ List.map root children) all_rels) :: flat_map (dumb_ftables_for_tree all_rels (Some rt)) children
+  | tree_cons rt children => (rt, dumb_ftable_at_node output_locations all_rels rt (option_to_list parent ++ List.map root children)) :: flat_map (dumb_ftables_for_tree output_locations all_rels (Some rt)) children
   end.
 
-Definition dumb_ftables (g : ComputableGraph node_id) (all_rels : list rel_id) : node_ftable_map :=
+Definition dumb_ftables (g : ComputableGraph node_id) output_locations (all_rels : list rel_id) : node_ftable_map :=
   match map.keys g.(nodes) with
   | [] => map.empty
-  | root :: _ => map.of_list (dumb_ftables_for_tree all_rels None (tree_of g.(edges) root))
+  | root :: _ => map.of_list (dumb_ftables_for_tree output_locations all_rels None (tree_of g.(edges) root))
   end.
 
 End DistributedDatalogToHardwareCompiler.
