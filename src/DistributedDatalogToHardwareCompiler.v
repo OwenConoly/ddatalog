@@ -3,7 +3,7 @@ From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.P
 From Datalog Require Import Datalog Eqb.
 From Datalog.Util Require Import List Map Default.
 From DatalogRocq Require Import Topologies.Graph DependencyGenerator SortedListNat ComputableGraph.
-From GraphSearch Require Import GraphInterface Examples.
+From GraphSearch Require Import GraphInterface Examples Trees.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
 Open Scope result_monad_scope.
@@ -514,6 +514,39 @@ Definition compile
   check_ftables_routable ftables input_locations all_producers_of all_consumers_of ;;
   ninfos <- compile_all_nodes layout ;;
   Success (attach_forwarding_tables ninfos ftables).
+
+From Datalog Require Import Monadish.
+Open Scope option_monad_scope.
+Print fwd_to.
+Definition dumb_ftable_at_non_root (spanning_tree spanning_tree_rev : graph node_id) (all_rels : list rel_id) non_root :=
+  let children := graph.edges spanning_tree non_root in
+  '([parent]) <- graph.edges spanning_tree_rev non_root ;;
+  flat_map
+    (fun R =>
+       List.map (fun child => ((R, fwd_from.node parent O), [fwd_to.node child O])) children ++
+         List.map (fun child => ((R, fwd_from.node child O), [fwd_to.node parent O])) children)
+    all_rels.
+
+Definition dumb_ftable_at_root (spanning_tree : graph node_id) (all_rels : list rel_id) root :=
+  let children := graph.edges spanning_tree root in
+  let child_picks := picks children in
+  flat_map
+    (fun R => List.map (fun '(picked, rest) => ((R, fwd_from.node picked O), List.map (fun other => fwd_to.node other O) rest)) child_picks)
+    all_rels.
+Definition rev : graph node_id -> graph node_id. Admitted.
+
+Definition dumb_ftables (g : ComputableGraph node_id) (all_rels : list rel_id) : list (node_id * forwarding_table) :=
+  '(root :: rest) <- graph.sources g.(edges) ;;
+  let g_tree := graph_of (tree_of g.(edges) root) in
+  let rev_g_tree := rev g_tree in
+  (root, map.of_list (dumb_ftable_at_root g_tree all_rels root))
+    :: List.map (fun non_root => (non_root, map.of_list (dumb_ftable_at_non_root g_tree rev_g_tree all_rels non_root))) rest.
+
+
+
+
+
+
 End DistributedDatalogToHardwareCompiler.
 
 Compute compute_permutation [2;3;1;1] [1;2;3].
