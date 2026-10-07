@@ -79,4 +79,4 @@ Definition all_io_locations (program : list rule) (layout : list (node_id * list
   let assigned := List.flat_map (fun '(_, idxs) =>
                     List.map (fun i => List.nth i program (Datalog.rule.impl [] [])) idxs) layout in
   map.of_list (List.map (fun R => (R, nodes))
-           (List.nodup String.string_dec (List.flat_map rule.all_rels assigned))).
+           (dedup (List.flat_map rule.all_rels assigned))).
