@@ -1,5 +1,6 @@
 From JSON Require Import Encode Printer.
-From Stdlib Require Import String List ZArith.
+From Stdlib Require Import String List ZArith Ascii Uint63.
+From Corelib Require PrimString.
 From coqutil Require Import Map.Interface Result.
 From DatalogRocq Require Import DistributedDatalogToHardwareCompiler PrintHardwareEncoding.
 From DatalogRocq Require Import StringDatalogParams GridTopology GridGraph MapInstances.
@@ -23,21 +24,41 @@ Definition node_id_to_string (n : GridGraph.Node) : string :=
 Instance JEncode__grid_node_id : JEncode GridGraph.Node :=
   fun n => JSON__String (node_id_to_string n).
 
-Redirect "json_examples/compiled_family_program" Eval vm_compute in (to_string (encode compiled_family)).
-Redirect "json_examples/compiled_basic_program" Eval vm_compute in (to_string (encode compiled_basic_program)).
-Redirect "json_examples/compiled_graph_program" Eval vm_compute in (to_string (encode compiled_graph)).
-Redirect "json_examples/compiled_csda_program" Eval vm_compute in (to_string (encode compiled_csda)).
-Redirect "json_examples/compiled_cspa_program" Eval vm_compute in (to_string (encode compiled_cspa)).
-Redirect "json_examples/compiled_po1_program" Eval vm_compute in (to_string (encode compiled_po1)).
-Redirect "json_examples/compiled_po2_program" Eval vm_compute in (to_string (encode compiled_po2)).
-Redirect "json_examples/compiled_po3_program" Eval vm_compute in (to_string (encode compiled_po3)).
-Redirect "json_examples/compiled_po4_program" Eval vm_compute in (to_string (encode compiled_po4)).
-Redirect "json_examples/compiled_po5_program" Eval vm_compute in (to_string (encode compiled_po5)).
-Redirect "json_examples/compiled_pointsto_program" Eval vm_compute in (to_string (encode compiled_pointsto)).
-Redirect "json_examples/compiled_ranpo_program" Eval vm_compute in (to_string (encode compiled_ranpo)).
-Redirect "json_examples/compiled_reach_program" Eval vm_compute in (to_string (encode compiled_reach)).
-Redirect "json_examples/compiled_tc_program" Eval vm_compute in (to_string (encode compiled_tc)).
-Redirect "json_examples/compiled_trans_program" Eval vm_compute in (to_string (encode compiled_trans)).
-Redirect "json_examples/compiled_triangle_program" Eval vm_compute in (to_string (encode compiled_triangle)).
-Redirect "json_examples/compiled_x9_program" Eval vm_compute in (to_string (encode compiled_x9)).
-Redirect "json_examples/compiled_unitprop1_program" Eval vm_compute in (to_string (encode compiled_unitprop1)).
+Definition char63_of_ascii (c : ascii) : PrimString.char63 :=
+  Uint63.of_Z (Z.of_N (N_of_ascii c)).
+
+Fixpoint pairup (l : list PrimString.string) : list PrimString.string :=
+  match l with
+  | x :: y :: l' => PrimString.cat x y :: pairup l'
+  | _ => l
+  end.
+
+Fixpoint pjoin (fuel : nat) (l : list PrimString.string) : PrimString.string :=
+  match fuel, l with
+  | _, [x] => x
+  | S fuel', _ :: _ :: _ => pjoin fuel' (pairup l)
+  | _, _ => PrimString.make 0 0%uint63
+  end.
+
+Definition to_pstring (s : string) : PrimString.string :=
+  let cs := List.map (fun c => PrimString.make 1 (char63_of_ascii c)) (list_ascii_of_string s) in
+  pjoin (length cs) cs.
+
+Redirect "json_examples/compiled_family_program" Eval vm_compute in (to_pstring (to_string (encode compiled_family))).
+Redirect "json_examples/compiled_basic_program" Eval vm_compute in (to_pstring (to_string (encode compiled_basic_program))).
+Redirect "json_examples/compiled_graph_program" Eval vm_compute in (to_pstring (to_string (encode compiled_graph))).
+Redirect "json_examples/compiled_csda_program" Eval vm_compute in (to_pstring (to_string (encode compiled_csda))).
+Redirect "json_examples/compiled_cspa_program" Eval vm_compute in (to_pstring (to_string (encode compiled_cspa))).
+Redirect "json_examples/compiled_po1_program" Eval vm_compute in (to_pstring (to_string (encode compiled_po1))).
+Redirect "json_examples/compiled_po2_program" Eval vm_compute in (to_pstring (to_string (encode compiled_po2))).
+Redirect "json_examples/compiled_po3_program" Eval vm_compute in (to_pstring (to_string (encode compiled_po3))).
+Redirect "json_examples/compiled_po4_program" Eval vm_compute in (to_pstring (to_string (encode compiled_po4))).
+Redirect "json_examples/compiled_po5_program" Eval vm_compute in (to_pstring (to_string (encode compiled_po5))).
+Redirect "json_examples/compiled_pointsto_program" Eval vm_compute in (to_pstring (to_string (encode compiled_pointsto))).
+Redirect "json_examples/compiled_ranpo_program" Eval vm_compute in (to_pstring (to_string (encode compiled_ranpo))).
+Redirect "json_examples/compiled_reach_program" Eval vm_compute in (to_pstring (to_string (encode compiled_reach))).
+Redirect "json_examples/compiled_tc_program" Eval vm_compute in (to_pstring (to_string (encode compiled_tc))).
+Redirect "json_examples/compiled_trans_program" Eval vm_compute in (to_pstring (to_string (encode compiled_trans))).
+Redirect "json_examples/compiled_triangle_program" Eval vm_compute in (to_pstring (to_string (encode compiled_triangle))).
+Redirect "json_examples/compiled_x9_program" Eval vm_compute in (to_pstring (to_string (encode compiled_x9))).
+Redirect "json_examples/compiled_unitprop1_program" Eval vm_compute in (to_pstring (to_string (encode compiled_unitprop1))).
