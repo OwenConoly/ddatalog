@@ -27,22 +27,30 @@ Instance JEncode__grid_node_id : JEncode GridGraph.Node :=
 Definition char63_of_ascii (c : ascii) : PrimString.char63 :=
   Uint63.of_Z (Z.of_N (N_of_ascii c)).
 
-Fixpoint pairup (l : list PrimString.string) : list PrimString.string :=
-  match l with
-  | x :: y :: l' => PrimString.cat x y :: pairup l'
-  | _ => l
+Fixpoint cat_stack stack :=
+  match stack with
+  | nil => PrimString.make 0 0%uint63
+  | None :: stack' => cat_stack stack'
+  | Some str :: stack' => PrimString.cat (cat_stack stack') str
   end.
 
-Fixpoint pjoin (fuel : nat) (l : list PrimString.string) : PrimString.string :=
-  match fuel, l with
-  | _, [x] => x
-  | S fuel', _ :: _ :: _ => pjoin fuel' (pairup l)
-  | _, _ => PrimString.make 0 0%uint63
+Fixpoint cat_str_to_stack stack str :=
+  match stack with
+  | nil => Some str :: nil
+  | None :: stack' => Some str :: stack'
+  | Some str' :: stack' => None :: cat_str_to_stack stack' (PrimString.cat str' str)
   end.
+
+Fixpoint iter_cat stack cs :=
+  match cs with
+  | nil => cat_stack stack
+  | c :: cs' => iter_cat (cat_str_to_stack stack (PrimString.make 1 c)) cs'
+  end.
+
+Definition of_list_fast := iter_cat nil.
 
 Definition to_pstring (s : string) : PrimString.string :=
-  let cs := List.map (fun c => PrimString.make 1 (char63_of_ascii c)) (list_ascii_of_string s) in
-  pjoin (length cs) cs.
+  of_list_fast (map char63_of_ascii (list_ascii_of_string s)).
 
 Redirect "json_examples/compiled_family_program" Eval vm_compute in (to_pstring (to_string (encode compiled_family))).
 Redirect "json_examples/compiled_basic_program" Eval vm_compute in (to_pstring (to_string (encode compiled_basic_program))).
