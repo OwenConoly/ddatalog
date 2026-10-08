@@ -2,7 +2,7 @@ From Stdlib Require Import String List Bool ZArith.
 From coqutil Require Import Datatypes.List Datatypes.ListSet Map.Interface Map.Properties Result Eqb Tactics.fwd.
 From Datalog Require Import Datalog Eqb.
 From Datalog.Util Require Import List Map Default.
-From DatalogRocq Require Import Topologies.Graph DependencyGenerator MapInstances ComputableGraph.
+From DatalogRocq Require Import Topologies.Graph DependencyGenerator MapInstances ComputableGraph Acyclic.
 From GraphSearch Require Import GraphInterface Examples Trees.
 From DatalogRocq Require Export HardwareProgram DistributedHardwareProgram.
 
@@ -441,6 +441,24 @@ Definition check_ftables_routable ftables
   then Success tt
   else error:("compile: the forwarding tables do not route some relation from one of its producers to one of its consumers").
 
+(* The channel dependency graph: an arrival resource depends on each resource it forwards into.
+   Unioned over relations, because one queue carries every relation it is keyed for. *)
+Definition cdg_of_ftable_at (n : node_id) (ft : forwarding_table) : list (vnode * vnode) :=
+  flat_map
+    (fun '((_, src), dsts) =>
+       List.map (fun dst => (vnode.at_port n src, vnode.target_of n dst)) dsts)
+    (map.tuples ft).
+
+Definition cdg_of_ftables (ftables : partial_map node_id forwarding_table) : list (vnode * vnode) :=
+  flat_map (fun '(n, ft) => cdg_of_ftable_at n ft) (map.tuples ftables).
+
+(* Dally and Seitz 1986 Theorem 1: an acyclic channel dependency graph cannot deadlock. *)
+Definition check_ftables_acyclic (ftables : partial_map node_id forwarding_table)
+  : Result.result unit :=
+  if acyclicb (cdg_of_ftables ftables)
+  then Success tt
+  else error:("compile: the channel dependency graph has a cycle---these forwarding tables can deadlock").
+
 (*----Final Compilation----*)
 
 Definition compile_node (node : node_id) (program : lowered_program) : Result.result node_info :=
@@ -522,6 +540,7 @@ Definition compile
   let all_producers_of := get_all_producers_of layout input_relations in
   let all_consumers_of := get_all_consumers_of layout output_relations in
   check_ftables_routable ftables input_locations all_producers_of all_consumers_of ;;
+  check_ftables_acyclic ftables ;;
   ninfos <- compile_all_nodes layout ;;
   Success (attach_forwarding_tables ninfos ftables).
 

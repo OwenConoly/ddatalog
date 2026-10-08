@@ -2710,6 +2710,8 @@ Proof.
   destruct (check_ftables_routable ftables ins (get_all_producers_of layout (map.keys ins))
               (get_all_consumers_of layout (map.keys outs))) as [[]|] eqn:Hroute;
     cbn beta iota in H; [|discriminate].
+  destruct (check_ftables_acyclic ftables) as [[]|] eqn:Hacyc;
+    cbn beta iota in H; [|discriminate].
   destruct (compile_all_nodes layout) as [ninfos0|] eqn:Hcan; cbn beta iota in H; [|discriminate].
   injection H as <-. eauto.
 Qed.
