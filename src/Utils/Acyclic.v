@@ -1,6 +1,7 @@
 From Stdlib Require Import List Bool.
-From coqutil Require Import Eqb Tactics.fwd.
+From coqutil Require Import Eqb.
 From GraphSearch Require Import Dag.
+From Datalog.Util Require List Eqb.
 Import ListNotations.
 
 (* Decides the channel dependency graph of Dally & Seitz 1986 Theorem 1, whose acyclicity is
@@ -8,6 +9,7 @@ Import ListNotations.
 
 Section Acyclic.
   Context {V : Type} {V_eqb : Eqb V} {V_eqb_ok : Eqb_ok V_eqb}.
+  #[local] Existing Instances Datalog.Util.Eqb.eqb_prod Datalog.Util.Eqb.eqb_prod_ok.
   Implicit Type g : list (V * V).
 
   Definition is_target g (v : V) : bool := existsb (fun e => eqb v (snd e)) g.
@@ -30,8 +32,10 @@ Section Acyclic.
         end
     end.
 
-  (* Each round peels at least one edge, so the length is enough fuel to never reject wrongly. *)
-  Definition acyclicb g : bool := acyclicb' (length g) g.
+  (* Tables repeat each dependency once per relation, so dedup first: every round scans g twice.
+     Each round peels at least one edge, so the length is enough fuel to never reject wrongly. *)
+  Definition acyclicb g : bool :=
+    let g' := Datalog.Util.List.dedup g in acyclicb' (length g') g'.
 
   Lemma dag_nil : dag (@nil (V * V)).
   Proof. intro x. constructor. intros y Hy. destruct Hy. Qed.
@@ -47,7 +51,7 @@ Section Acyclic.
 
   Lemma in_ready g e : In e (ready_edges g) -> is_target g (fst e) = false.
   Proof.
-    unfold ready_edges. intros H. apply filter_In in H. fwd.
+    unfold ready_edges. intros H. apply filter_In in H. destruct H as [_ H].
     destruct (is_target g (fst e)); [discriminate | reflexivity].
   Qed.
 
@@ -98,7 +102,10 @@ Section Acyclic.
   Qed.
 
   Theorem acyclicb_sound g : acyclicb g = true -> dag g.
-  Proof. apply acyclicb'_sound. Qed.
+  Proof.
+    intros H. apply acyclicb'_sound in H.
+    eapply dag_incl; [exact H|]. intros e He. apply Datalog.Util.List.dedup_In. assumption.
+  Qed.
 End Acyclic.
 
 (* A join is not a cycle, and a cycle behind a chain is still a cycle. *)
